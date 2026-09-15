@@ -181,7 +181,7 @@ async function runControl(control, args) {
         chrome.management.uninstallSelf({ showConfirmDialog: true }).catch(() => {});
         return { ok: true, result: { uninstalled: true, localAlreadyRemoved: true } };
       }
-      return { ok: false, error: { code: 'LOCAL_PROGRAM_MISSING', message: 'The local program is not installed. It is shared by all browsers, so Uninstall in any browser removes it. To use DeepSeek WebMCP again, run the install command in Terminal.' } };
+      return { ok: false, error: { code: 'LOCAL_PROGRAM_MISSING', message: 'The local program is not installed (it is shared by all browsers, so Uninstall in one removes it for all). To remove this extension too, click Uninstall…. To use DeepSeek WebMCP again, run the install command in Terminal.' } };
     }
     // The browser's own reason is a fixed browser string and the only clue when one
     // Chromium browser differs from another.
