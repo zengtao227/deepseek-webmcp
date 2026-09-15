@@ -3,22 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>DeepSeek WebMCP P3</title>
+  <title>DeepSeek WebMCP</title>
   <style>
-    body { font: 13px system-ui, sans-serif; min-width: 320px; margin: 16px; }
-    button { margin-right: 8px; margin-bottom: 10px; }
-    pre { white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
-    .note { color: #555; }
+    body { font: 13px system-ui, sans-serif; width: 300px; margin: 14px; }
+    #work { width: 100%; padding: 10px; font-size: 15px; font-weight: 600; border-radius: 8px; border: 1px solid #999; cursor: pointer; }
+    #work.on { background: #1a7f37; color: #fff; border-color: #1a7f37; }
+    .note { color: #555; margin: 8px 0; }
+    details pre { white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; font-size: 11px; }
   </style>
 </head>
 <body>
-  <strong>DeepSeek WebMCP P3</strong>
-  <p class="note">Local runtime: open_workspace, read, write, edit, bash. Workspace mutations are isolated to the owner-selected writable project root.</p>
-  <div>
-    <button id="arm">Arm this conversation</button>
-    <button id="disarm">Disarm</button>
-  </div>
-  <pre id="status">Loading…</pre>
+  <button id="work" disabled>Work</button>
+  <p id="summary" class="note">Loading…</p>
+  <p class="note">Shortcut: ⌥⇧W. In a new chat the tool instructions are filled in; add your task and press Enter.</p>
+  <details>
+    <summary>Diagnostics</summary>
+    <pre id="status"></pre>
+  </details>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

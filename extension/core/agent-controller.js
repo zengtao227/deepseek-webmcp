@@ -1,7 +1,6 @@
 import { parseToolCalls } from '../tool-loop/tool-call-format.js';
 import { TOOL_ARGUMENTS, TOOL_NAMES } from '../native-client.js';
 
-export const MAX_AGENT_LOOPS = 6;
 const MARKER_OPEN = '<webmcp_tool_call>';
 const MARKER_CLOSE = '</webmcp_tool_call>';
 
@@ -12,33 +11,23 @@ export function neutralizeToolMarkers(text) {
     .replaceAll(MARKER_CLOSE, '</webmcp_tool_call_neutralized>');
 }
 
-export function buildFakeToolResult(calls) {
-  if (!Array.isArray(calls) || calls.length === 0) {
-    throw new TypeError('Fake execution requires at least one tool call.');
-  }
-
-  const blocks = calls.map((call) => {
-    const payload = {
-      id: call.id,
-      name: call.name,
-      isError: false,
-      result: `P1 fake result for ${call.name}. No local filesystem, terminal, or MCP tool was executed.`,
-    };
-    return JSON.stringify(payload);
-  });
-
-  return neutralizeToolMarkers([
-    'DeepSeek WebMCP P1 fake tool result.',
-    'These are test results only; no local tool was executed.',
-    ...blocks,
-    'Continue the current task. If another tool is required, emit the next strict WebMCP tool-call block.',
-  ].join('\n'));
-}
-
 function argumentShapeLine(name) {
   const { required, optional } = TOOL_ARGUMENTS[name];
   const extras = Object.entries(optional).map(([key, hint]) => `${key} (${hint})`);
   return `- ${name} ${JSON.stringify(required)}${extras.length > 0 ? `; optional: ${extras.join(', ')}` : ''}`;
+}
+
+function toolContractLines(callInstruction) {
+  return [
+    `Available tools: ${TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`,
+    'Tool arguments (unknown fields are rejected):',
+    ...TOOL_NAMES.map(argumentShapeLine),
+    callInstruction,
+    '```text',
+    `${MARKER_OPEN}{"id":"<new unique id>","name":"<tool name>","arguments":{...}}${MARKER_CLOSE}`,
+    '```',
+    'Bare JSON without these markers is not a tool call and stops WebMCP.',
+  ];
 }
 
 export function buildNativeToolResult(call, response) {
@@ -62,110 +51,141 @@ export function buildNativeToolResult(call, response) {
   return [
     'DeepSeek WebMCP tool result.',
     neutralizeToolMarkers(JSON.stringify(payload)),
-    `Available tools: ${TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`,
-    'Tool arguments (unknown fields are rejected):',
-    ...TOOL_NAMES.map(argumentShapeLine),
-    'Continue the current task. If another tool is required, reply with exactly one fenced text block and nothing else:',
-    '```text',
-    `${MARKER_OPEN}{"id":"<new unique id>","name":"<tool name>","arguments":{...}}${MARKER_CLOSE}`,
-    '```',
-    `Bare JSON without these markers is not a tool call and stops WebMCP.`,
+    ...toolContractLines('Continue the current task. If another tool is required, reply with exactly one fenced text block and nothing else:'),
     'If the task is finished or no available tool fits, reply without a tool call.',
   ].join('\n');
 }
 
-export class AgentController {
-  #armed = false;
-  #conversationKey = null;
-  #seenCallIds = new Set();
-  #loops = 0;
+
+// Pre-filled into an empty new-chat composer while Work is on; the same contract is
+// then restated in every tool result. The user appends the task after it.
+export function buildWorkInstructions() {
+  return [
+    'You can use local tools through DeepSeek WebMCP. They run in an isolated container with no network; /workspace is my selected folder.',
+    ...toolContractLines('To call a tool, reply with exactly one fenced text block and nothing else, then wait for the result:'),
+    'Start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later call.',
+    'Use one tool call per reply. Do not commit or push. When the task is finished, reply normally without a tool call.',
+    '',
+    'Task: ',
+  ].join('\n');
+}
+
+const MAX_CONVERSATIONS = 50;
+const MAX_SEEN_IDS = 500;
+const MAX_PENDING = 8;
+
+function validConversation(value) {
+  return Boolean(value)
+    && Array.isArray(value.seen)
+    && value.seen.length <= MAX_SEEN_IDS
+    && value.seen.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 128)
+    && typeof value.awaiting === 'boolean'
+    && (value.pending === null || typeof value.pending === 'string');
+}
+
+// Per-tab Work authority. Pure and serializable so the MV3 worker can rebuild it
+// from chrome.storage.session. Deliberately no call-count bound (owner decision);
+// stopping is Work off or closing the tab.
+export class WorkController {
+  #work = false;
+  #calls = 0;
+  #conversations = new Map();
 
   static fromSnapshot(snapshot) {
-    const controller = new AgentController();
+    const controller = new WorkController();
     if (
       !snapshot
-      || snapshot.armed !== true
-      || typeof snapshot.conversationKey !== 'string'
-      || snapshot.conversationKey.length === 0
-      || !Number.isInteger(snapshot.loops)
-      || snapshot.loops < 0
-      || snapshot.loops > MAX_AGENT_LOOPS
-      || !Array.isArray(snapshot.seenCallIds)
-      || snapshot.seenCallIds.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 128)
+      || snapshot.work !== true
+      || !Number.isInteger(snapshot.calls)
+      || snapshot.calls < 0
+      || !snapshot.conversations
+      || typeof snapshot.conversations !== 'object'
+      || Array.isArray(snapshot.conversations)
     ) {
       return controller;
     }
-    controller.#armed = true;
-    controller.#conversationKey = snapshot.conversationKey;
-    controller.#loops = snapshot.loops;
-    controller.#seenCallIds = new Set(snapshot.seenCallIds);
+    const entries = Object.entries(snapshot.conversations);
+    if (entries.length > MAX_CONVERSATIONS || !entries.every(([, value]) => validConversation(value))) {
+      return controller;
+    }
+    controller.#work = true;
+    controller.#calls = snapshot.calls;
+    for (const [key, value] of entries) {
+      controller.#conversations.set(key, { seen: [...value.seen], awaiting: value.awaiting, pending: value.pending });
+    }
     return controller;
   }
 
   snapshot() {
-    return Object.freeze({
-      armed: this.#armed,
-      conversationKey: this.#conversationKey,
-      loops: this.#loops,
-      seenCallIds: Object.freeze([...this.#seenCallIds]),
-    });
-  }
-
-  arm(conversationKey) {
-    if (typeof conversationKey !== 'string' || conversationKey.length === 0) {
-      throw new TypeError('conversationKey is required.');
-    }
-    this.#armed = true;
-    this.#conversationKey = conversationKey;
-    this.#seenCallIds.clear();
-    this.#loops = 0;
-  }
-
-  disarm() {
-    this.#armed = false;
-    this.#conversationKey = null;
-    this.#seenCallIds.clear();
-    this.#loops = 0;
+    return {
+      work: this.#work,
+      calls: this.#calls,
+      conversations: Object.fromEntries([...this.#conversations].map(([key, value]) => [key, { ...value, seen: [...value.seen] }])),
+    };
   }
 
   get status() {
-    return Object.freeze({
-      armed: this.#armed,
-      conversationKey: this.#conversationKey,
-      loops: this.#loops,
-      maxLoops: MAX_AGENT_LOOPS,
-    });
+    return Object.freeze({ work: this.#work, calls: this.#calls });
   }
 
-  acceptCompletion(conversationKey, text) {
-    if (!this.#armed || conversationKey !== this.#conversationKey) {
-      return Object.freeze({ accepted: false, code: 'DISARMED_OR_WRONG_CONVERSATION' });
+  enable() {
+    this.#work = true;
+  }
+
+  #conversation(key) {
+    let conversation = this.#conversations.get(key);
+    if (!conversation) {
+      conversation = { seen: [], awaiting: false, pending: null };
+      this.#conversations.set(key, conversation);
+      while (this.#conversations.size > MAX_CONVERSATIONS) {
+        this.#conversations.delete(this.#conversations.keys().next().value);
+      }
     }
-    if (this.#loops >= MAX_AGENT_LOOPS) {
-      this.disarm();
-      return Object.freeze({ accepted: false, code: 'LOOP_LIMIT' });
+    return conversation;
+  }
+
+  // `resume` marks a reply that finished while its conversation was not displayed.
+  // It is processed only if WebMCP sent a result there and has not seen the reply yet.
+  acceptCompletion(conversationKey, text, { resume = false } = {}) {
+    if (!this.#work || typeof conversationKey !== 'string') {
+      return Object.freeze({ accepted: false, code: 'WORK_OFF' });
+    }
+    if (resume && this.#conversations.get(conversationKey)?.awaiting !== true) {
+      return Object.freeze({ accepted: false, code: 'NOTHING_TO_RESUME' });
     }
 
     const calls = parseToolCalls(text);
-    if (calls.length === 0) {
-      return Object.freeze({ accepted: true, code: 'NO_TOOL_CALL', calls });
-    }
-
-    const fresh = calls.filter((call) => !this.#seenCallIds.has(call.id));
-    if (fresh.length === 0) {
+    const conversation = this.#conversation(conversationKey);
+    // An already-executed call is the previous reply still on screen, not DeepSeek's
+    // answer to the delivered result, so the conversation keeps waiting.
+    if (calls.some((call) => conversation.seen.includes(call.id))) {
       return Object.freeze({ accepted: false, code: 'DUPLICATE_CALL', calls: Object.freeze([]) });
     }
-    if (fresh.length !== calls.length) {
-      return Object.freeze({ accepted: false, code: 'MIXED_DUPLICATE_CALLS', calls: Object.freeze([]) });
-    }
+    conversation.awaiting = false;
+    if (calls.length === 0) return Object.freeze({ accepted: true, code: 'NO_TOOL_CALL', calls });
 
-    for (const call of fresh) this.#seenCallIds.add(call.id);
-    this.#loops += 1;
-    return Object.freeze({
-      accepted: true,
-      code: 'TOOL_CALLS',
-      calls: Object.freeze(fresh),
-      loop: this.#loops,
-    });
+    conversation.seen.push(...calls.map((call) => call.id));
+    if (conversation.seen.length > MAX_SEEN_IDS) conversation.seen.splice(0, conversation.seen.length - MAX_SEEN_IDS);
+    this.#calls += calls.length;
+    return Object.freeze({ accepted: true, code: 'TOOL_CALLS', calls: Object.freeze(calls) });
+  }
+
+  setPending(conversationKey, text) {
+    this.#conversation(conversationKey).pending = text;
+    const pending = [...this.#conversations].filter(([, value]) => value.pending !== null);
+    for (const [key] of pending.slice(0, Math.max(0, pending.length - MAX_PENDING))) {
+      this.#conversations.get(key).pending = null;
+    }
+  }
+
+  pendingFor(conversationKey) {
+    return this.#conversations.get(conversationKey)?.pending ?? null;
+  }
+
+  // The result reached the composer and was sent: wait for DeepSeek's next reply.
+  delivered(conversationKey) {
+    const conversation = this.#conversation(conversationKey);
+    conversation.pending = null;
+    conversation.awaiting = true;
   }
 }

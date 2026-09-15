@@ -1,6 +1,6 @@
+const workButton = document.querySelector('#work');
+const summaryElement = document.querySelector('#summary');
 const statusElement = document.querySelector('#status');
-const armButton = document.querySelector('#arm');
-const disarmButton = document.querySelector('#disarm');
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -10,27 +10,24 @@ async function activeTab() {
 async function refresh() {
   const tab = await activeTab();
   if (!tab?.id || !tab.url?.startsWith('https://chat.deepseek.com/')) {
-    statusElement.textContent = 'Open a chat.deepseek.com conversation first.';
-    armButton.disabled = true;
-    disarmButton.disabled = true;
+    workButton.disabled = true;
+    summaryElement.textContent = 'Open chat.deepseek.com in this tab first.';
     return;
   }
-  const result = await chrome.runtime.sendMessage({ type: 'p1.ui-status', tabId: tab.id });
+  const result = await chrome.runtime.sendMessage({ type: 'work.ui-status', tabId: tab.id });
+  const on = result?.status?.work === true;
+  workButton.disabled = false;
+  workButton.classList.toggle('on', on);
+  workButton.textContent = on ? 'Working — click to stop' : 'Work';
+  summaryElement.textContent = on ? `Tool calls in this tab: ${result.status.calls}` : 'Off for this tab.';
   statusElement.textContent = JSON.stringify(result, null, 2);
-  armButton.disabled = result?.status?.armed === true;
-  disarmButton.disabled = result?.status?.armed !== true;
 }
 
-armButton.addEventListener('click', async () => {
+workButton.addEventListener('click', async () => {
   const tab = await activeTab();
-  if (tab?.id) await chrome.runtime.sendMessage({ type: 'p1.ui-arm', tabId: tab.id });
-  await refresh();
-});
-
-disarmButton.addEventListener('click', async () => {
-  const tab = await activeTab();
-  if (tab?.id) await chrome.runtime.sendMessage({ type: 'p1.ui-disarm', tabId: tab.id });
+  if (tab?.id) await chrome.runtime.sendMessage({ type: 'work.ui-toggle', tabId: tab.id });
   await refresh();
 });
 
 await refresh();
+setInterval(() => void refresh(), 1000);

@@ -30,5 +30,14 @@
       "run_at": "document_idle",
       "world": "ISOLATED"
     }
-  ]
+  ],
+  "commands": {
+    "toggle-work": {
+      "suggested_key": {
+        "default": "Alt+Shift+W",
+        "mac": "Alt+Shift+W"
+      },
+      "description": "Toggle Work on this tab"
+    }
+  }
 }

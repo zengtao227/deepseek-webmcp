@@ -9,6 +9,7 @@
   // Single send/stop control; disabled state is a class, not the `disabled` attribute.
   const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle';
   const DISABLED_CLASS = 'ds-button--disabled';
+  const CONVERSATION_PATH = /^\/a\/chat\/s\/[^/]+$/;
   const POLL_MS = 500;
   // Reasoning models can pause mid-turn; require the answer text to stay unchanged.
   const STABLE_MS = 2000;
@@ -36,10 +37,13 @@
     return answers.length > 0 ? answers[answers.length - 1] : null;
   }
 
+  let route = null;
   let sawGeneration = false;
+  let resumeCheck = false;
   let lastText = null;
   let changedAt = 0;
-  let continuing = false;
+  let busy = false;
+  let prefilledRoute = null;
 
   function writeComposer(input, text) {
     input.focus();
@@ -50,7 +54,7 @@
     return input.value === text;
   }
 
-  async function continueConversation(text) {
+  async function sendText(text) {
     const input = composer();
     if (!input) return { ok: false, code: 'COMPOSER_NOT_FOUND' };
     if (!writeComposer(input, text)) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
@@ -72,34 +76,69 @@
     return { ok: true, code: 'SEND_CLICKED' };
   }
 
-  async function reportCompletion(text) {
-    let reply;
-    try {
-      reply = await chrome.runtime.sendMessage({ type: 'p1.completion', text });
-    } catch {
-      return;
-    }
-    if (!reply?.continueWith || typeof reply.continueWith !== 'string') return;
+  // Background only hands out a result for the conversation that produced it; the
+  // page re-checks that the same conversation is still displayed before typing.
+  async function deliver(reply) {
+    if (typeof reply?.continueWith !== 'string' || reply.conversationPath !== location.pathname) return;
+    const result = await sendText(reply.continueWith);
+    await chrome.runtime.sendMessage({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
+  }
 
-    continuing = true;
+  function prefill(reply) {
+    if (!reply?.work || typeof reply.instructions !== 'string') return;
+    if (CONVERSATION_PATH.test(location.pathname) || latestAnswer() || prefilledRoute === location.href) return;
+    const input = composer();
+    if (!input || input.value !== '') return;
+    prefilledRoute = location.href;
+    writeComposer(input, reply.instructions);
+  }
+
+  async function arrive() {
+    busy = true;
     try {
-      const result = await continueConversation(reply.continueWith);
-      await chrome.runtime.sendMessage({ type: 'p1.continuation-result', result }).catch(() => {});
+      const reply = await chrome.runtime.sendMessage({ type: 'work.arrive' });
+      prefill(reply);
+      await deliver(reply);
+    } catch {
+      // Extension reloaded or worker unavailable; the next route change retries.
     } finally {
-      continuing = false;
+      busy = false;
     }
   }
 
-  // Only a response whose generation was observed in this page lifetime is
-  // eligible, so reloading/re-rendering history never replays an old call.
+  async function report(text, resume) {
+    busy = true;
+    try {
+      const reply = await chrome.runtime.sendMessage({ type: 'work.completion', text, resume });
+      await deliver(reply);
+    } catch {
+      // Ignore; nothing executes without a reply from the worker.
+    } finally {
+      busy = false;
+    }
+  }
+
+  // A new route starts clean: nothing seen in another conversation can be reported
+  // here. History is reported only as a one-time resume check, which the worker
+  // accepts solely when it is waiting for this conversation's reply.
+  function enterRoute() {
+    route = location.href;
+    sawGeneration = false;
+    resumeCheck = true;
+    lastText = null;
+    void arrive();
+  }
+
   function tick() {
-    if (continuing) return;
+    if (location.href !== route) enterRoute();
+    if (busy) return;
     if (isGenerating()) {
       sawGeneration = true;
+      resumeCheck = false;
       lastText = null;
       return;
     }
-    if (!sawGeneration) return;
+    if (!sawGeneration && !resumeCheck) return;
 
     const answer = latestAnswer();
     if (!answer) return;
@@ -112,10 +151,16 @@
     }
     if (now - changedAt < STABLE_MS) return;
 
+    const resume = !sawGeneration;
     sawGeneration = false;
+    resumeCheck = false;
     lastText = null;
-    void reportCompletion(text);
+    void report(text, resume);
   }
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'work.changed') void arrive();
+  });
 
   // Live DOM 2026-09-15: a short reply showed the Stop icon for only ~680 ms,
   // between throttled timer ticks. Mutations catch that transient state; the

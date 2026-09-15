@@ -1,81 +1,85 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AgentController,
-  MAX_AGENT_LOOPS,
-  buildFakeToolResult,
+  WorkController,
   buildNativeToolResult,
+  buildWorkInstructions,
   neutralizeToolMarkers,
 } from '../extension/core/agent-controller.js';
+import { TOOL_NAMES } from '../extension/native-client.js';
 import { parseToolCalls } from '../extension/tool-loop/tool-call-format.js';
 
+const A = 'https://chat.deepseek.com/a/chat/s/aaaa';
+const B = 'https://chat.deepseek.com/a/chat/s/bbbb';
 const call = (id = 'call_1') => `<webmcp_tool_call>{"id":"${id}","name":"read","arguments":{"path":"README.md"}}</webmcp_tool_call>`;
 
-test('disarmed or wrong conversation cannot execute a call', () => {
-  const controller = new AgentController();
-  assert.equal(controller.acceptCompletion('a', call()).code, 'DISARMED_OR_WRONG_CONVERSATION');
-  controller.arm('a');
-  assert.equal(controller.acceptCompletion('b', call()).code, 'DISARMED_OR_WRONG_CONVERSATION');
+function working() {
+  const controller = new WorkController();
+  controller.enable();
+  return controller;
+}
+
+test('nothing executes while Work is off', () => {
+  assert.equal(new WorkController().acceptCompletion(A, call()).code, 'WORK_OFF');
 });
 
-test('armed conversation accepts fresh calls and rejects replay', () => {
-  const controller = new AgentController();
-  controller.arm('conversation');
-  const first = controller.acceptCompletion('conversation', call('one'));
-  assert.equal(first.accepted, true);
-  assert.equal(first.code, 'TOOL_CALLS');
-  assert.equal(first.loop, 1);
-  assert.equal(controller.acceptCompletion('conversation', call('one')).code, 'DUPLICATE_CALL');
-});
-
-test('re-arming starts a fresh bounded epoch', () => {
-  const controller = new AgentController();
-  controller.arm('conversation');
-  controller.acceptCompletion('conversation', call('one'));
-  controller.arm('conversation');
-  assert.equal(controller.acceptCompletion('conversation', call('one')).accepted, true);
-});
-
-test('snapshot restores armed authority, loop count, and deduplication state', () => {
-  const controller = new AgentController();
-  controller.arm('conversation');
-  controller.acceptCompletion('conversation', call('one'));
-
-  const restored = AgentController.fromSnapshot(controller.snapshot());
-  assert.deepEqual(restored.status, {
-    armed: true,
-    conversationKey: 'conversation',
-    loops: 1,
-    maxLoops: MAX_AGENT_LOOPS,
-  });
-  assert.equal(restored.acceptCompletion('conversation', call('one')).code, 'DUPLICATE_CALL');
-  assert.equal(restored.acceptCompletion('conversation', call('two')).loop, 2);
-});
-
-test('invalid snapshot restores as disarmed', () => {
-  const restored = AgentController.fromSnapshot({
-    armed: true,
-    conversationKey: '',
-    loops: -1,
-    seenCallIds: ['one'],
-  });
-  assert.equal(restored.status.armed, false);
-});
-
-test('loop limit fails closed by disarming', () => {
-  const controller = new AgentController();
-  controller.arm('conversation');
-  for (let index = 0; index < MAX_AGENT_LOOPS; index += 1) {
-    assert.equal(controller.acceptCompletion('conversation', call(`call_${index}`)).accepted, true);
+test('Work has no call-count limit (owner decision)', () => {
+  const controller = working();
+  for (let index = 0; index < 50; index += 1) {
+    assert.equal(controller.acceptCompletion(A, call(`c${index}`)).code, 'TOOL_CALLS');
   }
-  assert.equal(controller.acceptCompletion('conversation', call('overflow')).code, 'LOOP_LIMIT');
-  assert.equal(controller.status.armed, false);
+  assert.deepEqual(controller.status, { work: true, calls: 50 });
 });
 
-test('fake results contain no live tool marker and make local non-execution explicit', () => {
-  const result = buildFakeToolResult([{ id: 'a', name: 'bash', arguments: { command: 'echo hi' } }]);
-  assert.doesNotMatch(result, /<webmcp_tool_call>/);
-  assert.match(result, /No local filesystem, terminal, or MCP tool was executed/);
+test('call ids are deduplicated per conversation and never replayed', () => {
+  const controller = working();
+  assert.equal(controller.acceptCompletion(A, call('one')).code, 'TOOL_CALLS');
+  assert.equal(controller.acceptCompletion(A, call('one')).code, 'DUPLICATE_CALL');
+  assert.equal(controller.acceptCompletion(B, call('one')).code, 'TOOL_CALLS');
+});
+
+test('a pending result belongs to its conversation only', () => {
+  const controller = working();
+  controller.setPending(A, 'result for A');
+  assert.equal(controller.pendingFor(A), 'result for A');
+  assert.equal(controller.pendingFor(B), null);
+  controller.delivered(A);
+  assert.equal(controller.pendingFor(A), null);
+});
+
+test('resume processes only a conversation that is waiting for its reply, once', () => {
+  const controller = working();
+  assert.equal(controller.acceptCompletion(A, call('old'), { resume: true }).code, 'NOTHING_TO_RESUME');
+
+  assert.equal(controller.acceptCompletion(A, call('first')).code, 'TOOL_CALLS');
+  controller.setPending(A, 'result');
+  controller.delivered(A);
+  // Back on the chat before DeepSeek answered: the previous reply is still on screen.
+  assert.equal(controller.acceptCompletion(A, call('first'), { resume: true }).code, 'DUPLICATE_CALL');
+  // DeepSeek's real next reply finished while the user was away.
+  assert.equal(controller.acceptCompletion(A, call('second'), { resume: true }).code, 'TOOL_CALLS');
+  assert.equal(controller.acceptCompletion(A, call('third'), { resume: true }).code, 'NOTHING_TO_RESUME');
+});
+
+test('snapshot restores Work, counters, dedup and pending state; invalid snapshots restore as off', () => {
+  const controller = working();
+  controller.acceptCompletion(A, call('one'));
+  controller.setPending(A, 'result');
+  const restored = WorkController.fromSnapshot(JSON.parse(JSON.stringify(controller.snapshot())));
+  assert.deepEqual(restored.status, { work: true, calls: 1 });
+  assert.equal(restored.pendingFor(A), 'result');
+  assert.equal(restored.acceptCompletion(A, call('one')).code, 'DUPLICATE_CALL');
+  assert.equal(WorkController.fromSnapshot({ work: true, calls: -1, conversations: {} }).status.work, false);
+  assert.equal(WorkController.fromSnapshot({ work: true, calls: 0, conversations: { [A]: { seen: [1], awaiting: false, pending: null } } }).status.work, false);
+});
+
+test('work instructions teach the same contract as tool results and cannot execute if echoed', () => {
+  const text = buildWorkInstructions();
+  assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
+  for (const name of TOOL_NAMES) assert.ok(text.split('\n').some((line) => line.startsWith(`- ${name} `)), name);
+  assert.match(text, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
+  assert.ok(text.endsWith('Task: '));
+  assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
 });
 
 test('native tool results preserve call identity and neutralize reflected markers', () => {

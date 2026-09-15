@@ -1,12 +1,13 @@
-import { AgentController, buildNativeToolResult } from './core/agent-controller.js';
+import { WorkController, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
 import { callNativeTool, isToolAllowed } from './native-client.js';
 
 const ORIGIN = 'https://chat.deepseek.com';
-const AUTHORITY_PREFIX = 'p1.authority.';
+const AUTHORITY_PREFIX = 'work.authority.';
 // Diagnostics live in session storage too: a reconstructed worker must not
 // report `diagnostics: null` for a completion it actually handled.
-const DIAGNOSTICS_PREFIX = 'p1.diagnostics.';
+const DIAGNOSTICS_PREFIX = 'work.diagnostics.';
 const MAX_ANSWER_CHARS = 512 * 1024;
+const CONVERSATION_PATH = /^\/a\/chat\/s\/[A-Za-z0-9-]+$/;
 const controllers = new Map();
 
 function conversationKey(rawUrl) {
@@ -19,35 +20,36 @@ function conversationKey(rawUrl) {
   }
 }
 
-function authorityKey(tabId) {
-  return `${AUTHORITY_PREFIX}${tabId}`;
-}
-
-function diagnosticsKey(tabId) {
-  return `${DIAGNOSTICS_PREFIX}${tabId}`;
-}
+const authorityKey = (tabId) => `${AUTHORITY_PREFIX}${tabId}`;
+const diagnosticsKey = (tabId) => `${DIAGNOSTICS_PREFIX}${tabId}`;
 
 async function controllerFor(tabId) {
   const cached = controllers.get(tabId);
   if (cached) return cached;
-
   const key = authorityKey(tabId);
   const stored = await chrome.storage.session.get(key);
-  const controller = AgentController.fromSnapshot(stored[key]);
-  if (!controller.status.armed) return null;
-
+  const controller = WorkController.fromSnapshot(stored[key]);
+  if (!controller.status.work) return null;
   controllers.set(tabId, controller);
   return controller;
 }
 
-async function persistController(tabId, controller) {
+async function persist(tabId, controller) {
   controllers.set(tabId, controller);
   await chrome.storage.session.set({ [authorityKey(tabId)]: controller.snapshot() });
 }
 
-async function clearController(tabId) {
-  controllers.delete(tabId);
-  await chrome.storage.session.remove(authorityKey(tabId));
+async function setBadge(tabId, on) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text: on ? 'ON' : '' });
+    if (on) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#1a7f37' });
+  } catch {}
+}
+
+async function notifyTab(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'work.changed' });
+  } catch {}
 }
 
 async function setDiagnostics(tabId, diagnostics) {
@@ -56,72 +58,70 @@ async function setDiagnostics(tabId, diagnostics) {
 
 async function statusFor(tabId) {
   const controller = await controllerFor(tabId);
-  return controller?.status ?? Object.freeze({ armed: false, conversationKey: null, loops: 0, maxLoops: 6 });
+  return controller?.status ?? Object.freeze({ work: false, calls: 0 });
 }
 
-async function armTab(tabId) {
+async function workOn(tabId) {
   const tab = await chrome.tabs.get(tabId);
-  const key = conversationKey(tab.url);
-  if (!key) return { ok: false, code: 'NOT_DEEPSEEK' };
-
-  const controller = new AgentController();
-  controller.arm(key);
-  await persistController(tabId, controller);
+  if (!conversationKey(tab.url)) return { ok: false, code: 'NOT_DEEPSEEK' };
+  const controller = (await controllerFor(tabId)) ?? new WorkController();
+  controller.enable();
+  await persist(tabId, controller);
   await chrome.storage.session.remove(diagnosticsKey(tabId));
+  await setBadge(tabId, true);
+  await notifyTab(tabId);
   return { ok: true, status: controller.status };
 }
 
-async function disarmTab(tabId) {
-  await clearController(tabId);
+async function workOff(tabId) {
+  controllers.delete(tabId);
+  await chrome.storage.session.remove(authorityKey(tabId));
+  await setBadge(tabId, false);
+  await notifyTab(tabId);
   return { ok: true, status: await statusFor(tabId) };
 }
 
-async function processCompletion(tabId, senderUrl, text) {
+async function toggleWork(tabId) {
+  return (await statusFor(tabId)).work ? workOff(tabId) : workOn(tabId);
+}
+
+// A result is always stored as pending for the conversation that produced the call
+// and is only handed to the page while that same conversation is displayed.
+function deliveryFor(controller, key) {
+  const text = controller.pendingFor(key);
+  return text === null ? {} : { continueWith: text, conversationPath: new URL(key).pathname };
+}
+
+async function processCompletion(tabId, key, text, resume) {
   const controller = await controllerFor(tabId);
   if (!controller) return {};
 
-  const diagnosticsStorageKey = diagnosticsKey(tabId);
-  const previousDiagnostics = (await chrome.storage.session.get(diagnosticsStorageKey))[diagnosticsStorageKey] ?? {};
-  const diagnostics = {
-    answerLength: text.length,
-    lastCode: null,
-    ...(previousDiagnostics.continuation ? { continuation: previousDiagnostics.continuation } : {}),
-  };
+  const diagnostics = { answerLength: text.length, lastCode: null };
   if (text.length > MAX_ANSWER_CHARS) {
-    diagnostics.lastCode = 'RESPONSE_TOO_LARGE';
-    await setDiagnostics(tabId, diagnostics);
-    await disarmTab(tabId);
+    await setDiagnostics(tabId, { ...diagnostics, lastCode: 'RESPONSE_TOO_LARGE' });
     return {};
   }
 
   let decision;
   try {
-    decision = controller.acceptCompletion(conversationKey(senderUrl), text);
+    decision = controller.acceptCompletion(key, text, { resume });
   } catch (error) {
-    diagnostics.lastCode = error?.code ?? 'TOOL_PARSE_FAILED';
-    await setDiagnostics(tabId, diagnostics);
-    await disarmTab(tabId);
+    await persist(tabId, controller);
+    await setDiagnostics(tabId, { ...diagnostics, lastCode: error?.code ?? 'TOOL_PARSE_FAILED' });
     return {};
   }
-
-  diagnostics.lastCode = decision.code;
-  await setDiagnostics(tabId, diagnostics);
-  if (controller.status.armed) await persistController(tabId, controller);
-  else await clearController(tabId);
-
+  if (decision.code === 'NOTHING_TO_RESUME') return {};
+  await persist(tabId, controller);
+  await setDiagnostics(tabId, { ...diagnostics, lastCode: decision.code });
   if (!decision.accepted || decision.code !== 'TOOL_CALLS') return {};
+
   if (decision.calls.length !== 1) {
-    diagnostics.lastCode = 'MULTIPLE_CALLS';
-    await setDiagnostics(tabId, diagnostics);
-    await disarmTab(tabId);
+    await setDiagnostics(tabId, { ...diagnostics, lastCode: 'MULTIPLE_CALLS' });
     return {};
   }
-
   const [call] = decision.calls;
   if (!isToolAllowed(call.name)) {
-    diagnostics.lastCode = 'TOOL_NOT_ALLOWED';
-    await setDiagnostics(tabId, diagnostics);
-    await disarmTab(tabId);
+    await setDiagnostics(tabId, { ...diagnostics, lastCode: 'TOOL_NOT_ALLOWED' });
     return {};
   }
 
@@ -129,53 +129,77 @@ async function processCompletion(tabId, senderUrl, text) {
   try {
     nativeResponse = await callNativeTool(call);
   } catch (error) {
-    diagnostics.lastCode = error?.code ?? 'NATIVE_CALL_FAILED';
-    await setDiagnostics(tabId, diagnostics);
-    await disarmTab(tabId);
-    return {};
+    nativeResponse = { version: 1, id: call.id, ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: 'The local WebMCP runtime is not reachable. Run npm run doctor on the Mac.' } };
   }
 
-  diagnostics.lastCode = nativeResponse.ok ? 'TOOL_RESULT' : 'TOOL_ERROR';
-  await setDiagnostics(tabId, diagnostics);
-  return { continueWith: buildNativeToolResult(call, nativeResponse) };
+  // Work may have been switched off while the tool ran.
+  const current = await controllerFor(tabId);
+  if (!current) return {};
+  current.setPending(key, buildNativeToolResult(call, nativeResponse));
+  await persist(tabId, current);
+  await setDiagnostics(tabId, { ...diagnostics, lastCode: nativeResponse.ok ? 'TOOL_RESULT' : 'TOOL_ERROR' });
+  return deliveryFor(current, key);
 }
 
-async function recordContinuation(tabId, result) {
-  const key = diagnosticsKey(tabId);
-  const stored = (await chrome.storage.session.get(key))[key] ?? {};
+async function arrive(tabId, key) {
+  const controller = await controllerFor(tabId);
+  await setBadge(tabId, Boolean(controller));
+  if (!controller) return { work: false };
+  return { work: true, instructions: buildWorkInstructions(), ...deliveryFor(controller, key) };
+}
+
+async function recordContinuation(tabId, key, result) {
+  const controller = await controllerFor(tabId);
+  if (!controller) return;
   const continuation = { ok: result?.ok === true, code: typeof result?.code === 'string' ? result.code.slice(0, 64) : 'UNKNOWN' };
+  // A result that could not be sent stays pending and is retried on the next visit.
+  if (continuation.ok && controller.pendingFor(key) !== null) {
+    controller.delivered(key);
+    await persist(tabId, controller);
+  }
+  const stored = (await chrome.storage.session.get(diagnosticsKey(tabId)))[diagnosticsKey(tabId)] ?? {};
   await setDiagnostics(tabId, { ...stored, continuation });
-  if (!continuation.ok) await disarmTab(tabId);
 }
 
 // The conversation key must come from `sender.tab.url`, the same browser-side
-// last committed URL that ARM reads via tabs.get and that tabs.onUpdated tracks.
-// `sender.url` is the content script's ScriptContext URL fixed at injection
-// (Chromium extensions/renderer/ipc_message_sender.cc -> script_context->url()),
-// so it stays stale after DeepSeek's SPA pushState to /a/chat/s/<uuid>.
-// Only the top frame may speak for the tab's URL.
-function senderTabId(sender) {
+// last committed URL that tabs.get and tabs.onUpdated report. `sender.url` is the
+// content script's ScriptContext URL fixed at injection (Chromium
+// extensions/renderer/ipc_message_sender.cc -> script_context->url()), so it stays
+// stale after DeepSeek's SPA pushState to /a/chat/s/<uuid>. Only the top frame may
+// speak for the tab's URL.
+function senderContext(sender) {
   if (!sender.tab || !Number.isInteger(sender.tab.id) || sender.frameId !== 0) return null;
-  if (conversationKey(sender.url) === null || conversationKey(sender.tab.url) === null) return null;
-  return sender.tab.id;
+  const key = conversationKey(sender.tab.url);
+  if (conversationKey(sender.url) === null || key === null) return null;
+  return { tabId: sender.tab.id, key };
+}
+
+function isPopup(sender) {
+  return !sender.tab && sender.url === chrome.runtime.getURL('popup.html');
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message || typeof message !== 'object') return undefined;
 
-  if (message.type === 'p1.completion' && typeof message.text === 'string') {
-    const tabId = senderTabId(sender);
-    if (tabId === null) return undefined;
-    return processCompletion(tabId, sender.tab.url, message.text);
+  if (message.type === 'work.completion' && typeof message.text === 'string') {
+    const context = senderContext(sender);
+    if (!context) return undefined;
+    return processCompletion(context.tabId, context.key, message.text, message.resume === true);
+  }
+  if (message.type === 'work.arrive') {
+    const context = senderContext(sender);
+    if (!context) return undefined;
+    return arrive(context.tabId, context.key);
+  }
+  if (message.type === 'work.continuation-result') {
+    const context = senderContext(sender);
+    if (!context || typeof message.conversationPath !== 'string' || !CONVERSATION_PATH.test(message.conversationPath)) return undefined;
+    // The user may already have switched chats; the result belongs to the path it was typed into.
+    return recordContinuation(context.tabId, `${ORIGIN}${message.conversationPath}`, message.result).then(() => ({ ok: true }));
   }
 
-  if (message.type === 'p1.continuation-result') {
-    const tabId = senderTabId(sender);
-    if (tabId === null) return undefined;
-    return recordContinuation(tabId, message.result).then(() => ({ ok: true }));
-  }
-
-  if (message.type === 'p1.ui-status' && Number.isInteger(message.tabId)) {
+  if (!isPopup(sender) || !Number.isInteger(message.tabId)) return undefined;
+  if (message.type === 'work.ui-status') {
     const key = diagnosticsKey(message.tabId);
     return Promise.all([statusFor(message.tabId), chrome.storage.session.get(key)]).then(([status, stored]) => ({
       ok: true,
@@ -183,17 +207,21 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       diagnostics: stored[key] ?? null,
     }));
   }
-
-  if (message.type === 'p1.ui-arm' && Number.isInteger(message.tabId)) return armTab(message.tabId);
-  if (message.type === 'p1.ui-disarm' && Number.isInteger(message.tabId)) return disarmTab(message.tabId);
+  if (message.type === 'work.ui-toggle') return toggleWork(message.tabId);
   return undefined;
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  void clearController(tabId);
-  void chrome.storage.session.remove(diagnosticsKey(tabId));
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command === 'toggle-work' && Number.isInteger(tab?.id)) void toggleWork(tab.id);
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  controllers.delete(tabId);
+  void chrome.storage.session.remove([authorityKey(tabId), diagnosticsKey(tabId)]);
+});
+
+// Moving within DeepSeek keeps Work (results wait for their conversation); leaving
+// DeepSeek switches it off.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (typeof changeInfo.url === 'string') void disarmTab(tabId);
+  if (typeof changeInfo.url === 'string' && conversationKey(changeInfo.url) === null) void workOff(tabId);
 });
