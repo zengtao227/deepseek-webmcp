@@ -175,3 +175,23 @@ test('a Stop state shorter than one timer tick is still observed through DOM mut
   await page.advance(1000, 4);
   assert.deepEqual(completions(page.messages).map((message) => message.text), ['LIVE DOM PROBE']);
 });
+
+test('every new chat visit is pre-filled, including a second new chat at the same URL after old content clears', async () => {
+  const page = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
+  await page.advance(500, 1);
+  assert.equal(page.page.composerValue, 'TOOLS');
+
+  page.page.composerValue = '';
+  page.navigate('/a/chat/s/one');
+  page.page.answers = ['answer in one'];
+  await page.advance(500, 1);
+
+  // Live 2026-09-15: back on "/" the previous chat's DOM lingers briefly.
+  page.navigate('/');
+  await page.advance(500, 1);
+  assert.equal(page.page.composerValue, '');
+  page.page.answers = [];
+  await page.advance(500, 1);
+  assert.equal(page.page.composerValue, 'TOOLS');
+});
+

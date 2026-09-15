@@ -43,7 +43,8 @@
   let lastText = null;
   let changedAt = 0;
   let busy = false;
-  let prefilledRoute = null;
+  let instructions = null;
+  let prefilled = false;
 
   function writeComposer(input, text) {
     input.focus();
@@ -84,20 +85,23 @@
     await chrome.runtime.sendMessage({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
   }
 
-  function prefill(reply) {
-    if (!reply?.work || typeof reply.instructions !== 'string') return;
-    if (CONVERSATION_PATH.test(location.pathname) || latestAnswer() || prefilledRoute === location.href) return;
+  // Once per visit to an empty new chat. Retried from tick because DeepSeek's SPA keeps
+  // the previous chat's DOM briefly after the route changes; typing always wins.
+  function prefill() {
+    if (prefilled || instructions === null) return;
+    if (CONVERSATION_PATH.test(location.pathname) || latestAnswer()) return;
     const input = composer();
-    if (!input || input.value !== '') return;
-    prefilledRoute = location.href;
-    writeComposer(input, reply.instructions);
+    if (!input) return;
+    prefilled = true;
+    if (input.value === '') writeComposer(input, instructions);
   }
 
   async function arrive() {
     busy = true;
     try {
       const reply = await chrome.runtime.sendMessage({ type: 'work.arrive' });
-      prefill(reply);
+      instructions = reply?.work === true && typeof reply.instructions === 'string' ? reply.instructions : null;
+      prefill();
       await deliver(reply);
     } catch {
       // Extension reloaded or worker unavailable; the next route change retries.
@@ -123,6 +127,7 @@
   // accepts solely when it is waiting for this conversation's reply.
   function enterRoute() {
     route = location.href;
+    prefilled = false;
     sawGeneration = false;
     resumeCheck = true;
     lastText = null;
@@ -132,6 +137,7 @@
   function tick() {
     if (location.href !== route) enterRoute();
     if (busy) return;
+    prefill();
     if (isGenerating()) {
       sawGeneration = true;
       resumeCheck = false;
