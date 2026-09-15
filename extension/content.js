@@ -139,6 +139,7 @@
     if (busy) return;
     prefill();
     if (isGenerating()) {
+      if (!sawGeneration) void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
       sawGeneration = true;
       resumeCheck = false;
       lastText = null;

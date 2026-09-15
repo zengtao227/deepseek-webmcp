@@ -195,3 +195,9 @@ test('every new chat visit is pre-filled, including a second new chat at the sam
   assert.equal(page.page.composerValue, 'TOOLS');
 });
 
+test('observing a generation start tells the worker this conversation is awaiting a reply', async () => {
+  const page = loadPage({ answers: ['streaming'], generating: true });
+  await page.advance(500, 3);
+  assert.equal(page.messages.filter((message) => message.type === 'work.generating').length, 1);
+});
+

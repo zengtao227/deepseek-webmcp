@@ -186,6 +186,16 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     if (!context) return undefined;
     return processCompletion(context.tabId, context.key, message.text, message.resume === true);
   }
+  if (message.type === 'work.generating') {
+    const context = senderContext(sender);
+    if (!context) return undefined;
+    return controllerFor(context.tabId).then(async (controller) => {
+      if (!controller) return { ok: true };
+      controller.generationStarted(context.key);
+      await persist(context.tabId, controller);
+      return { ok: true };
+    });
+  }
   if (message.type === 'work.arrive') {
     const context = senderContext(sender);
     if (!context) return undefined;

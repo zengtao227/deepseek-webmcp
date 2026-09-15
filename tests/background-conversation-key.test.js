@@ -126,3 +126,11 @@ test('moving inside DeepSeek keeps Work; leaving DeepSeek switches it off', asyn
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal((await background.send({ type: 'work.ui-status', tabId: TAB_ID }, POPUP)).status.work, false);
 });
+
+test('switching away right after sending the task still resumes the first tool call on return', async () => {
+  const background = await working();
+  await background.send({ type: 'work.generating' }, background.from(A));
+  await background.send({ type: 'work.completion', text: TOOL_CALL_TEXT, resume: true }, background.from(A));
+  assert.deepEqual(background.nativeCalls.map((call) => call.id), ['p2_open']);
+});
+

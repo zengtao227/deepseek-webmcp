@@ -182,6 +182,12 @@ export class WorkController {
     return this.#conversations.get(conversationKey)?.pending ?? null;
   }
 
+  // DeepSeek was seen generating here, so its finished reply may be resumed later even
+  // if the user switched chats before any tool call existed.
+  generationStarted(conversationKey) {
+    if (this.#work) this.#conversation(conversationKey).awaiting = true;
+  }
+
   // The result reached the composer and was sent: wait for DeepSeek's next reply.
   delivered(conversationKey) {
     const conversation = this.#conversation(conversationKey);

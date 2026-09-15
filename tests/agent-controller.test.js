@@ -61,6 +61,14 @@ test('resume processes only a conversation that is waiting for its reply, once',
   assert.equal(controller.acceptCompletion(A, call('third'), { resume: true }).code, 'NOTHING_TO_RESUME');
 });
 
+test('a reply whose generation was observed can be resumed even before any result was sent', () => {
+  // The user may switch chats right after sending the task, before the first tool call exists.
+  const controller = working();
+  controller.generationStarted(A);
+  assert.equal(controller.acceptCompletion(A, call('first'), { resume: true }).code, 'TOOL_CALLS');
+  assert.equal(controller.acceptCompletion(B, call('other'), { resume: true }).code, 'NOTHING_TO_RESUME');
+});
+
 test('snapshot restores Work, counters, dedup and pending state; invalid snapshots restore as off', () => {
   const controller = working();
   controller.acceptCompletion(A, call('one'));
