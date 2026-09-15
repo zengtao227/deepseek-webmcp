@@ -92,10 +92,10 @@ No DeepSeek API key, no extension-originated private completion call, and no loc
 
 P4 required one runtime-image fix exposed by the first live run: Docker Desktop presents the bind mount point as root-owned while tools run as the host UID, so git refused the repository. `native/Dockerfile` now trusts exactly `safe.directory /workspace`.
 
-Next: the separate Base/Plus DeepSeek cleanup is its own reviewed task. P5 packaging/distribution remains behind its policy/terms review gate.
+The Base/Plus DeepSeek cleanup is merged.
 
 ## P5 — Packaging/distribution
 
-Blocked on E2E success and current DeepSeek terms/policy review.
+Status: **PASS (2026-09-15)** in Chrome and Comet — `docs/p5-live-test.md`.
 
-Only then add installer, diagnostics, uninstall and distribution packaging.
+Owner decision: public MIT source for the owner and a few friends, each with their own DeepSeek account; not the Chrome Web Store. Terms risk (DeepSeek Terms §3.5(3), §2.3) is disclosed in the README. Delivered per `docs/p5-design.md`: one-line install, per-tab Work, in-extension folder / Full access / uninstall, all Chromium browsers.

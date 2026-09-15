@@ -1,6 +1,6 @@
 # DeepSeek WebMCP — Project Context
 
-Status: P1, P2, P3, and P4 are CLOSED/PASS in Google Chrome. Next is a separately reviewed Base/Plus DeepSeek cleanup; P5 packaging/distribution remains behind its policy/terms review gate. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
+Status: P1–P4 are CLOSED/PASS in Google Chrome; P5 small-circle distribution is PASS in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
 
 ## 1. Identity
 

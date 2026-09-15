@@ -53,7 +53,7 @@ Popup → **Uninstall…** → confirm. This removes the local runtime, settings
 
 **P1, P2, P3, and P4 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker; P4 proved a real autonomous coding task (read → bounded fix → tests → git diff → final answer) on a disposable Git repository (`docs/p4-live-test.md`).
 
-P5 (small-circle distribution: one-line install, per-tab Work, in-extension folder / Full access / uninstall, Chromium browsers including Comet, MIT) is implemented per `docs/p5-design.md`; live acceptance is in progress. The Base/Plus DeepSeek cleanup is merged.
+P5 (small-circle distribution: one-line install, per-tab Work, in-extension folder / Full access / uninstall, Chromium browsers including Comet, MIT) is implemented per `docs/p5-design.md` and passed live acceptance in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged.
 
 The architecture remains:
 
