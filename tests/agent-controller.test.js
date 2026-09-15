@@ -86,7 +86,7 @@ test('work instructions teach the same contract as tool results and cannot execu
   assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   for (const name of TOOL_NAMES) assert.ok(text.split('\n').some((line) => line.startsWith(`- ${name} `)), name);
   assert.match(text, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
-  assert.ok(text.endsWith('Task: '));
+  assert.ok(text.startsWith('---\nYou can use local tools through DeepSeek WebMCP'));
   assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
 });
 

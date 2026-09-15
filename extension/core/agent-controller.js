@@ -57,16 +57,16 @@ export function buildNativeToolResult(call, response) {
 }
 
 
-// Put in front of the user's first message of a new chat while Work is on (the
-// content script checks the exact first sentence); every tool result restates it.
+// Appended after the user's first message of a new chat while Work is on, so the
+// question stays visible when DeepSeek collapses a long message (the content script
+// checks the exact first sentence); every tool result restates the contract.
 export function buildWorkInstructions() {
   return [
-    'You can use local tools through DeepSeek WebMCP. They run in an isolated container with no network; /workspace is my selected folder.',
+    '---',
+    'You can use local tools through DeepSeek WebMCP for the task above. They run in an isolated container with no network; /workspace is my selected folder.',
     ...toolContractLines('To call a tool, reply with exactly one fenced text block and nothing else, then wait for the result:'),
     'Start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later call.',
     'Use one tool call per reply. Do not commit or push. When the task is finished, reply normally without a tool call.',
-    '',
-    'Task: ',
   ].join('\n');
 }
 

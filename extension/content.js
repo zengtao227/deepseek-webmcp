@@ -92,12 +92,13 @@
   }
 
   // In a Work tab, the user's first message of a new chat is sent with the tool
-  // instructions in front, so the composer stays clean while typing. Enter during
-  // IME composition (e.g. Chinese input) is never treated as Send.
+  // instructions after it, so the composer stays clean while typing and the question
+  // stays visible when DeepSeek collapses long messages. Enter during IME composition
+  // (e.g. Chinese input) is never treated as Send.
   function interceptSend(event) {
     if (ownSend || instructions === null || !isNewChat()) return;
     const input = composer();
-    if (!input || input.value.trim() === '' || input.value.startsWith(INSTRUCTIONS_START)) return;
+    if (!input || input.value.trim() === '' || input.value.includes(INSTRUCTIONS_START)) return;
     if (event.type === 'keydown') {
       if (event.target !== input || event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
     } else if (!event.target?.closest?.(SEND_SELECTOR)) {
@@ -105,7 +106,7 @@
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    const text = `${instructions}${input.value}`;
+    const text = `${input.value.trimEnd()}\n\n${instructions}`;
     ownSend = true;
     busy = true;
     void sendText(text).finally(() => {

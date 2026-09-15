@@ -177,15 +177,15 @@ test('observing a generation start tells the worker this conversation is awaitin
   assert.equal(page.messages.filter((message) => message.type === 'work.generating').length, 1);
 });
 
-test('in a Work tab the first message of a new chat is sent with the tool instructions in front', async () => {
-  const page = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS\nTask: ' } } });
+test('in a Work tab the first message of a new chat is sent with the tool instructions after it', async () => {
+  const page = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: '---\nTOOLS' } } });
   await page.advance(500, 1);
   assert.equal(page.page.composerValue, '');
   page.page.composerValue = '帮我修一下测试';
   const event = page.press();
   assert.equal(event.defaultPrevented, true);
   await page.advance(100, 3);
-  assert.deepEqual(page.page.sent, ['TOOLS\nTask: 帮我修一下测试']);
+  assert.deepEqual(page.page.sent, ['帮我修一下测试\n\n---\nTOOLS']);
 });
 
 test('Enter is left alone during IME composition, with Shift, in existing chats and when Work is off', async () => {
