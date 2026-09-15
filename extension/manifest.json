@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "DeepSeek WebMCP P3",
-  "version": "0.0.3",
-  "description": "DeepSeek Web browser loop with a narrow isolated local Native Messaging runtime.",
+  "name": "DeepSeek WebMCP",
+  "version": "0.5.0",
+  "description": "Local coding tools for the logged-in DeepSeek Web UI through an isolated Docker runtime.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAweTLpjyRVl6Z1evjSZdQVVXWLcIpKq5horGUY6fSdw6eWjNRuf98+T2iuf04hf3x19C7/FrvOFaJOWQgGhkF7gqHu8enHD3RuWSMftPtddNB0jcJ5gn8Gh7LnJt2zXPSNe3E4dnS6LV7q8wrAydXDfg+4168Fra4O8uth6yA9GhqbtsFxnsT1hDESMElY7TDVCOZl4ae+VaqxKkfAPSoPGgt8sM748ebOZtTPyeKrNZBnZKZYjMrkA0XNJre9CVarC7kzvfziC0kXu5mFoPmuuCpSmkApOfKD2vgct3zD3G5VISfnCbLz+IbDe1aMEqRTZ3nqtHyxpkm3Me/2/mPCwIDAQAB",
   "permissions": [
     "storage",
     "nativeMessaging"
@@ -15,13 +16,17 @@
     "type": "module"
   },
   "action": {
-    "default_title": "DeepSeek WebMCP P3",
+    "default_title": "DeepSeek WebMCP",
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["https://chat.deepseek.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "world": "ISOLATED"
     }

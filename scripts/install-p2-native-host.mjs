@@ -16,7 +16,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 
 function usage(message) {
   if (message) process.stderr.write(`${message}\n\n`);
-  process.stderr.write('Usage: node scripts/install-p2-native-host.mjs --extension-id <id> --workspace <absolute-path> [--image <sha256:id>]\n');
+  process.stderr.write('Usage: npm run setup -- --workspace <absolute project directory> [--extension-id <id>] [--image <sha256:id>]\n');
   process.exit(2);
 }
 
@@ -30,10 +30,25 @@ function parseArgs(argv) {
     else if (arg === '--image') options.image = next();
     else usage(`Unknown option: ${arg}`);
   }
-  if (!EXTENSION_ID.test(options.extensionId ?? '')) usage('Invalid Chrome extension id.');
+  if (options.extensionId !== null && !EXTENSION_ID.test(options.extensionId)) usage('Invalid Chrome extension id.');
   if (!options.workspace || !path.isAbsolute(options.workspace)) usage('--workspace must be an absolute host path.');
   if (options.image !== null && !IMAGE_ID.test(options.image)) usage('--image must be a sha256 image id.');
   return options;
+}
+
+// The manifest `key` pins the unpacked extension ID, so users never copy it by hand.
+async function manifestExtensionId() {
+  const manifest = JSON.parse(await readFile(path.join(projectRoot, 'extension/manifest.json'), 'utf8'));
+  const digest = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
+  return [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('');
+}
+
+async function assertDockerRunning(dockerPath) {
+  try {
+    await execFileAsync(dockerPath, ['info', '--format', '{{.ServerVersion}}'], { encoding: 'utf8', timeout: 20_000 });
+  } catch {
+    throw new Error('Docker is installed but not running. Start Docker Desktop, wait until it is ready, then run setup again.');
+  }
 }
 
 async function which(binary) {
@@ -87,9 +102,14 @@ function shellQuote(value) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-if (process.platform !== 'darwin') throw new Error('P2 dev installer currently supports macOS Chrome only.');
+if (process.platform !== 'darwin') throw new Error('DeepSeek WebMCP setup currently supports macOS with Google Chrome only.');
 
-const [workspaceRoot, dockerPath] = await Promise.all([realpath(options.workspace), which('docker')]);
+const workspaceRoot = await realpath(options.workspace).catch(() => usage(`Workspace directory not found: ${options.workspace}`));
+const dockerPath = await which('docker').catch(() => {
+  throw new Error('Docker was not found. Install Docker Desktop for Mac first: https://www.docker.com/products/docker-desktop/');
+});
+await assertDockerRunning(dockerPath);
+const extensionId = options.extensionId ?? await manifestExtensionId();
 const home = os.homedir();
 const stateDir = path.join(home, '.deepseek-webmcp');
 const configPath = path.join(stateDir, 'p2-native-config.json');
@@ -113,14 +133,15 @@ await writeFile(launcherPath, [
 await chmod(launcherPath, 0o755);
 await writeFile(manifestPath, `${JSON.stringify({
   name: HOST_NAME,
-  description: 'DeepSeek WebMCP P2 isolated local runtime',
+  description: 'DeepSeek WebMCP isolated local runtime',
   path: launcherPath,
   type: 'stdio',
-  allowed_origins: [`chrome-extension://${options.extensionId}/`],
+  allowed_origins: [`chrome-extension://${extensionId}/`],
 }, null, 2)}\n`);
 
 process.stdout.write(`${JSON.stringify({
   installed: true,
+  extensionDirectory: path.join(projectRoot, 'extension'),
   host: HOST_NAME,
   manifestPath,
   launcherPath,
@@ -128,5 +149,13 @@ process.stdout.write(`${JSON.stringify({
   workspaceRoot,
   image,
   dockerPath,
-  extensionOrigin: `chrome-extension://${options.extensionId}/`,
+  extensionOrigin: `chrome-extension://${extensionId}/`,
 }, null, 2)}\n`);
+process.stdout.write([
+  '',
+  'Next:',
+  `1. Chrome → chrome://extensions → enable Developer mode → Load unpacked → ${path.join(projectRoot, 'extension')}`,
+  '   (already loaded? click its reload icon, then reload open DeepSeek tabs)',
+  '2. Check the install: npm run doctor',
+  '',
+].join('\n'));
