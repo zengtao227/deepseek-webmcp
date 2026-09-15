@@ -43,7 +43,12 @@ async function loadBackground({ tabUrl = A } = {}) {
   };
   importCounter += 1;
   await import(`../extension/background.js?case=${importCounter}`);
-  const send = (message, sender) => listeners.onMessage(message, sender);
+  // Models Chromium before 148: only sendResponse + `return true` delivers an async
+  // reply; a returned Promise is ignored and the sender gets undefined.
+  const send = (message, sender) => new Promise((resolve) => {
+    const keepOpen = listeners.onMessage(message, sender, resolve);
+    if (keepOpen !== true) resolve(undefined);
+  });
   const from = (url, extra = {}) => ({ tab: { id: TAB_ID, url }, frameId: 0, url, ...extra });
   return { send, from, tab, listeners, nativeCalls };
 }

@@ -172,7 +172,10 @@ async function runControl(control, args) {
   try {
     response = await callNativeControl(control, allowedArgs);
   } catch (error) {
-    return { ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: 'Local runtime not reachable. Run the install command again.' } };
+    // The browser's own reason (e.g. "Specified native messaging host not found.") is a
+    // fixed browser string and the only clue when one Chromium browser differs from another.
+    const reason = typeof error?.message === 'string' ? ` (${error.message.slice(0, 200)})` : '';
+    return { ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: `Local runtime not reachable${reason}. Run the install command again.` } };
   }
   if (control === 'uninstall' && response.ok && response.result?.uninstalled) {
     // The local side is gone; remove the extension too (no extra permission for self).
@@ -198,7 +201,7 @@ function isPopup(sender) {
   return !sender.tab && sender.url === chrome.runtime.getURL('popup.html');
 }
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+function handleMessage(message, sender) {
   if (!message || typeof message !== 'object') return undefined;
 
   if (message.type === 'work.completion' && typeof message.text === 'string') {
@@ -241,6 +244,16 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
   if (message.type === 'work.ui-toggle') return toggleWork(message.tabId);
   return undefined;
+}
+
+// Replies go through sendResponse + `return true`. Returning a Promise from the listener
+// is only supported from Chrome 148, rolled out gradually (developer.chrome.com messaging
+// guide); on Comet (Chromium 141) every Promise reply arrived as undefined.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const reply = handleMessage(message, sender);
+  if (reply === undefined) return false;
+  Promise.resolve(reply).then(sendResponse, () => sendResponse(undefined));
+  return true;
 });
 
 chrome.commands.onCommand.addListener((command, tab) => {
