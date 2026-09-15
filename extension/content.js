@@ -44,7 +44,7 @@
   let changedAt = 0;
   let busy = false;
   let instructions = null;
-  let prefilled = false;
+  let ownSend = false;
 
   function writeComposer(input, text) {
     input.focus();
@@ -85,15 +85,33 @@
     await chrome.runtime.sendMessage({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
   }
 
-  // Once per visit to an empty new chat. Retried from tick because DeepSeek's SPA keeps
-  // the previous chat's DOM briefly after the route changes; typing always wins.
-  function prefill() {
-    if (prefilled || instructions === null) return;
-    if (CONVERSATION_PATH.test(location.pathname) || latestAnswer()) return;
+  const INSTRUCTIONS_START = 'You can use local tools through DeepSeek WebMCP.';
+
+  function isNewChat() {
+    return !CONVERSATION_PATH.test(location.pathname) && latestAnswer() === null;
+  }
+
+  // In a Work tab, the user's first message of a new chat is sent with the tool
+  // instructions in front, so the composer stays clean while typing. Enter during
+  // IME composition (e.g. Chinese input) is never treated as Send.
+  function interceptSend(event) {
+    if (ownSend || instructions === null || !isNewChat()) return;
     const input = composer();
-    if (!input) return;
-    prefilled = true;
-    if (input.value === '') writeComposer(input, instructions);
+    if (!input || input.value.trim() === '' || input.value.startsWith(INSTRUCTIONS_START)) return;
+    if (event.type === 'keydown') {
+      if (event.target !== input || event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    } else if (!event.target?.closest?.(SEND_SELECTOR)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const text = `${instructions}${input.value}`;
+    ownSend = true;
+    busy = true;
+    void sendText(text).finally(() => {
+      ownSend = false;
+      busy = false;
+    });
   }
 
   async function arrive() {
@@ -101,7 +119,6 @@
     try {
       const reply = await chrome.runtime.sendMessage({ type: 'work.arrive' });
       instructions = reply?.work === true && typeof reply.instructions === 'string' ? reply.instructions : null;
-      prefill();
       await deliver(reply);
     } catch {
       // Extension reloaded or worker unavailable; the next route change retries.
@@ -127,7 +144,6 @@
   // accepts solely when it is waiting for this conversation's reply.
   function enterRoute() {
     route = location.href;
-    prefilled = false;
     sawGeneration = false;
     resumeCheck = true;
     lastText = null;
@@ -137,7 +153,6 @@
   function tick() {
     if (location.href !== route) enterRoute();
     if (busy) return;
-    prefill();
     if (isGenerating()) {
       if (!sawGeneration) void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
       sawGeneration = true;
@@ -164,6 +179,9 @@
     lastText = null;
     void report(text, resume);
   }
+
+  document.addEventListener('keydown', interceptSend, true);
+  document.addEventListener('click', interceptSend, true);
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'work.changed') void arrive();

@@ -57,8 +57,8 @@ export function buildNativeToolResult(call, response) {
 }
 
 
-// Pre-filled into an empty new-chat composer while Work is on; the same contract is
-// then restated in every tool result. The user appends the task after it.
+// Put in front of the user's first message of a new chat while Work is on (the
+// content script checks the exact first sentence); every tool result restates it.
 export function buildWorkInstructions() {
   return [
     'You can use local tools through DeepSeek WebMCP. They run in an isolated container with no network; /workspace is my selected folder.',

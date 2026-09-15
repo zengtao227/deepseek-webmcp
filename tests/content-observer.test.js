@@ -11,6 +11,7 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
   const control = {
     classList: { contains: (name) => name === 'ds-button--disabled' && page.disabled },
     querySelector: () => (page.stopVisible ? {} : null),
+    closest: () => control,
     click() {
       page.clicks += 1;
       page.sent.push(page.composerValue);
@@ -32,6 +33,7 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
   const messages = [];
   const location = { origin: 'https://chat.deepseek.com', pathname: path, get href() { return `https://chat.deepseek.com${this.pathname}`; } };
   let onRuntimeMessage = null;
+  const documentListeners = {};
   const context = {
     location,
     HTMLTextAreaElement,
@@ -42,6 +44,7 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
     Date: { now: () => page.now },
     document: {
       body: {},
+      addEventListener: (type, fn) => { (documentListeners[type] ??= []).push(fn); },
       querySelector: (selector) => (selector.startsWith('textarea') ? composer : control),
       querySelectorAll: () => page.answers.map((text) => ({ textContent: text })),
     },
@@ -63,6 +66,13 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
     setReply(type, value) { replies[type] = value; },
     navigate(nextPath) { location.pathname = nextPath; },
     notify(message) { onRuntimeMessage?.(message); },
+    press(init) {
+      const event = { type: 'keydown', target: composer, key: 'Enter', shiftKey: false, isComposing: false, keyCode: 13, defaultPrevented: false, ...init };
+      event.preventDefault = () => { event.defaultPrevented = true; };
+      event.stopImmediatePropagation = () => {};
+      for (const fn of documentListeners.keydown ?? []) fn(event);
+      return event;
+    },
     mutate() { onMutation?.([]); },
     async advance(ms, steps = 1) {
       for (let index = 0; index < steps; index += 1) {
@@ -113,21 +123,6 @@ test('returning to a conversation delivers its pending result', async () => {
   assert.equal(result.conversationPath, '/a/chat/s/one');
 });
 
-test('Work pre-fills instructions only into an empty new chat and never overwrites typing', async () => {
-  const fresh = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS\nTask: ' } } });
-  await fresh.advance(500, 1);
-  assert.equal(fresh.page.composerValue, 'TOOLS\nTask: ');
-
-  const typing = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
-  typing.page.composerValue = 'my own text';
-  await typing.advance(500, 1);
-  assert.equal(typing.page.composerValue, 'my own text');
-
-  const existing = loadPage({ path: '/a/chat/s/one', replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
-  await existing.advance(500, 1);
-  assert.equal(existing.page.composerValue, '');
-});
-
 test('an enabled Send control without a Stop icon is not treated as generation', async () => {
   const page = loadPage({ answers: ['not a new answer'] });
   page.page.disabled = false;
@@ -176,28 +171,40 @@ test('a Stop state shorter than one timer tick is still observed through DOM mut
   assert.deepEqual(completions(page.messages).map((message) => message.text), ['LIVE DOM PROBE']);
 });
 
-test('every new chat visit is pre-filled, including a second new chat at the same URL after old content clears', async () => {
-  const page = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
-  await page.advance(500, 1);
-  assert.equal(page.page.composerValue, 'TOOLS');
-
-  page.page.composerValue = '';
-  page.navigate('/a/chat/s/one');
-  page.page.answers = ['answer in one'];
-  await page.advance(500, 1);
-
-  // Live 2026-09-15: back on "/" the previous chat's DOM lingers briefly.
-  page.navigate('/');
-  await page.advance(500, 1);
-  assert.equal(page.page.composerValue, '');
-  page.page.answers = [];
-  await page.advance(500, 1);
-  assert.equal(page.page.composerValue, 'TOOLS');
-});
-
 test('observing a generation start tells the worker this conversation is awaiting a reply', async () => {
   const page = loadPage({ answers: ['streaming'], generating: true });
   await page.advance(500, 3);
   assert.equal(page.messages.filter((message) => message.type === 'work.generating').length, 1);
+});
+
+test('in a Work tab the first message of a new chat is sent with the tool instructions in front', async () => {
+  const page = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS\nTask: ' } } });
+  await page.advance(500, 1);
+  assert.equal(page.page.composerValue, '');
+  page.page.composerValue = '帮我修一下测试';
+  const event = page.press();
+  assert.equal(event.defaultPrevented, true);
+  await page.advance(100, 3);
+  assert.deepEqual(page.page.sent, ['TOOLS\nTask: 帮我修一下测试']);
+});
+
+test('Enter is left alone during IME composition, with Shift, in existing chats and when Work is off', async () => {
+  const composing = loadPage({ path: '/', replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
+  await composing.advance(500, 1);
+  composing.page.composerValue = '中文';
+  assert.equal(composing.press({ isComposing: true }).defaultPrevented, false);
+  assert.equal(composing.press({ keyCode: 229 }).defaultPrevented, false);
+  assert.equal(composing.press({ shiftKey: true }).defaultPrevented, false);
+
+  const existing = loadPage({ path: '/a/chat/s/one', answers: ['earlier answer'], replies: { 'work.arrive': { work: true, instructions: 'TOOLS' } } });
+  await existing.advance(500, 1);
+  existing.page.composerValue = 'follow-up';
+  assert.equal(existing.press().defaultPrevented, false);
+
+  const off = loadPage({ path: '/', replies: { 'work.arrive': { work: false } } });
+  await off.advance(500, 1);
+  off.page.composerValue = 'normal chat';
+  assert.equal(off.press().defaultPrevented, false);
+  assert.deepEqual(off.page.sent, []);
 });
 
