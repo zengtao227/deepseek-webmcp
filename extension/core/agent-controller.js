@@ -1,5 +1,5 @@
 import { parseToolCalls } from '../tool-loop/tool-call-format.js';
-import { TOOL_NAMES } from '../native-client.js';
+import { TOOL_ARGUMENTS, TOOL_NAMES } from '../native-client.js';
 
 export const MAX_AGENT_LOOPS = 6;
 const MARKER_OPEN = '<webmcp_tool_call>';
@@ -35,6 +35,12 @@ export function buildFakeToolResult(calls) {
   ].join('\n'));
 }
 
+function argumentShapeLine(name) {
+  const { required, optional } = TOOL_ARGUMENTS[name];
+  const extras = Object.entries(optional).map(([key, hint]) => `${key} (${hint})`);
+  return `- ${name} ${JSON.stringify(required)}${extras.length > 0 ? `; optional: ${extras.join(', ')}` : ''}`;
+}
+
 export function buildNativeToolResult(call, response) {
   if (!call || typeof call !== 'object' || typeof call.id !== 'string' || typeof call.name !== 'string') {
     throw new TypeError('Tool call is required.');
@@ -57,6 +63,8 @@ export function buildNativeToolResult(call, response) {
     'DeepSeek WebMCP tool result.',
     neutralizeToolMarkers(JSON.stringify(payload)),
     `Available tools: ${TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`,
+    'Tool arguments (unknown fields are rejected):',
+    ...TOOL_NAMES.map(argumentShapeLine),
     'Continue the current task. If another tool is required, reply with exactly one fenced text block and nothing else:',
     '```text',
     `${MARKER_OPEN}{"id":"<new unique id>","name":"<tool name>","arguments":{...}}${MARKER_CLOSE}`,

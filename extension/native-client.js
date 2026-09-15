@@ -2,6 +2,25 @@ const HOST_NAME = 'com.deepseek.webmcp.native';
 export const TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'write', 'edit', 'bash']);
 const ALLOWED_TOOLS = new Set(TOOL_NAMES);
 
+// Model-facing argument shapes. DeepSeek Web has no tools/list channel, so these are
+// restated in every tool result; tests pin them to the native runtime inputSchema.
+export const TOOL_ARGUMENTS = Object.freeze({
+  open_workspace: { required: { path: '/workspace' }, optional: {} },
+  read: {
+    required: { workspaceId: '<id>', path: '<relative path>' },
+    optional: { offset: 'first line number, >= 1', limit: 'line count, max 5000' },
+  },
+  write: { required: { workspaceId: '<id>', path: '<relative path>', content: '<full file text>' }, optional: {} },
+  edit: {
+    required: { workspaceId: '<id>', path: '<relative path>', edits: [{ oldText: '<exact existing text>', newText: '<replacement>' }] },
+    optional: {},
+  },
+  bash: {
+    required: { workspaceId: '<id>', command: '<bash command>' },
+    optional: { workingDirectory: 'relative directory', timeout: 'seconds, max 30' },
+  },
+});
+
 export function isToolAllowed(name) {
   return typeof name === 'string' && ALLOWED_TOOLS.has(name);
 }
