@@ -1,6 +1,6 @@
 # DeepSeek WebMCP — Project Context
 
-Status: P1, P2, and P3 are CLOSED/PASS in Google Chrome. P4 coding E2E on a disposable test repository is the active gate. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
+Status: P1, P2, P3, and P4 are CLOSED/PASS in Google Chrome. Next is a separately reviewed Base/Plus DeepSeek cleanup; P5 packaging/distribution remains behind its policy/terms review gate. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
 
 ## 1. Identity
 
@@ -134,4 +134,4 @@ P1 is CLOSED/PASS in real Google Chrome. Acceptance evidence includes:
 6. route change DISARMing the conversation;
 7. no extension-originated DeepSeek private completion request or credential extraction.
 
-P2 is CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance. P3 is also CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance: the same one-shot Native Messaging path exposed exactly `open_workspace`, `read`, `write`, `edit`, and `bash`; writable changes persisted across fresh containers; edit and bash verification succeeded; path-escape write failed closed; no non-allowlisted tool executed; no call containers remained; Base was untouched; and no commit/push occurred. `bash` remains a workspace mutation path, and no Git credentials or automatic publication capability were added. P4 is now the active gate. See `docs/p3-live-test.md`.
+P2 is CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance. P3 is also CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance: the same one-shot Native Messaging path exposed exactly `open_workspace`, `read`, `write`, `edit`, and `bash`; writable changes persisted across fresh containers; edit and bash verification succeeded; path-escape write failed closed; no non-allowlisted tool executed; no call containers remained; Base was untouched; and no commit/push occurred. `bash` remains a workspace mutation path, and no Git credentials or automatic publication capability were added. See `docs/p3-live-test.md`. P4 is CLOSED/PASS: on a disposable Git repository DeepSeek autonomously opened the workspace, read the source, made one bounded edit, ran `npm test` (2/2 pass) and inspected `git diff` in the network-disabled runtime, then answered in five tool calls. The runtime image trusts exactly `safe.directory /workspace` because Docker Desktop shows the bind mount point as root-owned. See `docs/p4-live-test.md`.

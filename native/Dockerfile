@@ -18,6 +18,11 @@ RUN apt-get update \
     ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
+# Docker Desktop presents the bind mount point as root-owned while tools run as the
+# host UID, so git rejects the owner-selected repo as "dubious ownership". Trust
+# only that fixed mount; bash already has full authority inside it.
+RUN git config --system --add safe.directory /workspace
+
 RUN groupadd --gid 65532 webmcp \
   && useradd --uid 65532 --gid 65532 --create-home --shell /bin/bash webmcp
 

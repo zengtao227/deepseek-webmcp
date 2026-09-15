@@ -14,9 +14,9 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 
 ## Current phase
 
-**P1, P2, and P3 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker.
+**P1, P2, P3, and P4 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker; P4 proved a real autonomous coding task (read → bounded fix → tests → git diff → final answer) on a disposable Git repository (`docs/p4-live-test.md`).
 
-The repository is now in **P4: coding E2E on a disposable test repository**.
+Next: a separately reviewed Base/Plus DeepSeek cleanup. P5 packaging/distribution remains gated by policy/terms review.
 
 The architecture remains:
 

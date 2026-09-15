@@ -77,7 +77,7 @@ Live acceptance is recorded in `docs/p3-live-test.md`. All 12 conditions passed 
 
 ## P4 — Coding E2E
 
-Status: **active; blocked only on executing the disposable-repository E2E gate.**
+Status: **CLOSED / PASS in the owner's real macOS Google Chrome + Docker environment (2026-09-15).** Evidence: `docs/p4-live-test.md`.
 
 On a disposable test repository, DeepSeek Web autonomously:
 
@@ -90,7 +90,9 @@ On a disposable test repository, DeepSeek Web autonomously:
 
 No DeepSeek API key, no extension-originated private completion call, and no local runtime network.
 
-Only after P4 succeeds should the separate Base/Plus DeepSeek cleanup be executed.
+P4 required one runtime-image fix exposed by the first live run: Docker Desktop presents the bind mount point as root-owned while tools run as the host UID, so git refused the repository. `native/Dockerfile` now trusts exactly `safe.directory /workspace`.
+
+Next: the separate Base/Plus DeepSeek cleanup is its own reviewed task. P5 packaging/distribution remains behind its policy/terms review gate.
 
 ## P5 — Packaging/distribution
 
