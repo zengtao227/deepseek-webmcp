@@ -61,9 +61,10 @@ test('host-level errors are sanitized before they can return to DeepSeek', () =>
 
 test('same local config derives the same stable runtime token across one-shot host invocations', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-host-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-workspace-'));
   const configPath = path.join(dir, 'config.json');
   await writeFile(configPath, JSON.stringify({
-    workspaceRoot: dir,
+    workspaceRoot: workspace,
     image: IMAGE,
     dockerPath: '/usr/local/bin/docker',
   }));
@@ -71,4 +72,23 @@ test('same local config derives the same stable runtime token across one-shot ho
   const second = await loadNativeHostConfig(configPath);
   assert.equal(first.runtimeToken, second.runtimeToken);
   assert.match(first.runtimeToken, /^[0-9a-f]{64}$/);
+});
+
+test('host refuses a writable workspace that contains its own control plane', async () => {
+  // A writable /workspace containing host-executed code, its config, node or docker
+  // would let the model rewrite what Chrome runs outside the container.
+  const hostCodeRoot = path.resolve(import.meta.dirname, '..');
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-state-'));
+  const configPath = path.join(stateDir, 'config.json');
+  const cases = [
+    ['host code root (this repository)', hostCodeRoot],
+    ['directory holding the host config', stateDir],
+    ['ancestor of the node binary', path.dirname(process.execPath)],
+    ['filesystem root', '/'],
+    ['home directory (holds ~/.docker and Chrome manifests)', os.homedir()],
+  ];
+  for (const [label, workspaceRoot] of cases) {
+    await writeFile(configPath, JSON.stringify({ workspaceRoot, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+    await assert.rejects(loadNativeHostConfig(configPath), { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' }, label);
+  }
 });

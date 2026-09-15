@@ -5,6 +5,7 @@ import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertWorkspaceOutsideControlPlane } from '../native/host/docker-dispatch.js';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -89,10 +90,11 @@ const options = parseArgs(process.argv.slice(2));
 if (process.platform !== 'darwin') throw new Error('P2 dev installer currently supports macOS Chrome only.');
 
 const [workspaceRoot, dockerPath] = await Promise.all([realpath(options.workspace), which('docker')]);
-const image = options.image ?? await buildImage(dockerPath);
 const home = os.homedir();
 const stateDir = path.join(home, '.deepseek-webmcp');
 const configPath = path.join(stateDir, 'p2-native-config.json');
+await assertWorkspaceOutsideControlPlane(workspaceRoot, { configPath, dockerPath });
+const image = options.image ?? await buildImage(dockerPath);
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const manifestDir = path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts');
 const manifestPath = path.join(manifestDir, `${HOST_NAME}.json`);

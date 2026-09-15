@@ -35,6 +35,10 @@ P3 exposes exactly `open_workspace`, `read`, `write`, `edit`, and `bash`. Each c
 
 `write` and `edit` enforce the Native workspace path/symlink policy, but `bash` can also mutate files inside the writable workspace. Therefore the security claim is bounded container/workspace mutation, not that only the structured mutation tools can write.
 
+Because the workspace is writable, it must never contain anything that runs outside the container. The installer and every Native host invocation refuse (`WORKSPACE_CONTAINS_CONTROL_PLANE`) a workspace root that contains the DeepSeek WebMCP checkout (host code and unpacked extension), the host config directory, the node or docker binary, `~/.docker`, or Chrome's `NativeMessagingHosts` directory. Choose a project directory, never the home directory or this repository.
+
+Residual risk: anything the model writes into the project (for example `.git/hooks`, `package.json` scripts, build files) runs on the host only if you later run it there yourself. Review the diff before running project commands on the host.
+
 Secret Firewall sanitization remains outside the model-controlled runtime before successful tool results or tool errors return to DeepSeek. Secret scanning is defense in depth. The user's selected workspace/root remains the primary data-disclosure boundary because ordinary source text may legitimately be sent to DeepSeek when the model reads it.
 
 The V1 runtime keeps network disabled. Any future outbound network capability requires a separate security decision. Git credentials, automatic commits, and pushes are not part of P3.

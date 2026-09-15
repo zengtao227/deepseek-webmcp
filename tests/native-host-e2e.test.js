@@ -40,6 +40,7 @@ async function runHost(configPath, request) {
 
 test('Chrome framing -> native host -> runtime response -> Secret Firewall -> Chrome frame works end-to-end', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
   const fakeDocker = path.join(dir, 'fake-docker');
   const configPath = path.join(dir, 'config.json');
 
@@ -61,7 +62,7 @@ process.stdin.on('end', () => {
 `);
   await chmod(fakeDocker, 0o755);
   await writeFile(configPath, JSON.stringify({
-    workspaceRoot: dir,
+    workspaceRoot: workspace,
     image: IMAGE,
     dockerPath: fakeDocker,
   }));
@@ -83,6 +84,7 @@ process.stdin.on('end', () => {
 
 test('native host admits P3 write through the same one-shot runtime and still rejects unknown tools before spawn', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-host-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
   const fakeDocker = path.join(dir, 'fake-docker');
   const configPath = path.join(dir, 'config.json');
   await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
@@ -99,7 +101,7 @@ process.stdin.on('end', () => {
 });
 `);
   await chmod(fakeDocker, 0o755);
-  await writeFile(configPath, JSON.stringify({ workspaceRoot: dir, image: IMAGE, dockerPath: fakeDocker }));
+  await writeFile(configPath, JSON.stringify({ workspaceRoot: workspace, image: IMAGE, dockerPath: fakeDocker }));
 
   const writeResponse = await runHost(configPath, {
     version: 1,
@@ -124,6 +126,7 @@ process.stdin.on('end', () => {
 
 test('P3 write/edit tool errors still pass through the host Secret Firewall', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-firewall-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
   const fakeDocker = path.join(dir, 'fake-docker');
   const configPath = path.join(dir, 'config.json');
   await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
@@ -146,7 +149,7 @@ process.stdin.on('end', () => {
 });
 `);
   await chmod(fakeDocker, 0o755);
-  await writeFile(configPath, JSON.stringify({ workspaceRoot: dir, image: IMAGE, dockerPath: fakeDocker }));
+  await writeFile(configPath, JSON.stringify({ workspaceRoot: workspace, image: IMAGE, dockerPath: fakeDocker }));
 
   const response = await runHost(configPath, {
     version: 1,

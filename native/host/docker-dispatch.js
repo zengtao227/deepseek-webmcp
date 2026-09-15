@@ -1,7 +1,9 @@
 import { spawn, execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { realpath, readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
 
@@ -58,6 +60,34 @@ export function validateNativeRequest(request) {
   return request;
 }
 
+// This code (and the extension beside it) runs outside the container. The bind mount
+// is writable, so a workspace containing any host-executed path would let the model
+// rewrite what Chrome launches next as the host user.
+const HOST_CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+function contains(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export async function assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath }) {
+  const home = os.homedir();
+  const controlPlane = [
+    HOST_CODE_ROOT,
+    path.dirname(configPath),
+    process.execPath,
+    dockerPath,
+    path.join(home, '.docker'),
+    path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
+  ];
+  for (const target of controlPlane) {
+    const resolved = await realpath(target).catch(() => path.resolve(target));
+    if (contains(canonicalRoot, resolved) || contains(canonicalRoot, path.resolve(target))) {
+      fail('workspaceRoot must not contain DeepSeek WebMCP host code, its config, node, docker or the Chrome Native Messaging manifests. Choose a project directory instead.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+    }
+  }
+}
+
 export async function loadNativeHostConfig(configPath) {
   if (typeof configPath !== 'string' || !path.isAbsolute(configPath)) fail('Native host config path must be absolute.', 'INVALID_CONFIG');
   let parsed;
@@ -71,6 +101,7 @@ export async function loadNativeHostConfig(configPath) {
   if (typeof parsed.image !== 'string' || !IMAGE_PATTERN.test(parsed.image)) fail('image must be a local sha256 image id.', 'INVALID_CONFIG');
   if (typeof parsed.dockerPath !== 'string' || !path.isAbsolute(parsed.dockerPath)) fail('dockerPath must be absolute.', 'INVALID_CONFIG');
   const canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
+  await assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath: parsed.dockerPath });
   const runtimeToken = createHash('sha256').update(`${parsed.image}\0${canonicalRoot}`).digest('hex');
   return Object.freeze({ ...parsed, canonicalRoot, runtimeToken });
 }
