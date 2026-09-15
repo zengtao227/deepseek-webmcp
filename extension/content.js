@@ -188,15 +188,20 @@
   // DeepSeek's page owns, and the answer text WebMCP reads, stay unchanged.
   const FOLD = 'data-webmcp-fold';
   const OPEN = 'data-webmcp-open';
+  const QUESTION = 'data-webmcp-question';
+  const COLOR = '--webmcp-fold-color';
   const RESULT_START = 'DeepSeek WebMCP tool result.\n';
   const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
   const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
 
+  // The bubble box itself carries an accent color, so the summary uses the color of the
+  // message text it replaces. The user's question keeps full size; the tool line is dimmed.
   const style = document.createElement('style');
   style.textContent = `
     [${FOLD}]:not([${OPEN}]) { font-size: 0 !important; line-height: 0 !important; cursor: pointer; }
     [${FOLD}]:not([${OPEN}]) > * { display: none !important; }
-    [${FOLD}]:not([${OPEN}])::before { content: attr(${FOLD}); font-size: 13px; line-height: 20px; opacity: 0.75; white-space: pre-wrap; }
+    [${FOLD}]:not([${OPEN}])::before { content: attr(${QUESTION}); display: block; font-size: 16px; line-height: 26px; color: var(${COLOR}, inherit); white-space: pre-wrap; }
+    [${FOLD}]:not([${OPEN}])::after { content: attr(${FOLD}); display: block; font-size: 12px; line-height: 20px; color: var(${COLOR}, inherit); opacity: 0.55; white-space: pre-wrap; }
     [${FOLD}][${OPEN}] { cursor: pointer; }
   `;
   (document.head ?? document.documentElement).append(style);
@@ -206,15 +211,18 @@
   }
 
   function summaryFor(text) {
-    if (text.startsWith(RESULT_START)) return `🔧 ${toolName(text)} ${/"isError":true/.test(text) ? '✗' : '✓'}`;
-    if (text.startsWith(CORRECTION_START)) return '🔧 format corrected, retrying';
+    if (text.startsWith(RESULT_START)) return { note: `🔧 ${toolName(text)} ${/"isError":true/.test(text) ? '✗' : '✓'}` };
+    if (text.startsWith(CORRECTION_START)) return { note: '🔧 format corrected, retrying' };
     const separator = text.indexOf(INSTRUCTIONS_SEPARATOR);
-    if (separator > 0) return `${text.slice(0, separator)}\n🔧 WebMCP tools attached`;
+    if (separator > 0) return { question: text.slice(0, separator), note: '🔧 WebMCP tools attached' };
     return null;
   }
 
-  function setFold(element, summary) {
-    if (element.getAttribute(FOLD) !== summary) element.setAttribute(FOLD, summary);
+  function setFold(target, { question = '', note }, colorSource) {
+    if (target.getAttribute(FOLD) === note && (target.getAttribute(QUESTION) ?? '') === question) return;
+    target.style.setProperty(COLOR, getComputedStyle(colorSource).color);
+    if (question) target.setAttribute(QUESTION, question);
+    target.setAttribute(FOLD, note);
   }
 
   let foldScheduled = false;
@@ -227,17 +235,17 @@
       if (element.closest(ANSWER_SELECTOR)) continue;
       const summary = summaryFor(element.firstChild.nodeValue ?? '');
       // Fold the whole bubble: DeepSeek's own collapsible box inside it keeps a fixed height.
-      if (summary) setFold(element.closest('.ds-message') ?? element, summary);
+      if (summary) setFold(element.closest('.ds-message') ?? element, summary, element);
     }
     for (const answer of document.querySelectorAll(ANSWER_SELECTOR)) {
       const text = answer.textContent ?? '';
       if (/｜\s*DSML\s*｜/.test(text)) {
-        setFold(answer, '🔧 DeepSeek used its own tool format (not run)');
+        setFold(answer, { note: '🔧 DeepSeek used its own tool format (not run)' }, answer);
         continue;
       }
       for (const block of answer.querySelectorAll('.md-code-block')) {
         const code = block.querySelector('pre')?.textContent ?? '';
-        if (code.trimStart().startsWith('<webmcp_tool_call>')) setFold(block, `🔧 ${toolName(code)}`);
+        if (code.trimStart().startsWith('<webmcp_tool_call>')) setFold(block, { note: `🔧 ${toolName(code)}` }, answer);
       }
     }
   }

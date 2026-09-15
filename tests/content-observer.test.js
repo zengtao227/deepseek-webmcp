@@ -14,6 +14,7 @@ function fakeMessage(text) {
     childNodes: [node],
     firstChild: node,
     closest: () => null,
+    style: { setProperty: (name, value) => { attributes[name] = value; } },
     getAttribute: (name) => attributes[name] ?? null,
     setAttribute: (name, value) => { attributes[name] = value; },
   };
@@ -56,6 +57,7 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { onMutation = this.fn; } },
     requestAnimationFrame: (fn) => fn(),
     Node: { TEXT_NODE: 3 },
+    getComputedStyle: () => ({ color: 'rgb(240, 240, 240)' }),
     window: { getSelection: () => null },
     Date: { now: () => page.now },
     document: {
@@ -242,6 +244,9 @@ test('extension-typed messages are folded to a one-line summary without changing
   });
   await page.advance(500, 1);
   const folds = page.page.typed.map((message) => message.getAttribute('data-webmcp-fold'));
-  assert.deepEqual(folds, ['帮我跑测试\n🔧 WebMCP tools attached', '🔧 bash ✓', '🔧 read ✗', '🔧 format corrected, retrying', null]);
+  assert.deepEqual(folds, ['🔧 WebMCP tools attached', '🔧 bash ✓', '🔧 read ✗', '🔧 format corrected, retrying', null]);
+  assert.equal(page.page.typed[0].getAttribute('data-webmcp-question'), '帮我跑测试');
+  // The summary takes the message text color, not the bubble's accent color.
+  assert.equal(page.page.typed[0].getAttribute('--webmcp-fold-color'), 'rgb(240, 240, 240)');
   assert.equal(page.page.typed[0].firstChild.nodeValue, `帮我跑测试\n\n---\n${instructions}`);
 });
