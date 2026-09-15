@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,6 +60,15 @@ async function runAppleScript(script, { exec = execFileAsync } = {}) {
     if (/-128|User canceled/i.test(`${error?.stderr ?? ''}${error?.message ?? ''}`)) return null;
     throw new NativeHostError('The macOS dialog could not be shown.', 'DIALOG_FAILED');
   }
+}
+
+// Detached so the reply to the browser is not held until the user clicks OK: the popup
+// has already closed behind the confirmation dialog and the extension removes itself.
+function showDetachedMessage(message) {
+  spawn('/usr/bin/osascript', ['-e', `display dialog ${appleScriptString(message)} with title "DeepSeek WebMCP" buttons {"OK"} default button "OK" giving up after 60`], {
+    detached: true,
+    stdio: 'ignore',
+  }).unref();
 }
 
 async function confirm(message, button, options) {
@@ -126,7 +135,7 @@ async function isInstalledCodeFolder(folder, exec) {
   }
 }
 
-async function uninstall({ home, configFile, exec }) {
+async function uninstall({ home, configFile, exec, notify }) {
   const allowed = await confirm(
     'Uninstall DeepSeek WebMCP?\n\nThis removes the local runtime, its settings, the Docker image, the browser registrations and the DeepSeek WebMCP program folder. Your project folders are not touched.',
     'Uninstall',
@@ -144,6 +153,7 @@ async function uninstall({ home, configFile, exec }) {
   // checkout (no marker) is left alone.
   const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT, exec);
   if (removeCode) await rm(HOST_CODE_ROOT, { recursive: true, force: true });
+  notify('DeepSeek WebMCP was uninstalled.\n\nIf it is still listed in another browser, remove it there on the extensions page.');
   return { uninstalled: true, removedProgramFolder: removeCode };
 }
 
@@ -152,9 +162,10 @@ export async function handleControlRequest(request, {
   configFile = defaultConfigPath(home),
   now = Date.now(),
   exec = execFileAsync,
+  notify = showDetachedMessage,
 } = {}) {
   validateControlRequest(request);
-  const context = { home, configFile, now, exec };
+  const context = { home, configFile, now, exec, notify };
   const handlers = {
     status: () => status(context),
     'choose-folder': () => chooseFolder(context),

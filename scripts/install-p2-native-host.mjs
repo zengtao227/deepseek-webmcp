@@ -169,7 +169,8 @@ process.stdout.write(`${JSON.stringify({
   dockerPath,
   extensionOrigin: `chrome-extension://${extensionId}/`,
 }, null, 2)}\n`);
-process.stdout.write([
+// install.sh prints its own last steps.
+if (process.env.DEEPSEEK_WEBMCP_INSTALLER !== '1') process.stdout.write([
   '',
   'Next:',
   `1. In your browser open chrome://extensions, turn on Developer mode, and drag this folder onto the page: ${path.join(projectRoot, 'extension')}`,

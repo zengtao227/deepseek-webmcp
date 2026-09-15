@@ -220,3 +220,34 @@ test('a mask Docker cannot open because of macOS privacy protection is dropped a
   }), { code: 'RUNTIME_FAILED' });
   assert.equal(attempts.length, 1);
 });
+
+test('uninstall removes local state only after confirmation and announces itself in a macOS message', async () => {
+  const { mkdir, access } = await import('node:fs/promises');
+  const { handleControlRequest } = await import('../native/host/control.js');
+  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-uninstall-'));
+  const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
+  const manifest = path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts/com.deepseek.webmcp.native.json');
+  await mkdir(path.dirname(configFile), { recursive: true });
+  await mkdir(path.dirname(manifest), { recursive: true });
+  await writeFile(configFile, JSON.stringify({ workspaceRoot: home, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+  await writeFile(manifest, '{}');
+  const messages = [];
+  const exists = (file) => access(file).then(() => true, () => false);
+  const uninstall = (answer) => handleControlRequest(
+    { version: 1, id: 'u', control: 'uninstall', arguments: {} },
+    { home, configFile, now: 1000, exec: async () => ({ stdout: answer }), notify: (text) => messages.push(text) },
+  );
+
+  assert.equal((await uninstall('button returned:Cancel, gave up:false')).result.uninstalled, false);
+  assert.equal(await exists(manifest), true);
+  assert.deepEqual(messages, []);
+
+  const done = await uninstall('button returned:Uninstall, gave up:false');
+  assert.equal(done.result.uninstalled, true);
+  // This test runs from a developer checkout without the install marker: it is kept.
+  assert.equal(done.result.removedProgramFolder, false);
+  assert.equal(await exists(manifest), false);
+  assert.equal(await exists(path.dirname(configFile)), false);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /uninstalled/);
+});

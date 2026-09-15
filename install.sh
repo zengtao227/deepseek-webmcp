@@ -42,7 +42,7 @@ touch "$DIR/.deepseek-webmcp-installed"
 
 say "Building the local runtime (first time takes a few minutes)"
 cd "$DIR"
-node scripts/install-p2-native-host.mjs
+DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs
 
 say "Last step in the browser"
 echo "1. The browser extensions page and the 'extension' folder are opening."
