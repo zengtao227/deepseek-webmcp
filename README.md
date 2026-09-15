@@ -49,6 +49,8 @@ Review changes in your project (for example `git diff`) before running anything 
 
 Popup → **Uninstall…** → confirm. This removes the local runtime, settings, Docker image, browser registrations, the `~/deepseek-webmcp` folder and the extension. Your project folders are not touched.
 
+The local part is shared by all browsers: after Uninstall in one browser, the extension in any other browser shows *Local program not installed*, and its **Uninstall…** just removes that extension. To use DeepSeek WebMCP again, run the install command.
+
 ## Current phase
 
 **P1, P2, P3, and P4 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker; P4 proved a real autonomous coding task (read → bounded fix → tests → git diff → final answer) on a disposable Git repository (`docs/p4-live-test.md`).

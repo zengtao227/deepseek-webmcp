@@ -172,8 +172,19 @@ async function runControl(control, args) {
   try {
     response = await callNativeControl(control, allowedArgs);
   } catch (error) {
-    // The browser's own reason (e.g. "Specified native messaging host not found.") is a
-    // fixed browser string and the only clue when one Chromium browser differs from another.
+    // All browsers share one local program. After Uninstall in one browser, the others
+    // get Chromium's "Specified native messaging host not found."
+    if (/native messaging host not found/i.test(error?.message ?? '')) {
+      if (control === 'uninstall') {
+        // Nothing local is left to remove; take only this browser's extension away,
+        // after the browser's own confirmation dialog.
+        chrome.management.uninstallSelf({ showConfirmDialog: true }).catch(() => {});
+        return { ok: true, result: { uninstalled: true, localAlreadyRemoved: true } };
+      }
+      return { ok: false, error: { code: 'LOCAL_PROGRAM_MISSING', message: 'The local program is not installed. It is shared by all browsers, so Uninstall in any browser removes it. To use DeepSeek WebMCP again, run the install command in Terminal.' } };
+    }
+    // The browser's own reason is a fixed browser string and the only clue when one
+    // Chromium browser differs from another.
     const reason = typeof error?.message === 'string' ? ` (${error.message.slice(0, 200)})` : '';
     return { ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: `Local runtime not reachable${reason}. Run the install command again.` } };
   }

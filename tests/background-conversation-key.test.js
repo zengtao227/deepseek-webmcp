@@ -11,10 +11,11 @@ let importCounter = 0;
 
 // Loads background.js against a fake chrome API. `tab.url` models the browser-side
 // last committed URL, which tracks SPA pushState (what tabs.get/onUpdated report).
-async function loadBackground({ tabUrl = A } = {}) {
+async function loadBackground({ tabUrl = A, nativeError = null } = {}) {
   const session = new Map();
   const listeners = {};
   const nativeCalls = [];
+  const selfUninstalls = [];
   const tab = { id: TAB_ID, url: tabUrl };
   globalThis.chrome = {
     storage: {
@@ -24,6 +25,7 @@ async function loadBackground({ tabUrl = A } = {}) {
         remove: async (keys) => { for (const key of [keys].flat()) session.delete(key); },
       },
     },
+    management: { uninstallSelf: async (options) => { selfUninstalls.push(options); } },
     action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
     commands: { onCommand: { addListener: (fn) => { listeners.onCommand = fn; } } },
     tabs: {
@@ -37,6 +39,7 @@ async function loadBackground({ tabUrl = A } = {}) {
       onMessage: { addListener: (fn) => { listeners.onMessage = fn; } },
       sendNativeMessage: async (host, payload) => {
         nativeCalls.push(payload);
+        if (nativeError) throw new Error(nativeError);
         return { version: 1, id: payload.id, ok: true, result: { workspaceId: 'ws_test' } };
       },
     },
@@ -50,7 +53,7 @@ async function loadBackground({ tabUrl = A } = {}) {
     if (keepOpen !== true) resolve(undefined);
   });
   const from = (url, extra = {}) => ({ tab: { id: TAB_ID, url }, frameId: 0, url, ...extra });
-  return { send, from, tab, listeners, nativeCalls };
+  return { send, from, tab, listeners, nativeCalls, selfUninstalls };
 }
 
 async function working(options) {
@@ -154,4 +157,24 @@ test('a DSML reply gets a format correction typed back, and nothing runs nativel
   assert.match(reply.continueWith, /^DeepSeek WebMCP format correction\./);
   assert.equal(reply.conversationPath, new URL(A).pathname);
   assert.equal(background.nativeCalls.length, 0);
+});
+
+test('after the shared local program is gone, the popup says so and Uninstall removes only this extension', async () => {
+  const background = await loadBackground({ nativeError: 'Specified native messaging host not found.' });
+  const status = await background.send({ type: 'settings.control', control: 'status' }, POPUP);
+  assert.equal(status.ok, false);
+  assert.equal(status.error.code, 'LOCAL_PROGRAM_MISSING');
+  assert.match(status.error.message, /shared by all browsers/);
+  assert.deepEqual(background.selfUninstalls, []);
+
+  const uninstall = await background.send({ type: 'settings.control', control: 'uninstall' }, POPUP);
+  assert.deepEqual(uninstall.result, { uninstalled: true, localAlreadyRemoved: true });
+  assert.deepEqual(background.selfUninstalls, [{ showConfirmDialog: true }]);
+});
+
+test('other native failures never remove the extension', async () => {
+  const background = await loadBackground({ nativeError: 'Native host has exited.' });
+  const uninstall = await background.send({ type: 'settings.control', control: 'uninstall' }, POPUP);
+  assert.equal(uninstall.ok, false);
+  assert.deepEqual(background.selfUninstalls, []);
 });

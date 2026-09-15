@@ -24,7 +24,7 @@ function renderFullAccess() {
 
 function applySettings(response) {
   if (!response?.ok) {
-    $('#folder').textContent = 'Local runtime not reachable';
+    $('#folder').textContent = response?.error?.code === 'LOCAL_PROGRAM_MISSING' ? 'Local program not installed' : 'Local runtime not reachable';
     showMessage(response?.error?.message ?? 'Local runtime not reachable.');
     return;
   }
@@ -80,7 +80,8 @@ $('#stop').addEventListener('click', async () => {
 $('#uninstall').addEventListener('click', async () => {
   showMessage('Confirm in the macOS dialog…');
   const response = await control('uninstall');
-  if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
+  if (response?.ok && response.result.localAlreadyRemoved) showMessage('The local program was already removed. Confirm removing this extension in the browser dialog.');
+  else if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
   else showMessage(response?.ok ? 'Not uninstalled.' : (response?.error?.message ?? 'Uninstall failed.'));
 });
 
