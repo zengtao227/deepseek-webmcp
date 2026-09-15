@@ -33,8 +33,10 @@ From the repository root, run:
 ```bash
 node scripts/install-p2-native-host.mjs \
   --extension-id <CHROME_EXTENSION_ID> \
-  --workspace "$(pwd)"
+  --workspace "<separate project directory>"
 ```
+
+> Since `f1a5dd6` the workspace must not contain this repository (host code runs from it). These historical runs used the repository root; to repeat them, use a separate directory.
 
 Then reload the unpacked Chrome extension once.
 
