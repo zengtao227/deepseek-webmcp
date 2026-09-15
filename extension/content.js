@@ -153,10 +153,19 @@
 
   function tick() {
     scheduleFold();
+    // After the extension is reloaded, a page script left in an open tab loses its
+    // extension context and chrome.runtime.sendMessage throws synchronously.
+    if (!chrome.runtime?.id) return;
     if (location.href !== route) enterRoute();
     if (busy) return;
     if (isGenerating()) {
-      if (!sawGeneration) void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
+      if (!sawGeneration) {
+        try {
+          void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
+        } catch {
+          // Extension context gone; nothing to notify.
+        }
+      }
       sawGeneration = true;
       resumeCheck = false;
       lastText = null;

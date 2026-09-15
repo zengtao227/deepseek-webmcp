@@ -72,6 +72,7 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
     },
     chrome: {
       runtime: {
+        id: 'test-extension',
         sendMessage: async (message) => {
           messages.push(message);
           return replies[message.type] ?? { ok: true };
@@ -96,6 +97,11 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
       return event;
     },
     mutate() { onMutation?.([]); },
+    orphan() {
+      // What Chromium does to a content script whose extension was reloaded.
+      delete context.chrome.runtime.id;
+      context.chrome.runtime.sendMessage = () => { throw new Error('Extension context invalidated.'); };
+    },
     async advance(ms, steps = 1) {
       for (let index = 0; index < steps; index += 1) {
         page.now += ms;
@@ -249,4 +255,11 @@ test('extension-typed messages are folded to a one-line summary without changing
   // The summary takes the message text color, not the bubble's accent color.
   assert.equal(page.page.typed[0].getAttribute('--webmcp-fold-color'), 'rgb(240, 240, 240)');
   assert.equal(page.page.typed[0].firstChild.nodeValue, `帮我跑测试\n\n---\n${instructions}`);
+});
+
+test('a page script orphaned by an extension reload stays silent instead of throwing', async () => {
+  const page = loadPage({ answers: ['streaming'], generating: true });
+  page.orphan();
+  await assert.doesNotReject(page.advance(500, 5));
+  page.mutate();
 });
