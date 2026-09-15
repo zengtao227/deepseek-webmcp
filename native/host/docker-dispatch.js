@@ -1,11 +1,12 @@
 import { spawn, execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { realpath, readFile } from 'node:fs/promises';
+import { lstat, realpath, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
+import { browserProfileRoots, fullAccessMaskCandidates, leasePath, manifestDirFor } from './local-paths.js';
 
 const execFileAsync = promisify(execFile);
 const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'write', 'edit', 'bash']);
@@ -63,32 +64,60 @@ export function validateNativeRequest(request) {
 // This code (and the extension beside it) runs outside the container. The bind mount
 // is writable, so a workspace containing any host-executed path would let the model
 // rewrite what Chrome launches next as the host user.
-const HOST_CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const HOST_CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function contains(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-export async function assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath }) {
-  const home = os.homedir();
+export async function assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath, home = os.homedir() }) {
   const controlPlane = [
     HOST_CODE_ROOT,
     path.dirname(configPath),
     process.execPath,
     dockerPath,
     path.join(home, '.docker'),
-    path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
+    ...browserProfileRoots(home).map(manifestDirFor),
   ];
   for (const target of controlPlane) {
     const resolved = await realpath(target).catch(() => path.resolve(target));
     if (contains(canonicalRoot, resolved) || contains(canonicalRoot, path.resolve(target))) {
-      fail('workspaceRoot must not contain DeepSeek WebMCP host code, its config, node, docker or the Chrome Native Messaging manifests. Choose a project directory instead.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+      fail('The folder must not contain DeepSeek WebMCP itself, its settings, node, docker or browser Native Messaging manifests. Choose a project folder instead (Full access covers the home folder safely).', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
     }
   }
 }
 
-export async function loadNativeHostConfig(configPath) {
+// Full access mounts the home folder writable, so everything in the control plane and
+// the credential stores is covered by an empty read-only mount instead of refusing it.
+async function buildFullAccessMasks(canonicalHome, home) {
+  const found = [];
+  for (const candidate of fullAccessMaskCandidates({ home, hostCodeRoot: HOST_CODE_ROOT, nodePath: process.execPath })) {
+    const resolved = await realpath(candidate).catch(() => null);
+    if (!resolved || resolved === canonicalHome || !contains(canonicalHome, resolved)) continue;
+    const info = await lstat(resolved);
+    found.push({ type: info.isDirectory() ? 'directory' : 'file', relative: path.relative(canonicalHome, resolved) });
+  }
+  found.sort((left, right) => left.relative.localeCompare(right.relative));
+  const masks = [];
+  for (const item of found) {
+    // A path under an already hidden directory is hidden too; Docker cannot mount inside it.
+    if (masks.some((mask) => mask.type === 'directory' && contains(mask.relative, item.relative))) continue;
+    masks.push(item);
+  }
+  return masks.map(({ type, relative }) => Object.freeze({ type, destination: path.posix.join('/workspace', ...relative.split(path.sep)) }));
+}
+
+export async function readFullAccessLease({ home = os.homedir(), now = Date.now() } = {}) {
+  try {
+    const lease = JSON.parse(await readFile(leasePath(home), 'utf8'));
+    return Number.isSafeInteger(lease?.expiresAt) && lease.expiresAt > now ? lease.expiresAt : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadNativeHostConfig(configPath, { home = os.homedir(), now = Date.now() } = {}) {
   if (typeof configPath !== 'string' || !path.isAbsolute(configPath)) fail('Native host config path must be absolute.', 'INVALID_CONFIG');
   let parsed;
   try {
@@ -100,10 +129,23 @@ export async function loadNativeHostConfig(configPath) {
   if (typeof parsed.workspaceRoot !== 'string' || !path.isAbsolute(parsed.workspaceRoot)) fail('workspaceRoot must be absolute.', 'INVALID_CONFIG');
   if (typeof parsed.image !== 'string' || !IMAGE_PATTERN.test(parsed.image)) fail('image must be a local sha256 image id.', 'INVALID_CONFIG');
   if (typeof parsed.dockerPath !== 'string' || !path.isAbsolute(parsed.dockerPath)) fail('dockerPath must be absolute.', 'INVALID_CONFIG');
-  const canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
-  await assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath: parsed.dockerPath });
+  const fullAccessUntil = await readFullAccessLease({ home, now });
+  let canonicalRoot;
+  let masks = [];
+  if (fullAccessUntil !== null) {
+    canonicalRoot = await realpath(home).catch(() => fail('Home folder cannot be resolved.', 'INVALID_CONFIG'));
+    masks = await buildFullAccessMasks(canonicalRoot, home);
+  } else {
+    canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
+    await assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath: parsed.dockerPath, home });
+  }
   const runtimeToken = createHash('sha256').update(`${parsed.image}\0${canonicalRoot}`).digest('hex');
-  return Object.freeze({ ...parsed, canonicalRoot, runtimeToken });
+  return Object.freeze({ ...parsed, canonicalRoot, runtimeToken, fullAccessUntil, masks: Object.freeze(masks) });
+}
+
+// `--mount` is parsed as CSV: a field containing a comma or quote must be quoted.
+function mountSpec(fields) {
+  return fields.map((field) => (/[",]/.test(field) ? `"${field.replaceAll('"', '""')}"` : field)).join(',');
 }
 
 export function buildDockerInvocation(config, request, {
@@ -122,7 +164,10 @@ export function buildDockerInvocation(config, request, {
     '--user', `${uid}:${gid}`,
     '--env', 'HOME=/tmp',
     '--env', `WEBMCP_RUNTIME_TOKEN=${config.runtimeToken}`,
-    '--mount', `type=bind,src=${config.canonicalRoot},dst=/workspace,bind-recursive=disabled`,
+    '--mount', mountSpec(['type=bind', `src=${config.canonicalRoot}`, 'dst=/workspace', 'bind-recursive=disabled']),
+    ...(config.masks ?? []).flatMap((mask) => ['--mount', mask.type === 'directory'
+      ? mountSpec(['type=tmpfs', `dst=${mask.destination}`, 'readonly', 'tmpfs-mode=000'])
+      : mountSpec(['type=bind', 'src=/dev/null', `dst=${mask.destination}`, 'readonly'])]),
     config.image,
     'node', '/opt/webmcp/native/bin/start.js',
   ];
@@ -160,11 +205,27 @@ function mapContainerResponse(request, response) {
   return { version: 1, id: request.id, ok: true, result: result?.structuredContent ?? result };
 }
 
-export async function dispatchNativeRequest(request, config, {
+// macOS privacy protection (TCC) can stop Docker from even opening some home paths,
+// e.g. ~/Library/Cookies. Docker then refuses to mount a mask there, which also proves
+// the container cannot read that path, so only that mask is dropped and the call retried.
+export async function dispatchNativeRequest(request, config, options = {}) {
+  validateNativeRequest(request);
+  let current = config;
+  for (;;) {
+    try {
+      return await runContainer(request, current, options);
+    } catch (error) {
+      const blocked = error?.unmountableMask;
+      if (!blocked || !current.masks?.some((mask) => mask.destination === blocked)) throw error;
+      current = { ...current, masks: current.masks.filter((mask) => mask.destination !== blocked) };
+    }
+  }
+}
+
+function runContainer(request, config, {
   spawnImpl = spawn,
   execFileImpl = execFileAsync,
 } = {}) {
-  validateNativeRequest(request);
   const invocation = buildDockerInvocation(config, request);
   return new Promise((resolve, reject) => {
     const child = spawnImpl(invocation.command, invocation.args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -204,7 +265,10 @@ export async function dispatchNativeRequest(request, config, {
         const raw = Buffer.concat(stderr).toString('utf8').slice(0, 4096);
         let message = 'Isolated runtime failed.';
         try { message = sanitizeLogText(raw || message); } catch {}
-        finish(reject, new NativeHostError(message, 'RUNTIME_FAILED'));
+        const error = new NativeHostError(message, 'RUNTIME_FAILED');
+        const blocked = raw.match(/error mounting "[^"]*" to rootfs at "(\/workspace\/[^"]+)"[\s\S]*?operation not permitted/i);
+        if (blocked) error.unmountableMask = blocked[1];
+        finish(reject, error);
         return;
       }
       const line = Buffer.concat(stdout).toString('utf8').trim();

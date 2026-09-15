@@ -134,3 +134,11 @@ test('switching away right after sending the task still resumes the first tool c
   assert.deepEqual(background.nativeCalls.map((call) => call.id), ['p2_open']);
 });
 
+
+test('local settings controls are relayed only from the popup', async () => {
+  const background = await loadBackground();
+  assert.equal(await background.send({ type: 'settings.control', control: 'grant-full-access', arguments: { minutes: 60 } }, background.from(A)), undefined);
+  assert.equal(background.nativeCalls.length, 0);
+  await background.send({ type: 'settings.control', control: 'status' }, POPUP);
+  assert.deepEqual(background.nativeCalls.map((call) => call.control), ['status']);
+});

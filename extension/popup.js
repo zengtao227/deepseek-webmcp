@@ -1,33 +1,92 @@
-const workButton = document.querySelector('#work');
-const summaryElement = document.querySelector('#summary');
-const statusElement = document.querySelector('#status');
+const $ = (selector) => document.querySelector(selector);
+let fullAccessUntil = null;
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tab;
 }
 
-async function refresh() {
+const control = (name, args) => chrome.runtime.sendMessage({ type: 'settings.control', control: name, arguments: args });
+
+function showMessage(text) {
+  $('#message').textContent = text;
+}
+
+function renderFullAccess() {
+  const active = fullAccessUntil !== null && fullAccessUntil > Date.now();
+  $('#full-off').hidden = active;
+  $('#full-on').hidden = !active;
+  if (active) {
+    const seconds = Math.round((fullAccessUntil - Date.now()) / 1000);
+    $('#full-active').textContent = `Active — ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} left`;
+  }
+}
+
+function applySettings(response) {
+  if (!response?.ok) {
+    $('#folder').textContent = 'Local runtime not reachable';
+    showMessage(response?.error?.message ?? 'Local runtime not reachable.');
+    return;
+  }
+  $('#folder').textContent = response.result.folder;
+  $('#folder').title = response.result.folder;
+  fullAccessUntil = response.result.fullAccessUntil;
+  renderFullAccess();
+}
+
+async function refreshWork() {
   const tab = await activeTab();
   if (!tab?.id || !tab.url?.startsWith('https://chat.deepseek.com/')) {
-    workButton.disabled = true;
-    summaryElement.textContent = 'Open chat.deepseek.com in this tab first.';
+    $('#work').disabled = true;
+    $('#summary').textContent = 'Open chat.deepseek.com in this tab to use Work.';
     return;
   }
   const result = await chrome.runtime.sendMessage({ type: 'work.ui-status', tabId: tab.id });
   const on = result?.status?.work === true;
-  workButton.disabled = false;
-  workButton.classList.toggle('on', on);
-  workButton.textContent = on ? 'Working — click to stop' : 'Work';
-  summaryElement.textContent = on ? `Tool calls in this tab: ${result.status.calls}` : 'Off for this tab.';
-  statusElement.textContent = JSON.stringify(result, null, 2);
+  $('#work').disabled = false;
+  $('#work').classList.toggle('on', on);
+  $('#work').textContent = on ? 'Working — click to stop' : 'Work';
+  $('#summary').textContent = on ? `Tool calls in this tab: ${result.status.calls}` : 'Off for this tab. Turn on, then type your task normally.';
+  $('#status').textContent = JSON.stringify(result, null, 2);
 }
 
-workButton.addEventListener('click', async () => {
+$('#work').addEventListener('click', async () => {
   const tab = await activeTab();
   if (tab?.id) await chrome.runtime.sendMessage({ type: 'work.ui-toggle', tabId: tab.id });
-  await refresh();
+  await refreshWork();
 });
 
-await refresh();
-setInterval(() => void refresh(), 1000);
+// macOS dialogs take focus and may close this popup; the background finishes the
+// request and the popup shows the result when it is opened again.
+$('#choose').addEventListener('click', async () => {
+  showMessage('Choose a folder in the macOS dialog…');
+  const response = await control('choose-folder');
+  applySettings(response);
+  if (response?.ok) showMessage(response.result.changed ? 'Folder changed.' : '');
+});
+
+$('#grant').addEventListener('click', async () => {
+  showMessage('Confirm in the macOS dialog…');
+  const response = await control('grant-full-access', { minutes: Number($('#minutes').value) });
+  applySettings(response);
+  if (response?.ok) showMessage(response.result.changed ? 'Full access is on.' : 'Not changed.');
+});
+
+$('#stop').addEventListener('click', async () => {
+  applySettings(await control('stop-full-access'));
+  showMessage('Back to the folder.');
+});
+
+$('#uninstall').addEventListener('click', async () => {
+  showMessage('Confirm in the macOS dialog…');
+  const response = await control('uninstall');
+  if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
+  else showMessage(response?.ok ? 'Not uninstalled.' : (response?.error?.message ?? 'Uninstall failed.'));
+});
+
+await refreshWork();
+applySettings(await control('status'));
+setInterval(() => {
+  void refreshWork();
+  renderFullAccess();
+}, 1000);

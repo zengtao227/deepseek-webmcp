@@ -1,28 +1,24 @@
 #!/usr/bin/env node
-// Removes only what setup created. The project folder you worked on is never touched.
+// Removes what setup created. The folders you worked on are never touched. The popup's
+// Uninstall… button does the same and also deletes a program folder made by install.sh.
 import { execFile } from 'node:child_process';
 import { rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { HOST_NAME, IMAGE_TAG, browserProfileRoots, manifestDirFor, stateDir } from '../native/host/local-paths.js';
 
 const execFileAsync = promisify(execFile);
-const home = os.homedir();
-const targets = [
-  path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.deepseek.webmcp.native.json'),
-  path.join(home, '.deepseek-webmcp'),
-];
 
-for (const target of targets) {
-  await rm(target, { recursive: true, force: true });
-  process.stdout.write(`removed ${target}\n`);
+for (const root of browserProfileRoots()) {
+  await rm(path.join(manifestDirFor(root), `${HOST_NAME}.json`), { force: true });
 }
-
+process.stdout.write('removed browser registrations\n');
+await rm(stateDir(), { recursive: true, force: true });
+process.stdout.write(`removed ${stateDir()}\n`);
 try {
-  await execFileAsync('docker', ['image', 'rm', 'deepseek-webmcp-p2:dev'], { timeout: 60_000 });
-  process.stdout.write('removed Docker image deepseek-webmcp-p2:dev\n');
+  await execFileAsync('docker', ['image', 'rm', IMAGE_TAG], { timeout: 60_000 });
+  process.stdout.write(`removed Docker image ${IMAGE_TAG}\n`);
 } catch {
-  process.stdout.write('Docker image deepseek-webmcp-p2:dev not removed (already gone, or Docker is not running)\n');
+  process.stdout.write(`Docker image ${IMAGE_TAG} not removed (already gone, or Docker is not running)\n`);
 }
-
-process.stdout.write('\nLast step: chrome://extensions → DeepSeek WebMCP → Remove. You can then delete this folder.\n');
+process.stdout.write('\nLast step: remove DeepSeek WebMCP in chrome://extensions. You can then delete this folder.\n');

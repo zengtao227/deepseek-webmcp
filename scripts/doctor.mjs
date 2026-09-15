@@ -8,11 +8,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { dispatchNativeRequest, loadNativeHostConfig } from '../native/host/docker-dispatch.js';
+import { HOST_NAME, installedBrowserProfileRoots, manifestDirFor } from '../native/host/local-paths.js';
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = path.join(os.homedir(), '.deepseek-webmcp', 'p2-native-config.json');
-const manifestPath = path.join(os.homedir(), 'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.deepseek.webmcp.native.json');
 let failed = false;
 
 async function check(label, run, hint) {
@@ -44,14 +44,17 @@ await check('runtime image', async () => {
   return config.image.slice(0, 19);
 }, 'Run setup again to rebuild the image.');
 
-await check('Chrome Native Messaging manifest', async () => {
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const extension = JSON.parse(await readFile(path.join(projectRoot, 'extension/manifest.json'), 'utf8'));
-  const digest = createHash('sha256').update(Buffer.from(extension.key, 'base64')).digest('hex').slice(0, 32);
-  const id = [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('');
-  if (!manifest.allowed_origins?.includes(`chrome-extension://${id}/`)) throw new Error(`does not allow extension ${id}`);
-  return `extension ${id}`;
-}, 'Run setup again.');
+const extension = JSON.parse(await readFile(path.join(projectRoot, 'extension/manifest.json'), 'utf8'));
+const digest = createHash('sha256').update(Buffer.from(extension.key, 'base64')).digest('hex').slice(0, 32);
+const extensionId = [...digest].map((nibble) => String.fromCharCode(97 + Number.parseInt(nibble, 16))).join('');
+for (const root of await installedBrowserProfileRoots()) {
+  const browser = path.relative(path.join(os.homedir(), 'Library/Application Support'), root);
+  await check(`${browser} registration`, async () => {
+    const manifest = JSON.parse(await readFile(path.join(manifestDirFor(root), `${HOST_NAME}.json`), 'utf8'));
+    if (!manifest.allowed_origins?.includes(`chrome-extension://${extensionId}/`)) throw new Error(`does not allow extension ${extensionId}`);
+    return `extension ${extensionId}`;
+  }, 'Run setup again (browsers installed after setup need it).');
+}
 
 await check('isolated runtime answers open_workspace', async () => {
   if (!config) throw new Error('no config');

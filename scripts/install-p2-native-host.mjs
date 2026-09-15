@@ -6,17 +6,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertWorkspaceOutsideControlPlane } from '../native/host/docker-dispatch.js';
+import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const HOST_NAME = 'com.deepseek.webmcp.native';
 const EXTENSION_ID = /^[a-p]{32}$/;
 const IMAGE_ID = /^sha256:[0-9a-f]{64}$/i;
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function usage(message) {
   if (message) process.stderr.write(`${message}\n\n`);
-  process.stderr.write('Usage: npm run setup -- --workspace <absolute project directory> [--extension-id <id>] [--image <sha256:id>]\n');
+  process.stderr.write('Usage: npm run setup [-- --workspace <absolute folder>] [--extension-id <id>] [--image <sha256:id>]\n');
   process.exit(2);
 }
 
@@ -31,7 +31,7 @@ function parseArgs(argv) {
     else usage(`Unknown option: ${arg}`);
   }
   if (options.extensionId !== null && !EXTENSION_ID.test(options.extensionId)) usage('Invalid Chrome extension id.');
-  if (!options.workspace || !path.isAbsolute(options.workspace)) usage('--workspace must be an absolute host path.');
+  if (options.workspace !== null && !path.isAbsolute(options.workspace)) usage('--workspace must be an absolute host path.');
   if (options.image !== null && !IMAGE_ID.test(options.image)) usage('--image must be a sha256 image id.');
   return options;
 }
@@ -79,7 +79,7 @@ async function sourceDigest() {
 
 async function buildImage(dockerPath) {
   const digest = await sourceDigest();
-  const tag = 'deepseek-webmcp-p2:dev';
+  const tag = IMAGE_TAG;
   await execFileAsync(dockerPath, [
     'build',
     '--build-arg', 'WEBMCP_NODE_IMAGE=node:22-bookworm-slim',
@@ -104,24 +104,39 @@ function shellQuote(value) {
 const options = parseArgs(process.argv.slice(2));
 if (process.platform !== 'darwin') throw new Error('DeepSeek WebMCP setup currently supports macOS with Google Chrome only.');
 
-const workspaceRoot = await realpath(options.workspace).catch(() => usage(`Workspace directory not found: ${options.workspace}`));
+const home = os.homedir();
+const stateDir = defaultStateDir(home);
+const configPath = defaultConfigPath(home);
+
+// Folder: explicit option, else the folder chosen last time, else ask once with the
+// macOS folder dialog. Later changes happen in the extension popup (Other…).
+async function chooseWorkspace() {
+  if (options.workspace) return options.workspace;
+  try {
+    return JSON.parse(await readFile(configPath, 'utf8')).workspaceRoot;
+  } catch {}
+  process.stdout.write('Choose the folder DeepSeek WebMCP may read and change (you can change it later in the extension).\n');
+  const { stdout } = await execFileAsync('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change")'], { encoding: 'utf8' })
+    .catch(() => usage('No folder chosen.'));
+  return stdout.trim();
+}
+
+const requestedWorkspace = await chooseWorkspace();
+const workspaceRoot = await realpath(requestedWorkspace).catch(() => usage(`Workspace directory not found: ${requestedWorkspace}`));
 const dockerPath = await which('docker').catch(() => {
   throw new Error('Docker was not found. Install Docker Desktop for Mac first: https://www.docker.com/products/docker-desktop/');
 });
 await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
-const home = os.homedir();
-const stateDir = path.join(home, '.deepseek-webmcp');
-const configPath = path.join(stateDir, 'p2-native-config.json');
 await assertWorkspaceOutsideControlPlane(workspaceRoot, { configPath, dockerPath });
 const image = options.image ?? await buildImage(dockerPath);
 const launcherPath = path.join(stateDir, 'p2-native-host');
-const manifestDir = path.join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts');
-const manifestPath = path.join(manifestDir, `${HOST_NAME}.json`);
+const browserRoots = await installedBrowserProfileRoots(home);
+if (browserRoots.length === 0) browserRoots.push(path.join(home, 'Library/Application Support/Google/Chrome'));
+const manifestPaths = browserRoots.map((root) => path.join(manifestDirFor(root), `${HOST_NAME}.json`));
 const hostScript = path.join(projectRoot, 'native/host/chrome-host.js');
 
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
-await mkdir(manifestDir, { recursive: true });
 await writeFile(configPath, `${JSON.stringify({ workspaceRoot, image, dockerPath }, null, 2)}\n`, { mode: 0o600 });
 await chmod(configPath, 0o600);
 await writeFile(launcherPath, [
@@ -131,19 +146,22 @@ await writeFile(launcherPath, [
   '',
 ].join('\n'), { mode: 0o755 });
 await chmod(launcherPath, 0o755);
-await writeFile(manifestPath, `${JSON.stringify({
-  name: HOST_NAME,
-  description: 'DeepSeek WebMCP isolated local runtime',
-  path: launcherPath,
-  type: 'stdio',
-  allowed_origins: [`chrome-extension://${extensionId}/`],
-}, null, 2)}\n`);
+for (const manifestPath of manifestPaths) {
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify({
+    name: HOST_NAME,
+    description: 'DeepSeek WebMCP isolated local runtime',
+    path: launcherPath,
+    type: 'stdio',
+    allowed_origins: [`chrome-extension://${extensionId}/`],
+  }, null, 2)}\n`);
+}
 
 process.stdout.write(`${JSON.stringify({
   installed: true,
   extensionDirectory: path.join(projectRoot, 'extension'),
   host: HOST_NAME,
-  manifestPath,
+  browsers: browserRoots.map((root) => path.relative(path.join(home, 'Library/Application Support'), root)),
   launcherPath,
   configPath,
   workspaceRoot,
@@ -154,8 +172,8 @@ process.stdout.write(`${JSON.stringify({
 process.stdout.write([
   '',
   'Next:',
-  `1. Chrome → chrome://extensions → enable Developer mode → Load unpacked → ${path.join(projectRoot, 'extension')}`,
-  '   (already loaded? click its reload icon, then reload open DeepSeek tabs)',
+  `1. In your browser open chrome://extensions, turn on Developer mode, and drag this folder onto the page: ${path.join(projectRoot, 'extension')}`,
+  '   (already loaded? click its reload icon, then close and reopen DeepSeek tabs)',
   '2. Check the install: npm run doctor',
   '',
 ].join('\n'));

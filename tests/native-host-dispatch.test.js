@@ -92,3 +92,131 @@ test('host refuses a writable workspace that contains its own control plane', as
     await assert.rejects(loadNativeHostConfig(configPath), { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' }, label);
   }
 });
+
+test('Full access mounts the home folder with control-plane and credential paths hidden, only while the lease is valid', async () => {
+  const { mkdir } = await import('node:fs/promises');
+  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-home-'));
+  const project = path.join(home, 'projects', 'app');
+  await mkdir(project, { recursive: true });
+  await mkdir(path.join(home, '.ssh'));
+  await mkdir(path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts'), { recursive: true });
+  await mkdir(path.join(home, '.deepseek-webmcp'));
+  await mkdir(path.join(home, 'Notes, 2026'));
+  await writeFile(path.join(home, '.zshrc'), 'export SECRET=1\n');
+  const configPath = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
+  await writeFile(configPath, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+
+  const folder = await loadNativeHostConfig(configPath, { home, now: 1000 });
+  assert.equal(folder.fullAccessUntil, null);
+  assert.equal(folder.canonicalRoot, await (await import('node:fs/promises')).realpath(project));
+  assert.deepEqual(folder.masks, []);
+
+  await writeFile(path.join(home, '.deepseek-webmcp', 'full-access.json'), JSON.stringify({ expiresAt: 5000 }));
+  const full = await loadNativeHostConfig(configPath, { home, now: 1000 });
+  assert.equal(full.fullAccessUntil, 5000);
+  const realHome = await (await import('node:fs/promises')).realpath(home);
+  assert.equal(full.canonicalRoot, realHome);
+  const mounts = buildDockerInvocation(full, request('read', { workspaceId: 'ws_x', path: 'x' }), { uid: 501, gid: 20, random: () => 'r' }).args
+    .filter((_, index, args) => args[index - 1] === '--mount');
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.ssh,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.deepseek-webmcp,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/Application Support/Comet,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=bind,src=/dev/null,dst=/workspace/.zshrc,readonly'));
+  assert.equal(mounts.some((mount) => mount.includes('Comet/NativeMessagingHosts')), false);
+  assert.equal(mounts.some((mount) => mount.includes('Notes, 2026')), false);
+
+  const expired = await loadNativeHostConfig(configPath, { home, now: 6000 });
+  assert.equal(expired.fullAccessUntil, null);
+  assert.deepEqual(expired.masks, []);
+});
+
+test('Docker --mount fields containing commas are CSV-quoted', () => {
+  const config = { dockerPath: '/usr/local/bin/docker', canonicalRoot: '/Users/a/My, Project', image: IMAGE, runtimeToken: 'b'.repeat(64), masks: [] };
+  const args = buildDockerInvocation(config, request('read', { workspaceId: 'ws_x', path: 'x' }), { uid: 501, gid: 20, random: () => 'r' }).args;
+  assert.ok(args.includes('type=bind,"src=/Users/a/My, Project",dst=/workspace,bind-recursive=disabled'));
+});
+
+test('tool and control envelopes are disjoint', async () => {
+  const { validateControlRequest } = await import('../native/host/control.js');
+  assert.throws(() => validateNativeRequest({ version: 1, id: 'x', tool: 'read', control: 'status', arguments: {} }), /unsupported field/i);
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'status', tool: 'read', arguments: {} }), /unsupported field/i);
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'bash', arguments: {} }), { code: 'CONTROL_NOT_ALLOWED' });
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 61 } }), { code: 'INVALID_DURATION' });
+  assert.equal(validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 30 } }).control, 'grant-full-access');
+});
+
+test('Full access and folder changes happen only after the macOS dialog is confirmed', async () => {
+  const { mkdir, readFile: read, realpath: real } = await import('node:fs/promises');
+  const { handleControlRequest } = await import('../native/host/control.js');
+  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-control-'));
+  const first = path.join(home, 'first');
+  const second = path.join(home, 'second');
+  await mkdir(first);
+  await mkdir(second);
+  const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
+  await mkdir(path.dirname(configFile));
+  await writeFile(configFile, JSON.stringify({ workspaceRoot: first, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+  const control = (name, args = {}, answer) => handleControlRequest(
+    { version: 1, id: 'c', control: name, arguments: args },
+    { home, configFile, now: 1000, exec: async () => { if (answer instanceof Error) throw answer; return { stdout: answer }; } },
+  );
+  const cancelled = Object.assign(new Error('cancel'), { stderr: 'execution error: User canceled. (-128)' });
+
+  assert.equal((await control('grant-full-access', { minutes: 30 }, cancelled)).result.fullAccessUntil, null);
+  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:true')).result.fullAccessUntil, null);
+  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:false')).result.fullAccessUntil, 1000 + 30 * 60_000);
+  assert.equal((await control('stop-full-access')).result.fullAccessUntil, null);
+
+  assert.equal((await control('choose-folder', {}, cancelled)).result.changed, false);
+  const chosen = await control('choose-folder', {}, `${second}/`);
+  assert.equal(chosen.result.folder, await real(second));
+  assert.equal(JSON.parse(await read(configFile, 'utf8')).workspaceRoot, await real(second));
+  await assert.rejects(control('choose-folder', {}, home), { code: 'INVALID_FOLDER' });
+});
+
+test('a mask Docker cannot open because of macOS privacy protection is dropped and the call retried; other failures are not', async () => {
+  const { dispatchNativeRequest } = await import('../native/host/docker-dispatch.js');
+  const { EventEmitter } = await import('node:events');
+  const attempts = [];
+  const spawnImpl = (command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    attempts.push(args.filter((_, index) => args[index - 1] === '--mount'));
+    child.stdin = {
+      end: () => setImmediate(() => {
+        const mounts = attempts.at(-1).join(' ');
+        if (mounts.includes('/workspace/Library/Cookies')) {
+          child.stderr.emit('data', Buffer.from('docker: error mounting "tmpfs" to rootfs at "/workspace/Library/Cookies": create mountpoint: openat2 /workspace/Library/Cookies: operation not permitted'));
+          child.emit('close', 125);
+          return;
+        }
+        if (mounts.includes('/workspace/.ssh')) {
+          child.stdout.emit('data', Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 'p2_call', result: { structuredContent: { result: 'ok' } } })));
+          child.emit('close', 0);
+        }
+      }),
+    };
+    return child;
+  };
+  const config = {
+    dockerPath: '/usr/local/bin/docker', canonicalRoot: '/Users/a', image: IMAGE, runtimeToken: 'b'.repeat(64),
+    masks: [{ type: 'directory', destination: '/workspace/.ssh' }, { type: 'directory', destination: '/workspace/Library/Cookies' }],
+  };
+  const response = await dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), config, { spawnImpl });
+  assert.equal(response.ok, true);
+  assert.equal(attempts.length, 2);
+  assert.ok(attempts[1].some((mount) => mount.includes('/workspace/.ssh')));
+
+  const noSshConfig = { ...config, masks: [{ type: 'directory', destination: '/workspace/Library/Cookies' }, { type: 'directory', destination: '/workspace/.aws' }] };
+  attempts.length = 0;
+  await assert.rejects(dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), { ...noSshConfig, masks: [{ type: 'directory', destination: '/workspace/.aws' }] }, {
+    spawnImpl: (command, args) => {
+      const child = spawnImpl(command, args);
+      child.stdin = { end: () => setImmediate(() => { child.stderr.emit('data', Buffer.from('some other docker failure')); child.emit('close', 125); }) };
+      return child;
+    },
+  }), { code: 'RUNTIME_FAILED' });
+  assert.equal(attempts.length, 1);
+});

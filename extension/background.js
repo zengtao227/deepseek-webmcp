@@ -1,5 +1,5 @@
 import { WorkController, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
-import { callNativeTool, isToolAllowed } from './native-client.js';
+import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
 
 const ORIGIN = 'https://chat.deepseek.com';
 const AUTHORITY_PREFIX = 'work.authority.';
@@ -161,6 +161,21 @@ async function recordContinuation(tabId, key, result) {
   await setDiagnostics(tabId, { ...stored, continuation });
 }
 
+async function runControl(control, args) {
+  const allowedArgs = control === 'grant-full-access' ? { minutes: Number(args?.minutes) } : {};
+  let response;
+  try {
+    response = await callNativeControl(control, allowedArgs);
+  } catch (error) {
+    return { ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: 'Local runtime not reachable. Run the install command again.' } };
+  }
+  if (control === 'uninstall' && response.ok && response.result?.uninstalled) {
+    // The local side is gone; remove the extension too (no extra permission for self).
+    setTimeout(() => chrome.management.uninstallSelf({ showConfirmDialog: false }).catch(() => {}), 500);
+  }
+  return response;
+}
+
 // The conversation key must come from `sender.tab.url`, the same browser-side
 // last committed URL that tabs.get and tabs.onUpdated report. `sender.url` is the
 // content script's ScriptContext URL fixed at injection (Chromium
@@ -208,7 +223,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     return recordContinuation(context.tabId, `${ORIGIN}${message.conversationPath}`, message.result).then(() => ({ ok: true }));
   }
 
-  if (!isPopup(sender) || !Number.isInteger(message.tabId)) return undefined;
+  if (!isPopup(sender)) return undefined;
+  if (message.type === 'settings.control' && typeof message.control === 'string') return runControl(message.control, message.arguments);
+  if (!Number.isInteger(message.tabId)) return undefined;
   if (message.type === 'work.ui-status') {
     const key = diagnosticsKey(message.tabId);
     return Promise.all([statusFor(message.tabId), chrome.storage.session.get(key)]).then(([status, stored]) => ({

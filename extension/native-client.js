@@ -55,3 +55,21 @@ export async function callNativeTool(call) {
   }
   return response;
 }
+
+const CONTROLS = new Set(['status', 'choose-folder', 'grant-full-access', 'stop-full-access', 'uninstall']);
+
+// Owner settings from the popup; never reachable from page content or model output.
+export async function callNativeControl(control, args = {}) {
+  if (!CONTROLS.has(control)) throw new NativeClientError('Unknown control request.', 'CONTROL_NOT_ALLOWED');
+  const id = `control_${Date.now()}`;
+  let response;
+  try {
+    response = await chrome.runtime.sendNativeMessage(HOST_NAME, { version: 1, id, control, arguments: args });
+  } catch (error) {
+    throw new NativeClientError(error?.message || 'Native Messaging failed.', 'NATIVE_MESSAGING_FAILED');
+  }
+  if (!response || response.version !== 1 || response.id !== id || typeof response.ok !== 'boolean') {
+    throw new NativeClientError('Native host returned an invalid response.', 'INVALID_NATIVE_RESPONSE');
+  }
+  return response;
+}

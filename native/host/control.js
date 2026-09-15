@@ -1,0 +1,167 @@
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { HOST_CODE_ROOT, NativeHostError, assertWorkspaceOutsideControlPlane, readFullAccessLease } from './docker-dispatch.js';
+import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, browserProfileRoots, configPath as defaultConfigPath, leasePath, manifestDirFor, stateDir } from './local-paths.js';
+
+const execFileAsync = promisify(execFile);
+const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const CONTROL_ARGUMENTS = new Map([
+  ['status', new Set()],
+  ['choose-folder', new Set()],
+  ['grant-full-access', new Set(['minutes'])],
+  ['stop-full-access', new Set()],
+  ['uninstall', new Set()],
+]);
+const DIALOG_SECONDS = 120;
+const EXPECTED_REPOSITORY = /github\.com[:/]zengtao227\/deepseek-webmcp(\.git)?$/;
+
+function fail(message, code) {
+  throw new NativeHostError(message, code);
+}
+
+function exactObject(value, allowedKeys, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object.`, 'INVALID_REQUEST');
+  for (const key of Object.keys(value)) {
+    if (FORBIDDEN_KEYS.has(key) || !allowedKeys.has(key)) fail(`${label} contains unsupported field: ${key}`, 'INVALID_REQUEST');
+  }
+}
+
+// Owner settings are a separate envelope (`control`) from model tool calls (`tool`);
+// each validator rejects the other's discriminator, so they can never be confused.
+export function validateControlRequest(request) {
+  exactObject(request, new Set(['version', 'id', 'control', 'arguments']), 'request');
+  if (request.version !== 1) fail('Unsupported native protocol version.', 'INVALID_VERSION');
+  if (typeof request.id !== 'string' || !ID_PATTERN.test(request.id)) fail('Invalid request id.', 'INVALID_ID');
+  const allowed = CONTROL_ARGUMENTS.get(request.control);
+  if (!allowed) fail('Unknown control request.', 'CONTROL_NOT_ALLOWED');
+  exactObject(request.arguments, allowed, 'arguments');
+  if (request.control === 'grant-full-access') {
+    const { minutes } = request.arguments;
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) fail('minutes must be an integer from 1 to 60.', 'INVALID_DURATION');
+  }
+  return request;
+}
+
+function appleScriptString(value) {
+  return `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+// Every authority change needs a click in a real macOS dialog on this Mac; a page or
+// the model can at most make a dialog appear.
+async function runAppleScript(script, { exec = execFileAsync } = {}) {
+  try {
+    const { stdout } = await exec('/usr/bin/osascript', ['-e', script], { encoding: 'utf8', timeout: (DIALOG_SECONDS + 10) * 1000 });
+    return stdout.trim();
+  } catch (error) {
+    if (/-128|User canceled/i.test(`${error?.stderr ?? ''}${error?.message ?? ''}`)) return null;
+    throw new NativeHostError('The macOS dialog could not be shown.', 'DIALOG_FAILED');
+  }
+}
+
+async function confirm(message, button, options) {
+  const answer = await runAppleScript(
+    `display dialog ${appleScriptString(message)} with title "DeepSeek WebMCP" buttons {"Cancel", ${appleScriptString(button)}} default button "Cancel" cancel button "Cancel" with icon caution giving up after ${DIALOG_SECONDS}`,
+    options,
+  );
+  return typeof answer === 'string' && answer.includes(`button returned:${button}`) && !answer.includes('gave up:true');
+}
+
+async function readConfig(file) {
+  return JSON.parse(await readFile(file, 'utf8'));
+}
+
+async function writeJsonAtomic(file, value) {
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  await rename(temporary, file);
+}
+
+async function status({ home, configFile, now }) {
+  const config = await readConfig(configFile);
+  return { folder: config.workspaceRoot, fullAccessUntil: await readFullAccessLease({ home, now }) };
+}
+
+async function chooseFolder({ home, configFile, now, exec }) {
+  const config = await readConfig(configFile);
+  const picked = await runAppleScript(
+    `POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change" default location (POSIX file ${appleScriptString(config.workspaceRoot)}))`,
+    { exec },
+  );
+  if (picked === null) return { changed: false, ...(await status({ home, configFile, now })) };
+  const folder = await realpath(picked).catch(() => fail('The chosen folder cannot be resolved.', 'INVALID_FOLDER'));
+  if (!(await stat(folder)).isDirectory()) fail('Please choose a folder.', 'INVALID_FOLDER');
+  if (folder === await realpath(home)) fail('For the whole home folder use Full access instead.', 'INVALID_FOLDER');
+  await assertWorkspaceOutsideControlPlane(folder, { configPath: configFile, dockerPath: config.dockerPath, home });
+  await writeJsonAtomic(configFile, { ...config, workspaceRoot: folder });
+  return { changed: true, ...(await status({ home, configFile, now })) };
+}
+
+async function grantFullAccess({ home, configFile, now, exec }, { minutes }) {
+  const allowed = await confirm(
+    `Allow DeepSeek to read and change everything in your home folder for ${minutes} minutes?\n\nDeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek. Network stays off.`,
+    'Allow',
+    { exec },
+  );
+  if (allowed) await writeJsonAtomic(leasePath(home), { expiresAt: now + minutes * 60_000 });
+  return { changed: allowed, ...(await status({ home, configFile, now })) };
+}
+
+async function stopFullAccess({ home, configFile, now }) {
+  await rm(leasePath(home), { force: true });
+  return { changed: true, ...(await status({ home, configFile, now })) };
+}
+
+async function isInstalledCodeFolder(folder, exec) {
+  if (!(await stat(path.join(folder, INSTALL_MARKER)).then(() => true, () => false))) return false;
+  try {
+    const { stdout } = await exec('/usr/bin/git', ['-C', folder, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', timeout: 10_000 });
+    return EXPECTED_REPOSITORY.test(stdout.trim());
+  } catch {
+    return false;
+  }
+}
+
+async function uninstall({ home, configFile, exec }) {
+  const allowed = await confirm(
+    'Uninstall DeepSeek WebMCP?\n\nThis removes the local runtime, its settings, the Docker image, the browser registrations and the DeepSeek WebMCP program folder. Your project folders are not touched.',
+    'Uninstall',
+    { exec },
+  );
+  if (!allowed) return { uninstalled: false };
+  let dockerPath = 'docker';
+  try { dockerPath = (await readConfig(configFile)).dockerPath; } catch {}
+  for (const root of browserProfileRoots(home)) {
+    await rm(path.join(manifestDirFor(root), `${HOST_NAME}.json`), { force: true });
+  }
+  try { await exec(dockerPath, ['image', 'rm', IMAGE_TAG], { encoding: 'utf8', timeout: 60_000 }); } catch {}
+  await rm(stateDir(home), { recursive: true, force: true });
+  // Only a folder created by install.sh from this repository is deleted; a developer
+  // checkout (no marker) is left alone.
+  const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT, exec);
+  if (removeCode) await rm(HOST_CODE_ROOT, { recursive: true, force: true });
+  return { uninstalled: true, removedProgramFolder: removeCode };
+}
+
+export async function handleControlRequest(request, {
+  home = os.homedir(),
+  configFile = defaultConfigPath(home),
+  now = Date.now(),
+  exec = execFileAsync,
+} = {}) {
+  validateControlRequest(request);
+  const context = { home, configFile, now, exec };
+  const handlers = {
+    status: () => status(context),
+    'choose-folder': () => chooseFolder(context),
+    'grant-full-access': () => grantFullAccess(context, request.arguments),
+    'stop-full-access': () => stopFullAccess(context),
+    uninstall: () => uninstall(context),
+  };
+  const result = await handlers[request.control]();
+  return { version: 1, id: request.id, ok: true, result };
+}

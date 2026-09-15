@@ -5,17 +5,45 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DeepSeek WebMCP</title>
   <style>
-    body { font: 13px system-ui, sans-serif; width: 300px; margin: 14px; }
-    #work { width: 100%; padding: 10px; font-size: 15px; font-weight: 600; border-radius: 8px; border: 1px solid #999; cursor: pointer; }
+    body { font: 13px system-ui, sans-serif; width: 310px; margin: 14px; }
+    button { cursor: pointer; }
+    #work { width: 100%; padding: 10px; font-size: 15px; font-weight: 600; border-radius: 8px; border: 1px solid #999; }
     #work.on { background: #1a7f37; color: #fff; border-color: #1a7f37; }
-    .note { color: #555; margin: 8px 0; }
-    details pre { white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; font-size: 11px; }
+    .note { color: #555; margin: 6px 0; }
+    section { border-top: 1px solid #ddd; margin-top: 10px; padding-top: 8px; }
+    .label { font-weight: 600; margin-bottom: 4px; }
+    .row { display: flex; gap: 6px; align-items: center; }
+    #folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+    #full-active { color: #b35900; font-weight: 600; }
+    #uninstall { color: #a40e26; background: none; border: none; padding: 0; }
+    details pre { white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; font-size: 11px; }
   </style>
 </head>
 <body>
   <button id="work" disabled>Work</button>
   <p id="summary" class="note">Loading…</p>
-  <p class="note">Shortcut: ⌥⇧W. In a new chat the tool instructions are filled in; add your task and press Enter.</p>
+
+  <section>
+    <div class="label">Folder</div>
+    <div class="row"><span id="folder" class="note">…</span><button id="choose">Other…</button></div>
+  </section>
+
+  <section>
+    <div class="label">Full access (home folder)</div>
+    <div id="full-off" class="row">
+      <select id="minutes"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="15">15 minutes</option></select>
+      <button id="grant">Allow…</button>
+    </div>
+    <div id="full-on" class="row" hidden><span id="full-active"></span><button id="stop">Stop</button></div>
+  </section>
+
+  <section class="row">
+    <span class="note">Shortcut ⌥⇧W</span>
+    <span style="flex:1"></span>
+    <button id="uninstall">Uninstall…</button>
+  </section>
+
+  <p id="message" class="note"></p>
   <details>
     <summary>Diagnostics</summary>
     <pre id="status"></pre>
