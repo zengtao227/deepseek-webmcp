@@ -14,6 +14,8 @@ Status: **PASS in the owner's real macOS Google Chrome and Comet + Docker enviro
 | Popup Folder / Other… (macOS folder dialog) | PASS (Chrome) |
 | Popup Full access: dialog, countdown, Stop hides the countdown | PASS (Chrome) |
 | Comet: popup reaches the local runtime; Work + tool calls answer correctly | PASS (Comet, Chromium 141) |
+| DSML native tool syntax → format correction | automated tests only (not reproduced live after the fix) |
+| Uninstall finished message (macOS dialog) | automated tests only (fake notifier) |
 | One-line install from GitHub `main` into `~/deepseek-webmcp`; `npm run doctor` all OK | PASS |
 | Popup Uninstall: program folder, settings, Docker image, all 7 browser registrations removed; extension removed itself; dev checkout and fixture untouched | PASS |
 
@@ -25,10 +27,10 @@ Status: **PASS in the owner's real macOS Google Chrome and Comet + Docker enviro
 4. **Comet "Local runtime not reachable".** The native host answered `ok:true` (launch log), but every reply to the popup and content script arrived as `undefined`: returning a Promise from `runtime.onMessage` is supported only from Chrome 148, rolled out gradually (developer.chrome.com messaging guide). Replies now use `sendResponse` + `return true`; the test harness models pre-148 behavior. This also protects Chrome users who have not received the rollout.
 5. **Orphaned content script error** (`content.js:157`) after an extension reload with DeepSeek open: a synchronous `sendMessage` throw is now caught and ignored.
 6. **Popup rows never hid.** `.row { display: flex }` overrode the `hidden` attribute; `[hidden] { display: none !important }` added.
-7. **Uninstall showed no confirmation.** The popup closes behind the macOS dialog and the extension removes itself; the host now shows a detached macOS message when it finishes (not yet seen live). Install output no longer prints the next steps twice.
+7. **Uninstall showed no confirmation.** The popup closes behind the macOS dialog and the extension removes itself; the host now shows a detached macOS message when it finishes (not yet seen live). Install output no longer prints the next steps twice, and re-running the installer to update says to reload the extension and reopen DeepSeek tabs.
 
 ## Notes
 
 - DeepSeek's own "深度思考" (DeepThink) switch is remembered per browser; WebMCP reads only the final answer either way.
 - A second browser's copy of the extension (e.g. Comet) is not removed by Uninstall in another browser.
-- After acceptance the development install was restored from the dev checkout (`--workspace` = the P4 fixture); the fixture was not modified.
+- After acceptance the development install was restored from the dev checkout (`--workspace` = the P4 fixture); the fixture is still clean at `8508afa`.

@@ -29,7 +29,9 @@ if ! docker info >/dev/null 2>&1; then
   stop "Docker Desktop is not running. It is starting now; wait until it says it is running, then run this command again."
 fi
 
+UPDATE=0
 if [ -d "$DIR/.git" ]; then
+  UPDATE=1
   say "Updating $DIR"
   git -C "$DIR" pull --ff-only
 else
@@ -45,10 +47,15 @@ cd "$DIR"
 DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs
 
 say "Last step in the browser"
-echo "1. The browser extensions page and the 'extension' folder are opening."
-echo "2. Turn on Developer mode (top right), then drag the 'extension' folder onto the page."
-echo "3. Open chat.deepseek.com, click the DeepSeek WebMCP icon, click Work, and type your task."
-open -R "$DIR/extension" || true
+if [ "$UPDATE" = 1 ]; then
+  echo "1. On the browser extensions page, click the reload icon of DeepSeek WebMCP."
+  echo "2. Close and reopen your chat.deepseek.com tabs."
+else
+  echo "1. The browser extensions page and the 'extension' folder are opening."
+  echo "2. Turn on Developer mode (top right), then drag the 'extension' folder onto the page."
+  echo "3. Open chat.deepseek.com, click the DeepSeek WebMCP icon, click Work, and type your task."
+  open -R "$DIR/extension" || true
+fi
 for browser in "Google Chrome" "Comet"; do
   if open -Ra "$browser" >/dev/null 2>&1; then open -a "$browser" "chrome://extensions" >/dev/null 2>&1 || true; break; fi
 done
