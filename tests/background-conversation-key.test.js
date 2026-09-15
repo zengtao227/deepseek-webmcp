@@ -159,17 +159,17 @@ test('a DSML reply gets a format correction typed back, and nothing runs nativel
   assert.equal(background.nativeCalls.length, 0);
 });
 
-test('after the shared local program is gone, the popup says so and Uninstall removes only this extension', async () => {
+test('after the shared local program is gone, the popup is told so and the worker removes nothing itself', async () => {
+  // Removing the extension is left to the popup click: Chrome needs a user gesture for
+  // the uninstall dialog, and a call from the worker did nothing live.
   const background = await loadBackground({ nativeError: 'Specified native messaging host not found.' });
-  const status = await background.send({ type: 'settings.control', control: 'status' }, POPUP);
-  assert.equal(status.ok, false);
-  assert.equal(status.error.code, 'LOCAL_PROGRAM_MISSING');
-  assert.match(status.error.message, /shared by all browsers/);
+  for (const control of ['status', 'uninstall']) {
+    const reply = await background.send({ type: 'settings.control', control }, POPUP);
+    assert.equal(reply.ok, false);
+    assert.equal(reply.error.code, 'LOCAL_PROGRAM_MISSING');
+    assert.match(reply.error.message, /all browsers share it/);
+  }
   assert.deepEqual(background.selfUninstalls, []);
-
-  const uninstall = await background.send({ type: 'settings.control', control: 'uninstall' }, POPUP);
-  assert.deepEqual(uninstall.result, { uninstalled: true, localAlreadyRemoved: true });
-  assert.deepEqual(background.selfUninstalls, [{ showConfirmDialog: true }]);
 });
 
 test('other native failures never remove the extension', async () => {

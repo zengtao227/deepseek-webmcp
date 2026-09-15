@@ -22,9 +22,16 @@ function renderFullAccess() {
   }
 }
 
+// A browser extension cannot install the local program itself; the shortest way back
+// is the same one-line command the README shows.
+const INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/zengtao227/deepseek-webmcp/main/install.sh | bash';
+let localMissing = false;
+
 function applySettings(response) {
+  localMissing = response?.error?.code === 'LOCAL_PROGRAM_MISSING';
+  $('#copy-install').hidden = !localMissing;
   if (!response?.ok) {
-    $('#folder').textContent = response?.error?.code === 'LOCAL_PROGRAM_MISSING' ? 'Local program not installed' : 'Local runtime not reachable';
+    $('#folder').textContent = localMissing ? 'Local program not installed' : 'Local runtime not reachable';
     showMessage(response?.error?.message ?? 'Local runtime not reachable.');
     return;
   }
@@ -77,11 +84,23 @@ $('#stop').addEventListener('click', async () => {
   showMessage('Back to the folder.');
 });
 
+$('#copy-install').addEventListener('click', () => {
+  navigator.clipboard.writeText(INSTALL_COMMAND).then(
+    () => showMessage('Copied. Paste it into Terminal and press Enter.'),
+    () => showMessage(INSTALL_COMMAND),
+  );
+});
+
 $('#uninstall').addEventListener('click', async () => {
+  if (localMissing) {
+    // Nothing local is left to remove. Called before any await so it still runs inside
+    // this click (Chrome requires a user gesture for uninstall dialogs).
+    chrome.management.uninstallSelf({ showConfirmDialog: true }).catch(() => showMessage('The extension was not removed.'));
+    return;
+  }
   showMessage('Confirm in the macOS dialog…');
   const response = await control('uninstall');
-  if (response?.ok && response.result.localAlreadyRemoved) showMessage('The local program was already removed. Confirm removing this extension in the browser dialog.');
-  else if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
+  if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
   else showMessage(response?.ok ? 'Not uninstalled.' : (response?.error?.message ?? 'Uninstall failed.'));
 });
 
