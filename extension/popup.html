@@ -13,6 +13,8 @@
     section { border-top: 1px solid #ddd; margin-top: 10px; padding-top: 8px; }
     .label { font-weight: 600; margin-bottom: 4px; }
     .row { display: flex; gap: 6px; align-items: center; }
+    /* `.row { display: flex }` would otherwise override the hidden attribute. */
+    [hidden] { display: none !important; }
     #folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
     #full-active { color: #b35900; font-weight: 600; }
     #uninstall { color: #a40e26; background: none; border: none; padding: 0; }
