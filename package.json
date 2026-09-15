@@ -1,0 +1,17 @@
+{
+  "name": "deepseek-webmcp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local coding bridge proof for the free logged-in DeepSeek Web UI; no DeepSeek API key or Harness.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint": "node scripts/check-js.mjs",
+    "check": "npm run lint && npm test",
+    "p2:install": "node scripts/install-p2-native-host.mjs",
+    "p2:diagnose": "node scripts/diagnose-p2-native.mjs"
+  }
+}

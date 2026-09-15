@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DeepSeek WebMCP P2</title>
+  <style>
+    body { font: 13px system-ui, sans-serif; min-width: 320px; margin: 16px; }
+    button { margin-right: 8px; margin-bottom: 10px; }
+    pre { white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+    .note { color: #555; }
+  </style>
+</head>
+<body>
+  <strong>DeepSeek WebMCP P2</strong>
+  <p class="note">Local runtime: open_workspace, read, bash. P2 workspace is read-only.</p>
+  <div>
+    <button id="arm">Arm this conversation</button>
+    <button id="disarm">Disarm</button>
+  </div>
+  <pre id="status">Loading…</pre>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

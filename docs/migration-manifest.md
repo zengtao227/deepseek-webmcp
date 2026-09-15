@@ -1,0 +1,65 @@
+# Migration / provenance manifest
+
+Canonical source repository: `/workspace/My code/webmcp-bridge`
+Canonical source commit: `73249afc364b0ecb363c8a9db4462f91f938fe75`
+
+`webmcp-bridge-plus` is not a source; its relevant provider/browser files were verified identical to Base before this repository was created.
+
+## P0
+
+No production code migrated.
+
+## P1
+
+| Source path at `73249af` | Treatment | Status |
+| --- | --- | --- |
+| `extension/tool-loop/tool-call-format.js` | copied then trimmed to parser-only surface | migrated |
+| `tests/tool-call-format.test.js` | adapted to parser-only P1/P2 surface | migrated |
+| `extension/deepseek/page-adapter.js` | initially adapted; removed after DOM-first decision | removed |
+| `extension/deepseek/stream-accumulator.js` | initially adapted; removed after DOM-first decision | removed |
+| `extension/deepseek/event-controller.js` | reference only | not migrated |
+| `extension/deepseek/bridge.js` | trust-boundary reference only | not migrated |
+| `extension/mcp/*` | old remote HTTPS/OAuth MCP architecture rejected | not migrated |
+
+## P2 reused Base core
+
+The following provider-neutral Base mechanisms were deliberately reused. Files marked unchanged still match canonical Base byte-for-byte; adapted files have the original Base SHA recorded for provenance.
+
+| Base source path | Base SHA-256 | Target treatment |
+| --- | --- | --- |
+| `gateway/path-policy/index.js` | `5f3d1994328b42ac61d69fb7e778c2737a459ed6dcaff28db2dda65bea12f52b` | REUSE UNCHANGED |
+| `gateway/secret-scanner/index.js` | `db379b94372d9ddd93c6280c74c3e47ac50c54e85980ea1319de1acb5749e465` | REUSE UNCHANGED |
+| `native/src/server.js` | `b2acd4c74a926b883e5553c05adf0fb64c35b2c1c3f449b64ad354fee824d0d9` | REUSE UNCHANGED; P2 host blocks `write/edit` before container spawn |
+| `native/src/workspace.js` | `b67ea407b35b49678b6a4c836cdc7496fb1297d63750235e2be4a1446e005973` | REUSE/TRIM; provider-specific workspace instruction replaced with neutral P2 text |
+| `native/host/firewall.js` | `712d0ed3bb64f16e4eac5c81d5645f99f682c2f166b924a2d98e349526e0e2e8` | REUSE UNCHANGED |
+| `native/src/stdio.js` | `29681225f34da0358e131074c698992e8d2be744bd70764558a9aeea59daac3d` | REUSE UNCHANGED |
+| `native/bin/start.js` | `820bd99e993e22698178c79d50cf4d3acaf2ddc42d31130956f43dc163ac1022` | REUSE/TRIM; fixed runtime token from env + 30s runtime timeout |
+| `native/Dockerfile` | `64c4802472cdeea43b26b7a933f15b11cda48f7707759e885a6f8744f4d4d900` | REUSE UNCHANGED |
+
+Base tests for path policy, secret scanner, host firewall, native server, stdio, and workspace runtime were also ported/adapted into this repository and now run under `npm run check`.
+
+## P2 new DeepSeek-specific adapters
+
+These are new code, not copied from Base:
+
+- `extension/native-client.js` — one-shot `chrome.runtime.sendNativeMessage` client and P2 tool allowlist.
+- `native/host/chrome-framing.js` — Chrome Native Messaging framing and 512 KiB response cap.
+- `native/host/docker-dispatch.js` — exact request envelope, independent host allowlist, stable workspace token, fixed read-only/no-network Docker argv, one-shot dispatch and result firewall.
+- `native/host/chrome-host.js` — one-frame Native Messaging process entrypoint.
+- `scripts/install-p2-native-host.mjs` — owner-only macOS Chrome development installer.
+
+## Explicitly not migrated for P2
+
+| Base component | Reason |
+| --- | --- |
+| `native/deploy/container-controller.js` | long-lived container lifecycle unnecessary; P2 uses fresh `--rm` container per call |
+| `native/deploy/image-pin.js`, `workspace-config.js` | P2 installer stores one fixed local image ID and one canonical workspace root |
+| `native/host/relay.js`, `native/host/start.js` | long-lived tunnel/relay and elevated lifecycle not needed |
+| elevated access / Git publication / control-plane deployment stack | P3+ or out of scope |
+| menubar app | packaging concern, not P2 |
+| remote MCP/OAuth/StreamableHTTP extension code | wrong transport/product architecture |
+| OpenAI Tunnel Runtime / tunnel-client | provider/product-specific and unnecessary |
+
+## Base / Plus cleanup timing
+
+Do not remove the old DeepSeek-related code from WebMCP Base or Plus while DeepSeek WebMCP is still being built. Finish DeepSeek WebMCP through its coding E2E gate first; then clean Base and Plus as a separate reviewed task so the new project is the sole DeepSeek implementation and generic reusable mechanisms are not accidentally deleted during migration.

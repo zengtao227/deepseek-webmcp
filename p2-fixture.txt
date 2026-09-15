@@ -1,0 +1,2 @@
+DeepSeek WebMCP P2 fixture: READ_OK
+password = "p2-secret-fixture-value"
