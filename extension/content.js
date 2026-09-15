@@ -85,7 +85,7 @@
     await chrome.runtime.sendMessage({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
   }
 
-  const INSTRUCTIONS_START = 'You can use local tools through DeepSeek WebMCP.';
+  const INSTRUCTIONS_START = 'You can use local tools through DeepSeek WebMCP';
 
   function isNewChat() {
     return !CONVERSATION_PATH.test(location.pathname) && latestAnswer() === null;
@@ -152,6 +152,7 @@
   }
 
   function tick() {
+    scheduleFold();
     if (location.href !== route) enterRoute();
     if (busy) return;
     if (isGenerating()) {
@@ -180,6 +181,78 @@
     lastText = null;
     void report(text, resume);
   }
+
+  // Display only. DeepSeek Web has no hidden instruction channel, so instructions, tool
+  // results and tool calls must be real message text; here they are folded into a one-line
+  // summary (click to expand). Only data attributes and CSS are used: the text and DOM that
+  // DeepSeek's page owns, and the answer text WebMCP reads, stay unchanged.
+  const FOLD = 'data-webmcp-fold';
+  const OPEN = 'data-webmcp-open';
+  const RESULT_START = 'DeepSeek WebMCP tool result.\n';
+  const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
+  const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    [${FOLD}]:not([${OPEN}]) { font-size: 0 !important; line-height: 0 !important; cursor: pointer; }
+    [${FOLD}]:not([${OPEN}]) > * { display: none !important; }
+    [${FOLD}]:not([${OPEN}])::before { content: attr(${FOLD}); font-size: 13px; line-height: 20px; opacity: 0.75; white-space: pre-wrap; }
+    [${FOLD}][${OPEN}] { cursor: pointer; }
+  `;
+  (document.head ?? document.documentElement).append(style);
+
+  function toolName(text) {
+    return /"name":"([a-z_]{1,32})"/.exec(text)?.[1] ?? 'tool';
+  }
+
+  function summaryFor(text) {
+    if (text.startsWith(RESULT_START)) return `🔧 ${toolName(text)} ${/"isError":true/.test(text) ? '✗' : '✓'}`;
+    if (text.startsWith(CORRECTION_START)) return '🔧 format corrected, retrying';
+    const separator = text.indexOf(INSTRUCTIONS_SEPARATOR);
+    if (separator > 0) return `${text.slice(0, separator)}\n🔧 WebMCP tools attached`;
+    return null;
+  }
+
+  function setFold(element, summary) {
+    if (element.getAttribute(FOLD) !== summary) element.setAttribute(FOLD, summary);
+  }
+
+  let foldScheduled = false;
+  function foldMessages() {
+    foldScheduled = false;
+    // Messages the extension typed: a single text node inside one element (live DOM:
+    // a visible <span> plus a hidden <div> copy of each user message).
+    for (const element of document.querySelectorAll('div, span')) {
+      if (element.childNodes.length !== 1 || element.firstChild.nodeType !== Node.TEXT_NODE) continue;
+      if (element.closest(ANSWER_SELECTOR)) continue;
+      const summary = summaryFor(element.firstChild.nodeValue ?? '');
+      // Fold the whole bubble: DeepSeek's own collapsible box inside it keeps a fixed height.
+      if (summary) setFold(element.closest('.ds-message') ?? element, summary);
+    }
+    for (const answer of document.querySelectorAll(ANSWER_SELECTOR)) {
+      const text = answer.textContent ?? '';
+      if (/｜\s*DSML\s*｜/.test(text)) {
+        setFold(answer, '🔧 DeepSeek used its own tool format (not run)');
+        continue;
+      }
+      for (const block of answer.querySelectorAll('.md-code-block')) {
+        const code = block.querySelector('pre')?.textContent ?? '';
+        if (code.trimStart().startsWith('<webmcp_tool_call>')) setFold(block, `🔧 ${toolName(code)}`);
+      }
+    }
+  }
+
+  function scheduleFold() {
+    if (foldScheduled) return;
+    foldScheduled = true;
+    requestAnimationFrame(foldMessages);
+  }
+
+  document.addEventListener('click', (event) => {
+    const folded = event.target?.closest?.(`[${FOLD}]`);
+    if (!folded || window.getSelection()?.toString()) return;
+    folded.toggleAttribute(OPEN);
+  }, true);
 
   document.addEventListener('keydown', interceptSend, true);
   document.addEventListener('click', interceptSend, true);

@@ -56,6 +56,22 @@ export function buildNativeToolResult(call, response) {
   ].join('\n');
 }
 
+// DeepSeek's own built-in tool-call syntax (live 2026-09-15: `<｜｜DSML｜｜ invoke name="bash">`
+// after two correct WebMCP calls). It is never executed; WebMCP only asks for a resend.
+const NATIVE_TOOL_SYNTAX = /｜\s*DSML\s*｜/;
+const MAX_FORMAT_CORRECTIONS = 2;
+
+export function usesNativeToolSyntax(text) {
+  return typeof text === 'string' && NATIVE_TOOL_SYNTAX.test(text);
+}
+
+export function buildFormatCorrection() {
+  return [
+    'DeepSeek WebMCP format correction.',
+    'Your last reply used a different tool-call format, which WebMCP does not run. Nothing was executed.',
+    ...toolContractLines('Send the same call again as exactly one fenced text block and nothing else:'),
+  ].join('\n');
+}
 
 // Appended after the user's first message of a new chat while Work is on, so the
 // question stays visible when DeepSeek collapses a long message (the content script
@@ -80,7 +96,8 @@ function validConversation(value) {
     && value.seen.length <= MAX_SEEN_IDS
     && value.seen.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 128)
     && typeof value.awaiting === 'boolean'
-    && (value.pending === null || typeof value.pending === 'string');
+    && (value.pending === null || typeof value.pending === 'string')
+    && (value.corrections === undefined || (Number.isInteger(value.corrections) && value.corrections >= 0));
 }
 
 // Per-tab Work authority. Pure and serializable so the MV3 worker can rebuild it
@@ -111,7 +128,7 @@ export class WorkController {
     controller.#work = true;
     controller.#calls = snapshot.calls;
     for (const [key, value] of entries) {
-      controller.#conversations.set(key, { seen: [...value.seen], awaiting: value.awaiting, pending: value.pending });
+      controller.#conversations.set(key, { seen: [...value.seen], awaiting: value.awaiting, pending: value.pending, corrections: value.corrections ?? 0 });
     }
     return controller;
   }
@@ -135,7 +152,7 @@ export class WorkController {
   #conversation(key) {
     let conversation = this.#conversations.get(key);
     if (!conversation) {
-      conversation = { seen: [], awaiting: false, pending: null };
+      conversation = { seen: [], awaiting: false, pending: null, corrections: 0 };
       this.#conversations.set(key, conversation);
       while (this.#conversations.size > MAX_CONVERSATIONS) {
         this.#conversations.delete(this.#conversations.keys().next().value);
@@ -162,8 +179,17 @@ export class WorkController {
       return Object.freeze({ accepted: false, code: 'DUPLICATE_CALL', calls: Object.freeze([]) });
     }
     conversation.awaiting = false;
+    if (calls.length === 0 && usesNativeToolSyntax(text)) {
+      // Bounded so a model that keeps answering in its own syntax cannot loop forever.
+      if (conversation.corrections >= MAX_FORMAT_CORRECTIONS) {
+        return Object.freeze({ accepted: false, code: 'NATIVE_TOOL_SYNTAX_REPEATED', calls });
+      }
+      conversation.corrections += 1;
+      return Object.freeze({ accepted: true, code: 'NATIVE_TOOL_SYNTAX', calls });
+    }
     if (calls.length === 0) return Object.freeze({ accepted: true, code: 'NO_TOOL_CALL', calls });
 
+    conversation.corrections = 0;
     conversation.seen.push(...calls.map((call) => call.id));
     if (conversation.seen.length > MAX_SEEN_IDS) conversation.seen.splice(0, conversation.seen.length - MAX_SEEN_IDS);
     this.#calls += calls.length;

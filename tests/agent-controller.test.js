@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WorkController,
+  buildFormatCorrection,
   buildNativeToolResult,
   buildWorkInstructions,
   neutralizeToolMarkers,
@@ -137,4 +138,27 @@ test('neutralizes reflected tool markers', () => {
   const result = neutralizeToolMarkers(reflected);
   assert.doesNotMatch(result, /<webmcp_tool_call>/);
   assert.doesNotMatch(result, /<\/webmcp_tool_call>/);
+});
+
+const DSML = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="bash">{"command":"ls"}</｜｜DSML｜｜ invoke>';
+
+test('DeepSeek native DSML tool syntax is never executed; a bounded format correction is requested', () => {
+  const controller = working();
+  assert.equal(controller.acceptCompletion(A, DSML).code, 'NATIVE_TOOL_SYNTAX');
+  assert.equal(controller.acceptCompletion(A, DSML).code, 'NATIVE_TOOL_SYNTAX');
+  assert.equal(controller.acceptCompletion(A, DSML).code, 'NATIVE_TOOL_SYNTAX_REPEATED');
+  assert.equal(controller.status.calls, 0);
+  // A correct call resets the bound.
+  assert.equal(controller.acceptCompletion(A, call('fixed')).code, 'TOOL_CALLS');
+  assert.equal(controller.acceptCompletion(A, DSML).code, 'NATIVE_TOOL_SYNTAX');
+  assert.equal(WorkController.fromSnapshot(controller.snapshot()).acceptCompletion(A, DSML).code, 'NATIVE_TOOL_SYNTAX');
+  assert.equal(working().acceptCompletion(A, 'plain final answer').code, 'NO_TOOL_CALL');
+});
+
+test('the format correction restates the WebMCP contract and cannot execute if echoed', () => {
+  const text = buildFormatCorrection();
+  assert.ok(text.startsWith('DeepSeek WebMCP format correction.\n'));
+  assert.match(text, /Nothing was executed\./);
+  assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
+  assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
 });

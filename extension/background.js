@@ -1,4 +1,4 @@
-import { WorkController, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
+import { WorkController, buildFormatCorrection, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
 import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
 
 const ORIGIN = 'https://chat.deepseek.com';
@@ -113,6 +113,11 @@ async function processCompletion(tabId, key, text, resume) {
   if (decision.code === 'NOTHING_TO_RESUME') return {};
   await persist(tabId, controller);
   await setDiagnostics(tabId, { ...diagnostics, lastCode: decision.code });
+  if (decision.code === 'NATIVE_TOOL_SYNTAX') {
+    controller.setPending(key, buildFormatCorrection());
+    await persist(tabId, controller);
+    return deliveryFor(controller, key);
+  }
   if (!decision.accepted || decision.code !== 'TOOL_CALLS') return {};
 
   if (decision.calls.length !== 1) {

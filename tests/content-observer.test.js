@@ -6,8 +6,21 @@ import vm from 'node:vm';
 const source = await readFile(new URL('../extension/content.js', import.meta.url), 'utf8');
 
 // Minimal fake of the live DeepSeek DOM facts the observer depends on.
-function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', replies = {} } = {}) {
-  const page = { answers: [...answers], composerValue: '', disabled: !generating, stopVisible: generating, sent: [], clicks: 0 };
+function fakeMessage(text) {
+  const attributes = {};
+  const node = { nodeType: 3, nodeValue: text };
+  return {
+    attributes,
+    childNodes: [node],
+    firstChild: node,
+    closest: () => null,
+    getAttribute: (name) => attributes[name] ?? null,
+    setAttribute: (name, value) => { attributes[name] = value; },
+  };
+}
+
+function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', replies = {}, messages: typed = [] } = {}) {
+  const page = { answers: [...answers], composerValue: '', disabled: !generating, stopVisible: generating, sent: [], clicks: 0, typed: typed.map(fakeMessage) };
   const control = {
     classList: { contains: (name) => name === 'ds-button--disabled' && page.disabled },
     querySelector: () => (page.stopVisible ? {} : null),
@@ -41,12 +54,19 @@ function loadPage({ answers = [], generating = false, path = '/a/chat/s/one', re
     setTimeout: (fn) => { fn(); return 0; },
     setInterval: (fn) => { tick = fn; return 0; },
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { onMutation = this.fn; } },
+    requestAnimationFrame: (fn) => fn(),
+    Node: { TEXT_NODE: 3 },
+    window: { getSelection: () => null },
     Date: { now: () => page.now },
     document: {
       body: {},
+      head: { append() {} },
+      createElement: () => ({}),
       addEventListener: (type, fn) => { (documentListeners[type] ??= []).push(fn); },
       querySelector: (selector) => (selector.startsWith('textarea') ? composer : control),
-      querySelectorAll: () => page.answers.map((text) => ({ textContent: text })),
+      querySelectorAll: (selector) => (selector === 'div, span'
+        ? page.typed
+        : page.answers.map((text) => ({ textContent: text, querySelectorAll: () => [], setAttribute() {}, getAttribute: () => null }))),
     },
     chrome: {
       runtime: {
@@ -208,3 +228,20 @@ test('Enter is left alone during IME composition, with Shift, in existing chats 
   assert.deepEqual(off.page.sent, []);
 });
 
+
+test('extension-typed messages are folded to a one-line summary without changing their text', async () => {
+  const instructions = 'You can use local tools through DeepSeek WebMCP for the task above.';
+  const page = loadPage({
+    messages: [
+      `帮我跑测试\n\n---\n${instructions}`,
+      'DeepSeek WebMCP tool result.\n{"id":"a","name":"bash","isError":false,"result":{}}',
+      'DeepSeek WebMCP tool result.\n{"id":"b","name":"read","isError":true,"error":{}}',
+      'DeepSeek WebMCP format correction.\nYour last reply used a different tool-call format',
+      'an ordinary message of mine',
+    ],
+  });
+  await page.advance(500, 1);
+  const folds = page.page.typed.map((message) => message.getAttribute('data-webmcp-fold'));
+  assert.deepEqual(folds, ['帮我跑测试\n🔧 WebMCP tools attached', '🔧 bash ✓', '🔧 read ✗', '🔧 format corrected, retrying', null]);
+  assert.equal(page.page.typed[0].firstChild.nodeValue, `帮我跑测试\n\n---\n${instructions}`);
+});
