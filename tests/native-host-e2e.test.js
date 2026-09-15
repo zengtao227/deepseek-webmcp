@@ -81,21 +81,82 @@ process.stdin.on('end', () => {
   assert.doesNotMatch(response.result.result, /p2-secret-fixture-value/);
 });
 
-test('native host rejects denied tools before spawning runtime', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-denied-'));
+test('native host admits P3 write through the same one-shot runtime and still rejects unknown tools before spawn', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-host-'));
   const fakeDocker = path.join(dir, 'fake-docker');
   const configPath = path.join(dir, 'config.json');
+  await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { input += chunk; });
+process.stdin.on('end', () => {
+  const rpc = JSON.parse(input.trim());
+  process.stdout.write(JSON.stringify({
+    jsonrpc: '2.0',
+    id: rpc.id,
+    result: { structuredContent: { result: 'WRITE_OK' } }
+  }) + '\n');
+});
+`);
+  await chmod(fakeDocker, 0o755);
+  await writeFile(configPath, JSON.stringify({ workspaceRoot: dir, image: IMAGE, dockerPath: fakeDocker }));
+
+  const writeResponse = await runHost(configPath, {
+    version: 1,
+    id: 'p3_write',
+    tool: 'write',
+    arguments: { workspaceId: 'ws_x', path: 'x', content: 'ok' },
+  });
+  assert.equal(writeResponse.ok, true);
+  assert.equal(writeResponse.result.result, 'WRITE_OK');
+
   await writeFile(fakeDocker, `#!${process.execPath}\nprocess.exit(99);\n`);
+  await chmod(fakeDocker, 0o755);
+  const deniedResponse = await runHost(configPath, {
+    version: 1,
+    id: 'p3_unknown',
+    tool: 'list_directory',
+    arguments: {},
+  });
+  assert.equal(deniedResponse.ok, false);
+  assert.equal(deniedResponse.error.code, 'TOOL_NOT_ALLOWED');
+});
+
+test('P3 write/edit tool errors still pass through the host Secret Firewall', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-firewall-'));
+  const fakeDocker = path.join(dir, 'fake-docker');
+  const configPath = path.join(dir, 'config.json');
+  await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { input += chunk; });
+process.stdin.on('end', () => {
+  const rpc = JSON.parse(input.trim());
+  process.stdout.write(JSON.stringify({
+    jsonrpc: '2.0',
+    id: rpc.id,
+    result: {
+      isError: true,
+      structuredContent: {
+        error: 'write_failed',
+        message: 'password = "p3-secret-fixture-value"'
+      }
+    }
+  }) + '\n');
+});
+`);
   await chmod(fakeDocker, 0o755);
   await writeFile(configPath, JSON.stringify({ workspaceRoot: dir, image: IMAGE, dockerPath: fakeDocker }));
 
   const response = await runHost(configPath, {
     version: 1,
-    id: 'p2_write',
-    tool: 'write',
-    arguments: { workspaceId: 'ws_x', path: 'x', content: 'nope' },
+    id: 'p3_edit_error',
+    tool: 'edit',
+    arguments: { workspaceId: 'ws_x', path: 'x', edits: [{ oldText: 'a', newText: 'b' }] },
   });
 
   assert.equal(response.ok, false);
-  assert.equal(response.error.code, 'TOOL_NOT_ALLOWED');
+  assert.equal(response.error.code, 'write_failed');
+  assert.match(response.error.message, /\[REDACTED/);
+  assert.doesNotMatch(response.error.message, /p3-secret-fixture-value/);
 });

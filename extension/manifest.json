@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "DeepSeek WebMCP P2",
-  "version": "0.0.2",
+  "name": "DeepSeek WebMCP P3",
+  "version": "0.0.3",
   "description": "DeepSeek Web browser loop with a narrow isolated local Native Messaging runtime.",
   "permissions": [
     "storage",
@@ -15,7 +15,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "DeepSeek WebMCP P2",
+    "default_title": "DeepSeek WebMCP P3",
     "default_popup": "popup.html"
   },
   "content_scripts": [

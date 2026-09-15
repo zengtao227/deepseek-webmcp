@@ -1,5 +1,5 @@
 import { parseToolCalls } from '../tool-loop/tool-call-format.js';
-import { P2_TOOL_NAMES } from '../native-client.js';
+import { TOOL_NAMES } from '../native-client.js';
 
 export const MAX_AGENT_LOOPS = 6;
 const MARKER_OPEN = '<webmcp_tool_call>';
@@ -48,14 +48,22 @@ export function buildNativeToolResult(call, response) {
     : { id: call.id, name: call.name, isError: true, error: response.error };
 
   // DeepSeek Web has no tools/list channel; this text is the only place the loop
-  // restates the legal tool names (live: it invented `list_directory` without it).
-  return neutralizeToolMarkers([
-    'DeepSeek WebMCP P2 tool result.',
-    JSON.stringify(payload),
-    `Available tools: ${P2_TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`,
-    'Continue the current task. If another tool is required, emit exactly one strict WebMCP tool-call block.',
+  // restates the legal tool names and wire format (live: without them it invented
+  // `list_directory`, and later sent a bare-JSON call without markers).
+  // Only the untrusted payload is neutralized; the fixed instruction below is
+  // extension-authored and must show the literal markers. Its template JSON is
+  // deliberately invalid, so an echoed template fails closed instead of executing.
+  return [
+    'DeepSeek WebMCP tool result.',
+    neutralizeToolMarkers(JSON.stringify(payload)),
+    `Available tools: ${TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`,
+    'Continue the current task. If another tool is required, reply with exactly one fenced text block and nothing else:',
+    '```text',
+    `${MARKER_OPEN}{"id":"<new unique id>","name":"<tool name>","arguments":{...}}${MARKER_CLOSE}`,
+    '```',
+    `Bare JSON without these markers is not a tool call and stops WebMCP.`,
     'If the task is finished or no available tool fits, reply without a tool call.',
-  ].join('\n'));
+  ].join('\n');
 }
 
 export class AgentController {

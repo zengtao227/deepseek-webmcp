@@ -1,6 +1,6 @@
 # DeepSeek WebMCP — Project Context
 
-Status: P1 browser-loop proof is CLOSED/PASS in Google Chrome. P2 Native Messaging + isolated local runtime is implemented and passes automated checks; integrated macOS Chrome + Docker live acceptance is pending. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
+Status: P1, P2, and P3 are CLOSED/PASS in Google Chrome. P4 coding E2E on a disposable test repository is the active gate. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
 
 ## 1. Identity
 
@@ -74,11 +74,11 @@ Decided 2026-09-15 (see `docs/p1-browser-findings.md` Finding 8): **rendered DOM
 - Tool calls whose JSON contains escapes must be emitted inside a fenced code block; unfenced Markdown rendering was measured to drop JSON backslash escapes, which then fails closed as invalid JSON.
 - Continuation uses the normal DeepSeek Web composer and Send control.
 
-## 7. Local runtime direction (P2+, not implemented in P1)
+## 7. Local runtime (P2+)
 
 Preferred browser-to-local transport is Chrome Native Messaging, subject to real implementation validation.
 
-The eventual local runtime should preserve the proven minimal WebMCP development primitives:
+The local runtime preserves the proven minimal WebMCP development primitives:
 
 - `open_workspace`
 - `read`
@@ -97,7 +97,7 @@ Security direction:
 - result Secret Firewall outside the model-controlled runtime;
 - Native Messaging host accepts protocol messages only, never model-selected host argv/container/root paths.
 
-Chrome Native Messaging host-to-extension message size and the measured DeepSeek input limit will jointly determine the real result-size budget. Do not assume Base limits transfer unchanged.
+The Native Messaging edge caps host responses below Chrome's hard limit; the browser-facing bash timeout remains 30 seconds. P3 keeps one fresh network-disabled container per tool call and makes only the owner-selected `/workspace` bind writable. The bind is non-recursive, so nested host mounts are not imported into the writable boundary.
 
 ## 8. Explicit non-goals for V1
 
@@ -134,4 +134,4 @@ P1 is CLOSED/PASS in real Google Chrome. Acceptance evidence includes:
 6. route change DISARMing the conversation;
 7. no extension-originated DeepSeek private completion request or credential extraction.
 
-P2 is now the active gate. The implemented target is a narrow one-shot Chrome Native Messaging bridge to a fresh, network-disabled, read-only Docker runtime for each call. The live proof is limited to `open_workspace`, harmless `read`, and bounded `bash`; `write/edit` remain P3. See `docs/p2-review-brief.md` and `docs/p2-live-test.md`.
+P2 is CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance. P3 is also CLOSED/PASS from the owner's real macOS Chrome + Docker acceptance: the same one-shot Native Messaging path exposed exactly `open_workspace`, `read`, `write`, `edit`, and `bash`; writable changes persisted across fresh containers; edit and bash verification succeeded; path-escape write failed closed; no non-allowlisted tool executed; no call containers remained; Base was untouched; and no commit/push occurred. `bash` remains a workspace mutation path, and no Git credentials or automatic publication capability were added. P4 is now the active gate. See `docs/p3-live-test.md`.

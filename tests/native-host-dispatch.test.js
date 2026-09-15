@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildDockerInvocation, loadNativeHostConfig, validateNativeRequest } from '../native/host/docker-dispatch.js';
+import { buildDockerInvocation, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 
@@ -11,14 +11,15 @@ function request(tool, args = {}) {
   return { version: 1, id: 'p2_call', tool, arguments: args };
 }
 
-test('P2 host allowlist rejects write/edit, extra fields and bash timeout > 30s', () => {
-  assert.throws(() => validateNativeRequest(request('write', {})), /not allowed/i);
-  assert.throws(() => validateNativeRequest(request('edit', {})), /not allowed/i);
+test('P3 host allowlist accepts write/edit and still rejects unknown tools, extra fields and long bash timeouts', () => {
+  assert.equal(validateNativeRequest(request('write', { workspaceId: 'ws_x', path: 'x.txt', content: 'ok' })).tool, 'write');
+  assert.equal(validateNativeRequest(request('edit', { workspaceId: 'ws_x', path: 'x.txt', edits: [{ oldText: 'x', newText: 'y' }] })).tool, 'edit');
+  assert.throws(() => validateNativeRequest(request('list_directory', {})), /not allowed/i);
   assert.throws(() => validateNativeRequest({ ...request('read', {}), extra: true }), /unsupported field/i);
   assert.throws(() => validateNativeRequest(request('bash', { workspaceId: 'ws_x', command: 'echo ok', timeout: 31 })), /timeout/i);
 });
 
-test('P2 Docker argv is fixed, isolated, read-only and does not contain model command/path', () => {
+test('P3 Docker argv is fixed, isolated, writable only at the selected workspace and does not contain model command/path', () => {
   const config = {
     dockerPath: '/usr/local/bin/docker',
     canonicalRoot: '/Users/test/My Project',
@@ -42,12 +43,20 @@ test('P2 Docker argv is fixed, isolated, read-only and does not contain model co
   assert.ok(invocation.args.includes('ALL'));
   assert.ok(invocation.args.includes('no-new-privileges'));
   assert.ok(invocation.args.includes('501:20'));
-  assert.ok(invocation.args.includes('type=bind,src=/Users/test/My Project,dst=/workspace,readonly'));
+  assert.ok(invocation.args.includes('type=bind,src=/Users/test/My Project,dst=/workspace,bind-recursive=disabled'));
+  assert.equal(invocation.args.some((arg) => arg.includes('dst=/workspace,readonly')), false);
   assert.ok(invocation.args.includes(IMAGE));
   assert.equal(invocation.args.includes(modelCommand), false);
   assert.equal(invocation.args.includes(modelPath), false);
   assert.equal(invocation.args.includes('/var/run/docker.sock'), false);
   assert.equal(invocation.args.includes('--privileged'), false);
+});
+
+test('host-level errors are sanitized before they can return to DeepSeek', () => {
+  const response = toNativeError('p3_host_error', new Error('password = "p3-host-secret-value"'));
+  assert.equal(response.ok, false);
+  assert.match(response.error.message, /\[REDACTED/);
+  assert.doesNotMatch(response.error.message, /p3-host-secret-value/);
 });
 
 test('same local config derives the same stable runtime token across one-shot host invocations', async () => {

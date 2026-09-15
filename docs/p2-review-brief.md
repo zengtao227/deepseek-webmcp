@@ -1,7 +1,7 @@
 # P2 review brief — Native Messaging + isolated local runtime
 
 Date: 2026-09-15
-Status: **review completed with changes; implementation completed; automated checks PASS; integrated macOS Chrome + Docker live gate pending**
+Status: **historical review; P2 later CLOSED / PASS in macOS Google Chrome + Docker on 2026-09-15**
 Baseline browser: **Google Chrome**. Comet compatibility is optional and must not complicate the Chrome path.
 
 ## 1. What P1 has already proven

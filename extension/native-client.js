@@ -1,8 +1,8 @@
 const HOST_NAME = 'com.deepseek.webmcp.native';
-export const P2_TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'bash']);
-const ALLOWED_TOOLS = new Set(P2_TOOL_NAMES);
+export const TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'write', 'edit', 'bash']);
+const ALLOWED_TOOLS = new Set(TOOL_NAMES);
 
-export function isP2ToolAllowed(name) {
+export function isToolAllowed(name) {
   return typeof name === 'string' && ALLOWED_TOOLS.has(name);
 }
 
@@ -15,8 +15,8 @@ export class NativeClientError extends Error {
 }
 
 export async function callNativeTool(call) {
-  if (!call || typeof call !== 'object' || !isP2ToolAllowed(call.name)) {
-    throw new NativeClientError('Tool is not allowed in P2.', 'TOOL_NOT_ALLOWED');
+  if (!call || typeof call !== 'object' || !isToolAllowed(call.name)) {
+    throw new NativeClientError('Tool is not allowed.', 'TOOL_NOT_ALLOWED');
   }
 
   let response;

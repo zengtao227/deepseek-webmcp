@@ -34,8 +34,8 @@ test('open_workspace exposes only the fixed Native root and returns a runtime-bo
     const opened = await runtime.openWorkspace(NATIVE_WORKSPACE_ROOT);
     assert.equal(opened.root, '/workspace');
     assert.equal(opened.workspaceId, 'ws_test-runtime');
-    assert.match(opened.instruction, /read-only/);
-    assert.match(opened.instruction, /DeepSeek WebMCP P2/);
+    assert.match(opened.instruction, /bounded DeepSeek WebMCP coding/);
+    assert.doesNotMatch(opened.instruction, /read-only/);
     assert.match(opened.instruction, /inside \/workspace/);
     await expectCode(runtime.openWorkspace('/tmp'), 'invalid_workspace_root');
   });

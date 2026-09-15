@@ -45,7 +45,7 @@ Acceptance evidence is recorded in `docs/p1-browser-findings.md`. Chrome is the 
 
 ## P2 — Native Messaging + minimal isolated local runtime
 
-Status: **implemented locally; automated checks PASS; real macOS Chrome + Docker live gate pending.**
+Status: **CLOSED / PASS in Google Chrome + Docker (2026-09-15).**
 
 The design review completed with changes and the adopted architecture is one-shot `sendNativeMessage` + one fresh `docker run --rm` per tool call. See `docs/p2-review-brief.md` and `docs/p2-live-test.md`.
 
@@ -61,15 +61,23 @@ Intended scope only:
 
 Initial proof: `open_workspace`, harmless `read`, and `bash echo` only. P2 mounts `/workspace` read-only, permits exactly one tool call per assistant turn, caps browser-originated bash at 30 seconds, and exposes only `open_workspace`, `read`, and `bash` at the host boundary.
 
-Automated status: `npm run check` covers extension, gateway, native host/runtime, Chrome framing, host allowlist, Docker argv policy, Secret Firewall, and process-level Native host framing. P2 is not CLOSED until the integrated live gate in `docs/p2-live-test.md` passes on the owner's Mac.
+Automated status: `npm run check` covers extension, gateway, native host/runtime, Chrome framing, host allowlist, Docker argv policy, Secret Firewall, and process-level Native host framing. The integrated gate in `docs/p2-live-test.md` passed on the owner's Mac: all 11 live conditions passed, including stable one-shot workspace identity, read-only mutation denial, Secret Firewall redaction, no real container network connectivity, autonomous continuation, and no leftover P2 call containers.
 
 ## P3 — Real bounded coding loop
 
-Blocked on P2.
+Status: **CLOSED / PASS in real macOS Google Chrome + Docker (2026-09-15).**
 
 Connect `read/write/edit/bash` to the armed conversation. Keep autonomous execution within bounded iterations/calls. Do not default to per-tool approval unless real evidence requires it.
 
+P3 browser-visible tools are exactly `open_workspace`, `read`, `write`, `edit`, and `bash`. The owner-selected `/workspace` bind becomes writable and non-recursive; the one-shot container, network-off policy, non-root UID:GID, `CapDrop=ALL`, `no-new-privileges`, fixed image/entrypoint, 30-second browser bash cap, path/symlink policy, Secret Firewall, replay protection, and loop bounds remain unchanged.
+
+`write` and `edit` are structured mutation tools. Because `bash` runs inside the same writable workspace, it can also mutate project files; P3's security boundary is isolated workspace mutation, not exclusive mutation through `write/edit`. No Git credentials, automatic commit, or push capability are added.
+
+Live acceptance is recorded in `docs/p3-live-test.md`. All 12 conditions passed in the owner's real Chrome + Docker environment: writable changes persisted across fresh one-shot containers, `edit` was observed by the next container, bounded `bash` verified and cleaned the fixture, path-escape write failed closed, the autonomous six-call loop completed without non-allowlisted tools, no call containers remained, Base stayed untouched, and no commit/push occurred.
+
 ## P4 — Coding E2E
+
+Status: **active; blocked only on executing the disposable-repository E2E gate.**
 
 On a disposable test repository, DeepSeek Web autonomously:
 

@@ -1,5 +1,5 @@
 import { AgentController, buildNativeToolResult } from './core/agent-controller.js';
-import { callNativeTool, isP2ToolAllowed } from './native-client.js';
+import { callNativeTool, isToolAllowed } from './native-client.js';
 
 const ORIGIN = 'https://chat.deepseek.com';
 const AUTHORITY_PREFIX = 'p1.authority.';
@@ -111,14 +111,14 @@ async function processCompletion(tabId, senderUrl, text) {
 
   if (!decision.accepted || decision.code !== 'TOOL_CALLS') return {};
   if (decision.calls.length !== 1) {
-    diagnostics.lastCode = 'MULTIPLE_CALLS_P2';
+    diagnostics.lastCode = 'MULTIPLE_CALLS';
     await setDiagnostics(tabId, diagnostics);
     await disarmTab(tabId);
     return {};
   }
 
   const [call] = decision.calls;
-  if (!isP2ToolAllowed(call.name)) {
+  if (!isToolAllowed(call.name)) {
     diagnostics.lastCode = 'TOOL_NOT_ALLOWED';
     await setDiagnostics(tabId, diagnostics);
     await disarmTab(tabId);

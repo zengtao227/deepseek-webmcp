@@ -14,11 +14,11 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 
 ## Current phase
 
-**P1 is CLOSED / PASS in Google Chrome.** The browser loop was proven live across three autonomous fake-tool turns, including fail-closed negative controls.
+**P1, P2, and P3 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker.
 
-The repository is now in **P2: Native Messaging + minimal isolated local runtime**.
+The repository is now in **P4: coding E2E on a disposable test repository**.
 
-P2 keeps the proven DeepSeek browser loop and replaces the fake executor with:
+The architecture remains:
 
 ```text
 DeepSeek assistant output
@@ -31,8 +31,10 @@ DeepSeek assistant output
   → normal DeepSeek compose/send
 ```
 
-P2 exposes only `open_workspace`, `read`, and `bash`. The workspace is mounted **read-only**, the container has **network disabled**, and each tool call runs in a fresh `docker run --rm` container. `write` and `edit` remain blocked until P3.
+P3 exposes exactly `open_workspace`, `read`, `write`, `edit`, and `bash`. The owner-selected workspace is mounted **writable** so mutations persist, while the container remains network-disabled, non-root, capability-dropped, no-new-privileges, and fresh per tool call via `docker run --rm`. The bind mount does not recursively include nested mounts.
 
-Automated P2 checks are part of `npm run check`. Real P2 closure still requires the macOS Chrome + Docker live gate in `docs/p2-live-test.md`.
+`bash` can also mutate files inside the selected workspace; `write`/`edit` are structured bounded mutation tools, not a claim that they are the only mutation path. Git credentials/publication are not exposed and the product does not auto-commit or push.
+
+P3 automated checks are part of `npm run check`; its successful real Chrome + Docker acceptance is recorded in `docs/p3-live-test.md`.
 
 See `CONTEXT.md` for the product boundary and `docs/development-roadmap.md` for phase gates.

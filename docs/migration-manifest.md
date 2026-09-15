@@ -44,9 +44,22 @@ These are new code, not copied from Base:
 
 - `extension/native-client.js` — one-shot `chrome.runtime.sendNativeMessage` client and P2 tool allowlist.
 - `native/host/chrome-framing.js` — Chrome Native Messaging framing and 512 KiB response cap.
-- `native/host/docker-dispatch.js` — exact request envelope, independent host allowlist, stable workspace token, fixed read-only/no-network Docker argv, one-shot dispatch and result firewall.
+- `native/host/docker-dispatch.js` — exact request envelope, independent host allowlist, stable workspace token, fixed isolated/no-network Docker argv, one-shot dispatch and result firewall.
 - `native/host/chrome-host.js` — one-frame Native Messaging process entrypoint.
 - `scripts/install-p2-native-host.mjs` — owner-only macOS Chrome development installer.
+
+## P3 reuse / changes
+
+P3 does not migrate a new subsystem. It reuses the existing five-tool Base runtime already present from P2 and makes the minimum phase-gate changes:
+
+- extension allowlist expands from `open_workspace/read/bash` to exactly `open_workspace/read/write/edit/bash`;
+- native-host allowlist expands to the same five tools and keeps exact per-tool top-level argument names;
+- the owner-selected `/workspace` Docker bind changes from read-only to writable so mutations persist to the host workspace;
+- the writable bind uses Base's existing `bind-recursive=disabled` pattern so nested host mounts are not pulled into the workspace boundary;
+- `native/src/workspace.js` write/edit/path/symlink logic is reused rather than replaced;
+- Secret Firewall remains after the runtime for both successful results and tool errors.
+
+No Git publication, credentials, extra discovery tools, persistent runtime, or Base/Plus modification is introduced.
 
 ## Explicitly not migrated for P2
 
@@ -55,7 +68,7 @@ These are new code, not copied from Base:
 | `native/deploy/container-controller.js` | long-lived container lifecycle unnecessary; P2 uses fresh `--rm` container per call |
 | `native/deploy/image-pin.js`, `workspace-config.js` | P2 installer stores one fixed local image ID and one canonical workspace root |
 | `native/host/relay.js`, `native/host/start.js` | long-lived tunnel/relay and elevated lifecycle not needed |
-| elevated access / Git publication / control-plane deployment stack | P3+ or out of scope |
+| elevated access / Git publication / control-plane deployment stack | out of scope for P3 |
 | menubar app | packaging concern, not P2 |
 | remote MCP/OAuth/StreamableHTTP extension code | wrong transport/product architecture |
 | OpenAI Tunnel Runtime / tunnel-client | provider/product-specific and unnecessary |

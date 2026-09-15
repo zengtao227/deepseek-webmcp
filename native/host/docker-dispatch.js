@@ -6,11 +6,13 @@ import { promisify } from 'node:util';
 import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
 
 const execFileAsync = promisify(execFile);
-const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'bash']);
+const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'write', 'edit', 'bash']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TOOL_ARGUMENTS = new Map([
   ['open_workspace', new Set(['path'])],
   ['read', new Set(['workspaceId', 'path', 'offset', 'limit'])],
+  ['write', new Set(['workspaceId', 'path', 'content'])],
+  ['edit', new Set(['workspaceId', 'path', 'edits'])],
   ['bash', new Set(['workspaceId', 'command', 'workingDirectory', 'timeout'])],
 ]);
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -42,15 +44,15 @@ export function validateNativeRequest(request) {
   exactObject(request, new Set(['version', 'id', 'tool', 'arguments']), 'request');
   if (request.version !== 1) fail('Unsupported native protocol version.', 'INVALID_VERSION');
   if (typeof request.id !== 'string' || !ID_PATTERN.test(request.id)) fail('Invalid request id.', 'INVALID_ID');
-  if (typeof request.tool !== 'string' || !ALLOWED_TOOLS.has(request.tool)) fail('Tool is not allowed in P2.', 'TOOL_NOT_ALLOWED');
+  if (typeof request.tool !== 'string' || !ALLOWED_TOOLS.has(request.tool)) fail('Tool is not allowed.', 'TOOL_NOT_ALLOWED');
   exactObject(request.arguments, TOOL_ARGUMENTS.get(request.tool), 'arguments');
   if (request.tool === 'open_workspace' && request.arguments.path !== '/workspace') {
-    fail('P2 open_workspace accepts only /workspace.', 'INVALID_WORKSPACE_ROOT');
+    fail('open_workspace accepts only /workspace.', 'INVALID_WORKSPACE_ROOT');
   }
   if (request.tool === 'bash' && request.arguments.timeout !== undefined) {
     const timeout = Number(request.arguments.timeout);
     if (!Number.isFinite(timeout) || timeout <= 0 || timeout > MAX_BASH_TIMEOUT_SECONDS) {
-      fail(`P2 bash timeout must be between 0 and ${MAX_BASH_TIMEOUT_SECONDS} seconds.`, 'INVALID_TIMEOUT');
+      fail(`bash timeout must be between 0 and ${MAX_BASH_TIMEOUT_SECONDS} seconds.`, 'INVALID_TIMEOUT');
     }
   }
   return request;
@@ -89,7 +91,7 @@ export function buildDockerInvocation(config, request, {
     '--user', `${uid}:${gid}`,
     '--env', 'HOME=/tmp',
     '--env', `WEBMCP_RUNTIME_TOKEN=${config.runtimeToken}`,
-    '--mount', `type=bind,src=${config.canonicalRoot},dst=/workspace,readonly`,
+    '--mount', `type=bind,src=${config.canonicalRoot},dst=/workspace,bind-recursive=disabled`,
     config.image,
     'node', '/opt/webmcp/native/bin/start.js',
   ];
@@ -185,13 +187,19 @@ export async function dispatchNativeRequest(request, config, {
 }
 
 export function toNativeError(requestId, error) {
+  let message = error instanceof Error ? error.message : 'Native host failed.';
+  try {
+    message = sanitizeLogText(message);
+  } catch {
+    message = 'Native host failed.';
+  }
   return {
     version: 1,
     id: typeof requestId === 'string' ? requestId : null,
     ok: false,
     error: {
       code: error instanceof NativeHostError ? error.code : 'HOST_ERROR',
-      message: error instanceof Error ? error.message : 'Native host failed.',
+      message,
     },
   };
 }

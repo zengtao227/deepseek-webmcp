@@ -1,16 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { callNativeTool, isP2ToolAllowed } from '../extension/native-client.js';
+import { callNativeTool, isToolAllowed } from '../extension/native-client.js';
 
-test('P2 extension allowlist exposes only open_workspace, read and bash', () => {
-  assert.equal(isP2ToolAllowed('open_workspace'), true);
-  assert.equal(isP2ToolAllowed('read'), true);
-  assert.equal(isP2ToolAllowed('bash'), true);
-  assert.equal(isP2ToolAllowed('write'), false);
-  assert.equal(isP2ToolAllowed('edit'), false);
+test('P3 extension allowlist exposes exactly the five bounded coding tools', () => {
+  for (const name of ['open_workspace', 'read', 'write', 'edit', 'bash']) {
+    assert.equal(isToolAllowed(name), true);
+  }
+  for (const name of ['list_directory', 'git', 'shell']) {
+    assert.equal(isToolAllowed(name), false);
+  }
 });
 
-test('P2 extension uses one-shot sendNativeMessage with the narrow envelope', async () => {
+test('extension keeps one-shot sendNativeMessage with the narrow envelope', async () => {
   const originalChrome = globalThis.chrome;
   const seen = [];
   globalThis.chrome = {
@@ -38,8 +39,8 @@ test('P2 extension uses one-shot sendNativeMessage with the narrow envelope', as
   }
 });
 
-test('P2 extension refuses denied tools before Native Messaging', async () => {
-  await assert.rejects(callNativeTool({ id: 'p2_write', name: 'write', arguments: {} }), (error) => {
+test('extension refuses unknown tools before Native Messaging', async () => {
+  await assert.rejects(callNativeTool({ id: 'p3_list', name: 'list_directory', arguments: {} }), (error) => {
     assert.equal(error.code, 'TOOL_NOT_ALLOWED');
     return true;
   });

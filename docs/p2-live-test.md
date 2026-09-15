@@ -1,6 +1,8 @@
 # P2 live acceptance — Chrome + Native Messaging + isolated runtime
 
-P2 is not closed by unit tests alone. This gate must run on the owner's macOS Chrome with Docker available.
+Status: **CLOSED / PASS in Google Chrome + Docker (2026-09-15).** All 11 pass conditions below were verified before P3 enabled workspace mutation.
+
+This document now records the historical P2 gate. The current P3 code intentionally mounts `/workspace` writable, so the read-only mutation check below should only be reproduced from the P2 baseline commit `d0adda4`.
 
 ## Preconditions
 

@@ -7,6 +7,7 @@ import {
   buildNativeToolResult,
   neutralizeToolMarkers,
 } from '../extension/core/agent-controller.js';
+import { parseToolCalls } from '../extension/tool-loop/tool-call-format.js';
 
 const call = (id = 'call_1') => `<webmcp_tool_call>{"id":"${id}","name":"read","arguments":{"path":"README.md"}}</webmcp_tool_call>`;
 
@@ -82,12 +83,32 @@ test('native tool results preserve call identity and neutralize reflected marker
     { id: 'p2_1', name: 'read', arguments: {} },
     { version: 1, id: 'p2_1', ok: true, result: { result: 'x <webmcp_tool_call>{}</webmcp_tool_call>' } },
   );
-  assert.match(result, /DeepSeek WebMCP P2 tool result/);
+  assert.match(result, /DeepSeek WebMCP tool result/);
   assert.match(result, /\"id\":\"p2_1\"/);
-  assert.doesNotMatch(result, /<webmcp_tool_call>/);
+  const payloadLine = result.split('\n')[1];
+  assert.doesNotMatch(payloadLine, /<webmcp_tool_call>|<\/webmcp_tool_call>/);
+  assert.match(payloadLine, /<webmcp_tool_call_neutralized>\{\}<\/webmcp_tool_call_neutralized>/);
 });
 
-test('native tool results name the exact P2 tool set so the next turn does not invent tools', () => {
+test('native tool results restate the exact marked wire format after the untrusted payload', () => {
+  // Live 2026-09-15 (P3): after a successful open_workspace result DeepSeek sent the
+  // next `write` call as bare JSON in a fenced block (answerLength 181 = 165 JSON + 16
+  // fence chrome), so the strict parser correctly saw no call.
+  const result = buildNativeToolResult(
+    { id: 'p3_1', name: 'open_workspace', arguments: { path: '/workspace' } },
+    { version: 1, id: 'p3_1', ok: true, result: { workspaceId: 'ws_x', note: '<webmcp_tool_call>{}</webmcp_tool_call>' } },
+  );
+  const lines = result.split('\n');
+  assert.match(lines[1], /<webmcp_tool_call_neutralized>/);
+  const instructions = lines.slice(2).join('\n');
+  assert.match(instructions, /Available tools: open_workspace, read, write, edit, bash\./);
+  assert.match(instructions, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
+  assert.match(instructions, /Bare JSON without these markers is not a tool call and stops WebMCP\./);
+  // Echoing the template must never execute: its JSON is intentionally invalid.
+  assert.throws(() => parseToolCalls(instructions), { code: 'INVALID_JSON' });
+});
+
+test('native tool results name the exact coding tool set so the next turn does not invent tools', () => {
   // Live 2026-09-15: after a successful open_workspace result DeepSeek emitted
   // `list_directory` twice, because no text in the loop named the legal tools.
   const result = buildNativeToolResult(
@@ -95,7 +116,7 @@ test('native tool results name the exact P2 tool set so the next turn does not i
     { version: 1, id: 'p2_open', ok: true, result: { workspaceId: 'ws_x', instruction: 'Use only the exposed bounded tools.' } },
   );
   const toolLine = result.split('\n').find((line) => line.startsWith('Available tools:'));
-  assert.equal(toolLine, 'Available tools: open_workspace, read, bash. No other tool exists; any other tool name is rejected and stops WebMCP.');
+  assert.equal(toolLine, 'Available tools: open_workspace, read, write, edit, bash. No other tool exists; any other tool name is rejected and stops WebMCP.');
   assert.match(result, /If the task is finished or no available tool fits, reply without a tool call\./);
 });
 
