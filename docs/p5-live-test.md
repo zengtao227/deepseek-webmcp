@@ -15,7 +15,8 @@ Status: **PASS in the owner's real macOS Google Chrome and Comet + Docker enviro
 | Popup Full access: dialog, countdown, Stop hides the countdown | PASS (Chrome) |
 | Comet: popup reaches the local runtime; Work + tool calls answer correctly | PASS (Comet, Chromium 141) |
 | DSML native tool syntax → format correction | automated tests only (not reproduced live after the fix) |
-| Uninstall finished message (macOS dialog) | automated tests only (fake notifier) |
+| Uninstall finished message (macOS dialog) | PASS (Comet) |
+| Uninstall in one browser, then the other: popup says the shared local program is gone, shows Copy install command; its Uninstall… removes just that extension via Chrome's dialog | PASS (Comet → Chrome) |
 | One-line install from GitHub `main` into `~/deepseek-webmcp`; `npm run doctor` all OK | PASS |
 | Popup Uninstall: program folder, settings, Docker image, all 7 browser registrations removed; extension removed itself; dev checkout and fixture untouched | PASS |
 
@@ -29,8 +30,10 @@ Status: **PASS in the owner's real macOS Google Chrome and Comet + Docker enviro
 6. **Popup rows never hid.** `.row { display: flex }` overrode the `hidden` attribute; `[hidden] { display: none !important }` added.
 7. **Uninstall showed no confirmation.** The popup closes behind the macOS dialog and the extension removes itself; the host now shows a detached macOS message when it finishes (not yet seen live). Install output no longer prints the next steps twice, and re-running the installer to update says to reload the extension and reopen DeepSeek tabs.
 
+8. **Shared local program.** All browsers use one local program. After Uninstall in Comet, Chrome showed "host not found" and its Uninstall did nothing. The popup now explains the shared program, offers Copy install command, and removes only its own extension. `management.uninstallSelf` with a confirmation dialog did nothing when called from the service worker; it is now called directly in the popup click (Chrome requires a user gesture for uninstall dialogs).
+
 ## Notes
 
 - DeepSeek's own "深度思考" (DeepThink) switch is remembered per browser; WebMCP reads only the final answer either way.
 - A second browser's copy of the extension (e.g. Comet) is not removed by Uninstall in another browser.
-- After acceptance the development install was restored from the dev checkout (`--workspace` = the P4 fixture); the fixture is still clean at `8508afa`.
+- The fixture is still clean at `8508afa`.
