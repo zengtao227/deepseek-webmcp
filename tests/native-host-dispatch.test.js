@@ -251,3 +251,37 @@ test('uninstall removes local state only after confirmation and announces itself
   assert.equal(messages.length, 1);
   assert.match(messages[0], /uninstalled/);
 });
+
+test('an aborted call is answered even when Docker cleanup hangs', async () => {
+  const { dispatchNativeRequest } = await import('../native/host/docker-dispatch.js');
+  const { EventEmitter } = await import('node:events');
+
+  // A wedged Docker daemon is exactly when cleanup hangs, and it is also the most
+  // likely reason a call had to be aborted at all. The answer must not wait for it:
+  // an unsettled call writes no response, so Chrome's sendNativeMessage never
+  // resolves and the page keeps showing work that already failed.
+  let cleanupStarted = false;
+  const execFileImpl = () => { cleanupStarted = true; return new Promise(() => {}); };
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    child.stdin = {
+      end: () => setImmediate(() => {
+        child.stdout.emit('data', Buffer.alloc(641 * 1024, 0x20));
+      }),
+    };
+    return child;
+  };
+
+  const config = {
+    dockerPath: '/usr/local/bin/docker', canonicalRoot: '/Users/a', image: IMAGE, runtimeToken: 'b'.repeat(64), masks: [],
+  };
+
+  await assert.rejects(
+    dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), config, { spawnImpl, execFileImpl }),
+    { code: 'RESPONSE_TOO_LARGE' },
+  );
+  assert.equal(cleanupStarted, true);
+});

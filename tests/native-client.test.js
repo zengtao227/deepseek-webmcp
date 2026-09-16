@@ -45,3 +45,25 @@ test('extension refuses unknown tools before Native Messaging', async () => {
     return true;
   });
 });
+
+test('a local program that never answers becomes a tool error instead of an unending call', async (t) => {
+  const originalChrome = globalThis.chrome;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  globalThis.chrome = {
+    runtime: {
+      // The program stayed alive and wrote nothing, which is what a wedged Docker
+      // daemon used to produce. Chrome never rejects in that case.
+      sendNativeMessage: () => new Promise(() => {}),
+    },
+  };
+  try {
+    const call = callNativeTool({ id: 'p2_hang', name: 'read', arguments: { workspaceId: 'ws_x', path: 'x' } });
+    t.mock.timers.tick(60_000);
+    await assert.rejects(call, (error) => {
+      assert.equal(error.code, 'NATIVE_CALL_TIMED_OUT');
+      return true;
+    });
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+});

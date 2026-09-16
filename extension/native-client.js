@@ -33,21 +33,42 @@ export class NativeClientError extends Error {
   }
 }
 
+// The local program bounds its own container run, but it is a separate process:
+// anything that leaves it alive without writing a response leaves this promise
+// unsettled forever, and the page then keeps showing work that already failed.
+// Control requests are deliberately not bounded here — those wait on a dialog the
+// owner is looking at.
+const TOOL_CALL_TIMEOUT_MS = 60_000;
+
 export async function callNativeTool(call) {
   if (!call || typeof call !== 'object' || !isToolAllowed(call.name)) {
     throw new NativeClientError('Tool is not allowed.', 'TOOL_NOT_ALLOWED');
   }
 
+  let timer;
+  const bound = new Promise((_, rejectBound) => {
+    timer = setTimeout(
+      () => rejectBound(new NativeClientError('The local WebMCP runtime did not answer in time.', 'NATIVE_CALL_TIMED_OUT')),
+      TOOL_CALL_TIMEOUT_MS,
+    );
+  });
+
   let response;
   try {
-    response = await chrome.runtime.sendNativeMessage(HOST_NAME, {
-      version: 1,
-      id: call.id,
-      tool: call.name,
-      arguments: call.arguments,
-    });
+    response = await Promise.race([
+      chrome.runtime.sendNativeMessage(HOST_NAME, {
+        version: 1,
+        id: call.id,
+        tool: call.name,
+        arguments: call.arguments,
+      }),
+      bound,
+    ]);
   } catch (error) {
+    if (error instanceof NativeClientError) throw error;
     throw new NativeClientError(error?.message || 'Native Messaging failed.', 'NATIVE_MESSAGING_FAILED');
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!response || response.version !== 1 || response.id !== call.id || typeof response.ok !== 'boolean') {
