@@ -23,6 +23,7 @@ const IMAGE_PATTERN = /^sha256:[0-9a-f]{64}$/i;
 const MAX_STDOUT_BYTES = 640 * 1024;
 const MAX_BASH_TIMEOUT_SECONDS = 30;
 const HOST_DEADLINE_MS = 35_000;
+const CLEANUP_DEADLINE_MS = 10_000;
 
 export class NativeHostError extends Error {
   constructor(message, code) {
@@ -246,8 +247,19 @@ function runContainer(request, config, {
       aborting = true;
       clearTimeout(timer);
       try { child.kill('SIGKILL'); } catch {}
-      try { await execFileImpl(config.dockerPath, ['rm', '-f', invocation.name], { encoding: 'utf8', maxBuffer: 1024 * 1024 }); } catch {}
+      // The answer must not depend on cleanup. A wedged Docker daemon is the most
+      // likely reason the deadline fired in the first place, and `docker rm -f`
+      // then hangs too. Awaiting it here left the whole call unsettled, so the
+      // host wrote no response and Chrome's sendNativeMessage never resolved:
+      // the page kept showing work in progress that had already failed.
       finish(reject, error);
+      try {
+        await execFileImpl(config.dockerPath, ['rm', '-f', invocation.name], {
+          encoding: 'utf8',
+          maxBuffer: 1024 * 1024,
+          timeout: CLEANUP_DEADLINE_MS,
+        });
+      } catch {}
     };
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.byteLength;
