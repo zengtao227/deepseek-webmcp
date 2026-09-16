@@ -11,3 +11,7 @@ test('runtime git trusts exactly the /workspace bind so diff inspection works', 
   assert.match(dockerfile, /git config --system --add safe\.directory \/workspace\n/);
   assert.doesNotMatch(dockerfile, /safe\.directory ['"]?\*/);
 });
+
+test('runtime image remains non-root by default', () => {
+  assert.match(dockerfile, /^USER 65532:65532$/m);
+});
