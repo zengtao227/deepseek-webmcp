@@ -76,3 +76,13 @@ No Git publication, credentials, extra discovery tools, persistent runtime, or B
 ## Base / Plus cleanup timing
 
 Do not remove the old DeepSeek-related code from WebMCP Base or Plus while DeepSeek WebMCP is still being built. Finish DeepSeek WebMCP through its coding E2E gate first; then clean Base and Plus as a separate reviewed task so the new project is the sole DeepSeek implementation and generic reusable mechanisms are not accidentally deleted during migration.
+
+## ChatGPT Embedded Panel reference review
+
+ChatGPT Embedded Panel has been extracted into the independent sibling project `../chatgpt-embedded-panel/`. DeepSeek WebMCP no longer owns or runs that implementation.
+
+Before extraction, `SillySerpent/Dichrome` commit `e927d6a12542dfeb33b275b77cc5ba9c38430632` (Apache-2.0) was reviewed as a reference for session-scoped ChatGPT framing, route persistence, reconnect/recovery, and companion-window fallback. No Dichrome production file was copied.
+
+### Browser WebMCP code lineage
+
+At extraction time, the standalone project copied `extension/browser-client.js` and `extension/target-executor.js` unchanged as the proven Browser WebMCP V1 baseline. The standalone project now owns its own copies, tests, task binding, ChatGPT adapter, and release lifecycle; there is no runtime dependency between it and DeepSeek WebMCP.

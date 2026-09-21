@@ -99,3 +99,24 @@ The Base/Plus DeepSeek cleanup is merged.
 Status: **PASS (2026-09-15)** in Chrome and Comet — `docs/p5-live-test.md`.
 
 Owner decision: public MIT source for the owner and a few friends, each with their own DeepSeek account; not the Chrome Web Store. Terms risk (DeepSeek Terms §3.5(3), §2.3) is disclosed in the README. Delivered per `docs/p5-design.md`: one-line install, per-tab Work, in-extension folder / Full access / uninstall, all Chromium browsers.
+
+## P6 — Compact Assistant / managed provider window
+
+Status: **IMPLEMENTED IN WORKING TREE — automated checks PASS; real Chrome acceptance pending.**
+
+The 2026-09-19 spikes established the provider constraint:
+
+- direct DeepSeek rendering in Chrome Side Panel is not viable;
+- a fully hidden/background DeepSeek tab can generate but does not render answer/reasoning DOM;
+- a selected DeepSeek tab in a second non-minimized Chrome window continues rendering while unfocused;
+- that provider window may be completely covered by the work window on the tested Mac/Chrome setup.
+
+P6 therefore productizes the proven arrangement instead of trying to bypass it:
+
+1. extension-managed DeepSeek provider window lifecycle;
+2. extension-owned Side Panel conversation UI;
+3. mirror only DeepSeek-visible reasoning plus the final answer;
+4. aggregate normal tool activity into one compact expandable status instead of reproducing every tool protocol turn;
+5. preserve the existing local/browser tool authority and safety boundaries.
+
+Detailed gates and the minimum proposed file delta are in `docs/p6-compact-assistant-roadmap.md`.

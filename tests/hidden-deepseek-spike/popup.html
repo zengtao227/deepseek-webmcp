@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeepSeek Hidden Tab Spike</title>
+  <style>
+    body { width: 380px; margin: 0; padding: 12px; font: 13px/1.4 system-ui, sans-serif; }
+    h1 { font-size: 15px; margin: 0 0 10px; }
+    .row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+    button { padding: 7px 9px; }
+    #status, #summary { white-space: pre-wrap; margin: 8px 0; }
+    textarea { width: 100%; min-height: 220px; box-sizing: border-box; font: 11px/1.35 ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <h1>DeepSeek Hidden Tab Spike</h1>
+  <div class="row">
+    <button id="bind" type="button">Bind current DeepSeek tab</button>
+    <button id="clear" type="button">Clear log</button>
+  </div>
+  <div class="row">
+    <button id="send" type="button">Send probe</button>
+    <button id="refresh" type="button">Refresh log</button>
+    <button id="copy" type="button">Copy log</button>
+  </div>
+  <div id="status">Not bound.</div>
+  <div id="summary"></div>
+  <textarea id="log" readonly></textarea>
+  <script src="popup.js"></script>
+</body>
+</html>

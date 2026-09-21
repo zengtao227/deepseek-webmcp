@@ -34,9 +34,20 @@ To update, run the same command again, then click the extension's reload icon an
 
 ## Use
 
+For local coding:
+
 1. Open `https://chat.deepseek.com`, click the DeepSeek WebMCP icon → **Work** (or press ⌥⇧W).
 2. Type your task normally and press Enter. The tool instructions are attached to the first message of each new chat automatically.
 3. DeepSeek works on its own. You can switch to other chats meanwhile; the task pauses and continues when you come back. Click **Work** again to stop.
+
+For the experimental Browser WebMCP V1 form-filling path:
+
+1. Open the normal webpage you want to work on, open the popup there, and click **Attach this tab**.
+2. Switch to normal DeepSeek Web, turn **Work** on, and ask it to inspect/fill the attached page.
+3. Browser tools act directly on that one real page through semantic DOM refs. The model cannot choose arbitrary tabs or use CSS selectors/XPath.
+4. Reloading/navigating the target invalidates the attachment. Submit/send/pay/delete-like or otherwise unclassified clicks fail closed with `CONFIRMATION_REQUIRED`.
+
+Use `docs/browser-v1-live-test.md` for the first deterministic browser acceptance run; do not begin with an important production site.
 
 In the popup:
 
@@ -57,7 +68,7 @@ The local part is shared by all browsers: after Uninstall in one browser, the ex
 
 P5 (small-circle distribution: one-line install, per-tab Work, in-extension folder / Full access / uninstall, Chromium browsers including Comet, MIT) is implemented per `docs/p5-design.md` and passed live acceptance in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged.
 
-The architecture remains:
+The coding architecture remains:
 
 ```text
 DeepSeek assistant output
@@ -69,6 +80,18 @@ DeepSeek assistant output
   → Secret Firewall
   → normal DeepSeek compose/send
 ```
+
+Browser WebMCP V1 reuses the same DeepSeek planner/continuation loop but dispatches only the five browser tools directly to the one owner-attached tab:
+
+```text
+normal DeepSeek Web
+  → existing WebMCP one-call loop
+  → inspect_page / inspect_form / fill / select / click
+  → owner-attached real browser tab
+  → semantic DOM
+```
+
+No Playwright/Selenium server, screenshot/OCR navigation, generic JavaScript tool, or new native daemon is added for this browser path.
 
 P3 exposes exactly `open_workspace`, `read`, `write`, `edit`, and `bash`. The owner-selected workspace is mounted **writable** so mutations persist, while the container remains network-disabled, non-root, capability-dropped, no-new-privileges, and fresh per tool call via `docker run --rm`. The bind mount does not recursively include nested mounts.
 

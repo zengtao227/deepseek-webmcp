@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek Side Panel Embed Spike",
+  "version": "0.0.1",
+  "description": "Isolated spike: test whether normal DeepSeek Web can run directly inside Chrome Side Panel.",
+  "permissions": [
+    "sidePanel"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "Open DeepSeek Side Panel Spike"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chat.deepseek.com;"
+  }
+}

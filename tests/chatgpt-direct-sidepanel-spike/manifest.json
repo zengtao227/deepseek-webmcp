@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT Direct Side Panel Spike",
+  "version": "0.0.1",
+  "description": "Isolated spike: test whether normal signed-in ChatGPT Web can run directly inside Chrome Side Panel.",
+  "permissions": [
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "Open ChatGPT Direct Side Panel Spike"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "chatgpt-frame-probe.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com;"
+  }
+}

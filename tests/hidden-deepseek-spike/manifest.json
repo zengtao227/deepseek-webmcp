@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek Hidden Tab Spike",
+  "version": "0.0.1",
+  "description": "Isolated probe for hidden-tab DeepSeek DOM streaming and prompt submission.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://chat.deepseek.com/*"],
+  "action": {
+    "default_title": "DeepSeek Hidden Tab Spike",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [{
+    "matches": ["https://chat.deepseek.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle",
+    "world": "ISOLATED"
+  }]
+}
