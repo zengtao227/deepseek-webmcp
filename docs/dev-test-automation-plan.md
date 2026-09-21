@@ -1,6 +1,6 @@
 # Dev-side end-to-end test automation — plan for review
 
-Status: **PLAN ONLY (revision 3). No code written.** Written 2026-09-21; revised after Codex review and after the owner's point that the harness serves more than DeepSeek (see sections 10 and 11).
+Status: **PLAN ONLY (revision 4: phase 0 done, see `dev-test-automation-phase0-report.md`). No harness code written yet.** Written 2026-09-21; revised after Codex review and after the owner's point that the harness serves more than DeepSeek (see sections 10 and 11).
 Owner request: "if you (Claude) can run the tests yourself, that is best" — testing by hand has been the main cost of every change so far. Also: "do not build something over-designed that we later have to re-integrate."
 
 ## 0. What reviewers should challenge
@@ -42,7 +42,7 @@ Priority order. Each scenario states what must be observable.
 | # | Scenario | Pass condition |
 |---|---|---|
 | S1 | Boot | extension loads; service worker is up; `assistant.ensure` (sent from the panel page) creates exactly one provider window on the mock DeepSeek; panel shows an active assistant |
-| S2 | Reuse | a second `ensure` creates no window; after the session is lost and the worker restarted, the remembered provider is found, not duplicated |
+| S2 | Reuse | a second `ensure` creates no window; after the **session storage is lost**, the remembered provider is found, not duplicated. **A service-worker restart is not covered** (it drops in-memory state but keeps `storage.session`, so it is a different case) |
 | S3 | Prompt → answer | panel prompt reaches the mock's composer with the tool contract on the first prompt; **the mock keeps the text in the composer after Send (as real DeepSeek did) and only starts generating / changes route**, and the panel must still report success; mock streams reasoning + answer; panel renders the block structure (heading, list, code, table, link); Copy/Regenerate/Share appear only when finished |
 | S4 | Page read | mock replies with an `inspect_page` call; the fixture page in the work window is locked; the result typed back into the mock contains the page's title/text |
 | S5 | Fill, but never submit | `fill`/`select` change the fixture form; a `click` on Submit/Send returns `CONFIRMATION_REQUIRED` and changes nothing (owner rule) |
@@ -156,3 +156,7 @@ Accepted and applied: panel binds its own window, so the panel tab goes in the f
 ## 12. Revision 3 — after the owner's question (2026-09-21)
 
 Section 10 rewritten: the generic harness becomes a separate shared repository consumed by each project as a dev dependency; scenarios, mock provider pages and recorded-DOM fixtures stay per project. The earlier "keep it all in deepseek-webmcp" recommendation is withdrawn for the generic part. Open confirmations: repository name, GitHub visibility, phase 0 as a throwaway before any repository is created.
+
+## 13. Revision 4 — after phase 0 and the second Codex review (2026-09-21)
+
+Mechanics in section 4 are superseded by the phase 0 report: browser-level host mapping plus a dead proxy (measured boundary, narrow claim), the real Side Panel over `connectOverCDP` (a panel opened as a tab is refused by the `sender.tab` check), a read-only native-host preflight plus a harmless fake host in the temp profile instead of calling the real host, S2 narrowed and worker restart marked uncovered, Playwright installs with `PLAYWRIGHT_SKIP_BROWSER_GC=1`, and the shared GitHub repository created **private**. Scope of the shared repository stays: launcher, side-panel connection, local fixture server, cleanup; mocks, real-DOM samples and scenarios stay per project; no provider plugin, scenario DSL or platform.
