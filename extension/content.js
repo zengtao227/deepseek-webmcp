@@ -76,7 +76,7 @@
     const tag = tagOf(node);
     if (SKIP_TAGS.has(tag)) return;
     if (tag === 'BR') {
-      out.push({ text: '\n', ...style });
+      out.push({ text: '\n', br: true, ...style });
       return;
     }
     if (classesOf(node).includes('katex')) {
@@ -103,15 +103,15 @@
   function cleanRuns(raw) {
     const runs = [];
     for (const run of raw) {
-      const text = run.text === '\n' || run.code ? run.text : run.text.replace(/\s+/g, ' ');
+      const text = run.br || run.code ? run.text : run.text.replace(/\s+/g, ' ');
       if (text === '') continue;
       const last = runs.at(-1);
-      if (last && text !== '\n' && last.text !== '\n' && sameStyle(last, run)) last.text += text;
+      if (last && !run.br && !last.br && sameStyle(last, run)) last.text += text;
       else runs.push({ ...run, text });
     }
     if (runs.length > 0) runs[0].text = runs[0].text.replace(/^ +/, '');
     if (runs.length > 0) runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/ +$/, '');
-    return runs.filter((run) => run.text !== '');
+    return runs.filter((run) => run.text !== '').map(({ br, ...run }) => run);
   }
 
   const runsOf = (node, walk) => {
@@ -217,6 +217,11 @@
 
   let route = null;
   let sawGeneration = false;
+  // Set when this script itself sent a message and the send was acknowledged: a reply is now awaited even
+  // if it starts and ends between two timer ticks (a short tool-call reply), and even though a route
+  // change (a new chat getting its address) resets what tick() has observed.
+  let ownReplyPending = false;
+  let ownReplyBaseline = { count: 0, text: '' };
   let resumeCheck = false;
   let lastText = null;
   let changedAt = 0;
@@ -260,7 +265,19 @@
       if (Date.now() > confirmDeadline) return { ok: false, code: 'SEND_NOT_CONFIRMED' };
       await sleep(100);
     }
+    // Only an answer that differs from what was there at the send can be the awaited reply.
+    ownReplyBaseline = { count: document.querySelectorAll(ANSWER_SELECTOR).length, text: latestAnswer()?.textContent ?? '' };
+    ownReplyPending = true;
+    announceGeneration();
     return { ok: true, code: 'SEND_CLICKED' };
+  }
+
+  function announceGeneration() {
+    try {
+      void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
+    } catch {
+      // Extension context gone; nothing to notify.
+    }
   }
 
   function sendAcknowledged(input, startPath, wasGenerating) {
@@ -579,23 +596,18 @@
     if (location.href !== route) enterRoute();
     if (busy) return;
     if (isGenerating()) {
-      if (!sawGeneration) {
-        try {
-          void chrome.runtime.sendMessage({ type: 'work.generating' }).catch(() => {});
-        } catch {
-          // Extension context gone; nothing to notify.
-        }
-      }
+      if (!sawGeneration) announceGeneration();
       sawGeneration = true;
       resumeCheck = false;
       lastText = null;
       return;
     }
-    if (!sawGeneration && !resumeCheck) return;
-
     const answer = latestAnswer();
     if (!answer) return;
     const text = answer.textContent ?? '';
+    const awaited = ownReplyPending
+      && (document.querySelectorAll(ANSWER_SELECTOR).length > ownReplyBaseline.count || text !== ownReplyBaseline.text);
+    if (!sawGeneration && !resumeCheck && !awaited) return;
     const now = Date.now();
     if (text !== lastText) {
       lastText = text;
@@ -604,8 +616,9 @@
     }
     if (now - changedAt < STABLE_MS) return;
 
-    const resume = !sawGeneration;
+    const resume = !sawGeneration && !awaited;
     sawGeneration = false;
+    ownReplyPending = false;
     resumeCheck = false;
     lastText = null;
     void report(text, resume);

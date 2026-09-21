@@ -792,3 +792,43 @@ test('a page-released note follows the assistant prompt and precedes the tool co
   assert.ok(sent.startsWith('read the other page\n\n[NOTE: connection closed]'));
   assert.ok(sent.indexOf('[NOTE: connection closed]') < sent.indexOf('You can use owner-approved tools'));
 });
+
+// Found by the browser E2E suite (2026-09-21): a reply that ends before the first timer tick after
+// the send finishes was never seen as a generation, so its completion was reported as a history
+// replay and ignored (a short tool-call reply lost). The send itself must count as the start.
+test('a reply that starts and ends between the send and the next tick is still reported as the awaited reply', async () => {
+  const page = loadPage({ answers: [], path: '/' });
+  page.setReply('work.arrive', { work: true, instructions: buildWorkInstructions() });
+  await page.advance(500, 1);
+
+  // Sending starts a generation (Stop icon) and moves to the conversation route, like DeepSeek.
+  page.page.onClick = () => { page.page.stopVisible = true; page.page.disabled = false; page.navigate('/a/chat/s/new'); };
+  page.page.keepComposerOnClick = true;
+  const sent = await new Promise((resolve) => page.notify({ type: 'assistant.prompt', text: 'go' }, {}, resolve));
+  assert.equal(sent.ok, true);
+
+  // The whole reply happens before any timer tick runs again.
+  page.page.stopVisible = false;
+  page.page.disabled = true;
+  page.page.answers = ['<webmcp_tool_call>{"id":"t1","name":"inspect_page","arguments":{}}</webmcp_tool_call>'];
+  page.page.composerValue = '';
+  await page.advance(500, 8);
+
+  assert.ok(page.messages.some((message) => message.type === 'work.generating'), 'the worker was told a reply is awaited');
+  assert.deepEqual(completions(page.messages).map((message) => message.resume), [false]);
+});
+
+// Found by the E2E suite: whitespace between block elements ("\n" text nodes, as in any pretty-printed
+// markup) became empty paragraphs, because "\n" was also the marker for <br>.
+test('whitespace between blocks makes no empty paragraphs, while <br> still breaks a line', async () => {
+  const answer = answerEl(
+    fakeEl('h2', {}, 'Plan'), '\n',
+    fakeEl('p', {}, 'one', fakeEl('br'), 'two'), '\n  ',
+    fakeEl('ul', {}, '\n', fakeEl('li', {}, 'a'), '\n'), '\n',
+  );
+  const page = loadPage({ answers: [answer] });
+  await page.advance(500, 2);
+  const [snapshot] = snapshots(page).slice(-1);
+  assert.deepEqual(snapshot.blocks.map((block) => block.type), ['heading', 'paragraph', 'list']);
+  assert.deepEqual(snapshot.blocks[1].runs, [{ text: 'one' }, { text: '\n' }, { text: 'two' }]);
+});
