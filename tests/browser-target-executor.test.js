@@ -18,6 +18,7 @@ class FakeElement {
     attrs = {},
     labels = [],
     options,
+    isContentEditable = false,
   } = {}) {
     this.tagName = tagName.toUpperCase();
     this.type = type;
@@ -35,6 +36,12 @@ class FakeElement {
     if (checked !== undefined) this.checked = checked;
     if (options) this.options = options;
     this.multiple = false;
+    this.isContentEditable = isContentEditable;
+    this.focused = false;
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   getAttribute(name) {
@@ -110,20 +117,37 @@ function loadTarget() {
   const disabled = new HTMLInputElement({ type: 'text', value: 'do-not-touch', disabled: true, labels: [label('Inactive Field')] });
   const safe = new HTMLButtonElement({ type: 'button', text: 'Show details', attrs: { 'aria-expanded': 'false', 'aria-controls': 'details' } });
   const submit = new HTMLButtonElement({ type: 'submit', text: 'Submit' });
+  const mailRow = new FakeElement('tr', {
+    text: 'Revolut Action needed: review new Trading T&Cs',
+    attrs: { role: 'row' },
+  });
+  const reply = new HTMLButtonElement({
+    type: 'submit',
+    text: 'Reply',
+    attrs: { 'aria-label': 'Reply' },
+  });
+  const editor = new FakeElement('div', {
+    text: '',
+    attrs: { role: 'textbox', contenteditable: 'true', 'aria-label': 'Message Body' },
+    isContentEditable: true,
+  });
 
-  const controls = [employee, date, country, amount, password, hidden, disabled, safe, submit];
+  const formControls = [employee, date, country, amount, password, hidden, disabled, safe, submit, reply, editor];
+  const pageInteractives = [...formControls, mailRow];
   const form = new FakeElement('form');
-  form.querySelectorAll = () => controls;
+  form.querySelectorAll = () => formControls;
 
   const document = {
     title: 'Employee Travel Claim',
-    body: { innerText: 'Employee Travel Claim Employee Name Travel Date Country Amount Show details Submit' },
+    body: { innerText: 'Employee Travel Claim Employee Name Travel Date Country Amount Show details Submit Revolut Action needed Reply' },
     getElementById: () => null,
+    createRange: undefined,
+    execCommand: undefined,
     querySelectorAll(selector) {
       if (selector === 'form') return [form];
       if (selector === 'iframe') return [];
-      if (selector === 'input,textarea,select,button') return controls;
-      return controls;
+      if (selector.includes('a[href]') || selector.includes('[role="row"]')) return pageInteractives;
+      return formControls;
     },
   };
 
@@ -167,7 +191,7 @@ function loadTarget() {
     if (!settled && keepOpen !== true) resolve(undefined);
   });
 
-  return { send, controls: { employee, date, country, amount, password, hidden, disabled, safe, submit } };
+  return { send, controls: { employee, date, country, amount, password, hidden, disabled, safe, submit, mailRow, reply, editor } };
 }
 
 const byName = (result, name) => result.result.controls.find((control) => control.name === name);
@@ -186,7 +210,7 @@ test('visible form controls are discovered with stable semantic refs; hidden and
   assert.equal(first.ok, true);
   assert.deepEqual(
     Array.from(first.result.controls, ({ name }) => name),
-    ['Employee Name', 'Travel Date', 'Country', 'Amount', 'Approval Password', 'Show details', 'Submit'],
+    ['Employee Name', 'Travel Date', 'Country', 'Amount', 'Approval Password', 'Show details', 'Submit', 'Reply', 'Message Body'],
   );
   assert.equal(first.result.controls.some(({ name }) => name === 'Inactive Field'), false);
   assert.equal(JSON.stringify(first).includes('hidden-security-token'), false);
@@ -249,6 +273,58 @@ test('safe click executes only the referenced non-commit control', async () => {
   assert.equal(target.controls.submit.clicks, 0);
 });
 
+test('semantic mail row is exposed by inspect_page and can be opened safely', async () => {
+  const target = loadTarget();
+  const inspected = await target.send('inspect_page', {});
+  const row = inspected.result.elements.find(({ name }) => name.includes('Revolut Action needed'));
+
+  assert.ok(row);
+  assert.equal(row.role, 'row');
+
+  const result = await target.send('click', { ref: row.ref });
+  assert.equal(result.ok, true);
+  assert.equal(target.controls.mailRow.clicks, 1);
+});
+
+test('Reply action is allowed even when the site implements it as a submit-like button', async () => {
+  const target = loadTarget();
+  const inspected = await target.send('inspect_form', {});
+  const reply = byName(inspected, 'Reply');
+
+  assert.ok(reply);
+  const result = await target.send('click', { ref: reply.ref });
+  assert.equal(result.ok, true);
+  assert.equal(target.controls.reply.clicks, 1);
+});
+
+test('a Reply-labelled action that also commits Send is still confirmation-gated', async () => {
+  const target = loadTarget();
+  target.controls.reply.textContent = 'Reply and Send';
+  target.controls.reply.innerText = 'Reply and Send';
+  target.controls.reply.attributes.set('aria-label', 'Reply and Send');
+
+  const inspected = await target.send('inspect_form', {});
+  const reply = byName(inspected, 'Reply and Send');
+  const result = await target.send('click', { ref: reply.ref });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CONFIRMATION_REQUIRED');
+  assert.equal(target.controls.reply.clicks, 0);
+});
+
+test('fill supports contenteditable message bodies used by webmail composers', async () => {
+  const target = loadTarget();
+  const inspected = await target.send('inspect_form', {});
+  const editor = byName(inspected, 'Message Body');
+
+  assert.ok(editor);
+  const result = await target.send('fill', { ref: editor.ref, value: 'Thanks, I have reviewed this.' });
+  assert.equal(result.ok, true);
+  assert.equal(target.controls.editor.textContent, 'Thanks, I have reviewed this.');
+  assert.equal(target.controls.editor.focused, true);
+  assert.deepEqual(target.controls.editor.events, ['input', 'change']);
+});
+
 test('submit-like click fails closed with CONFIRMATION_REQUIRED', async () => {
   const target = loadTarget();
   const inspected = await target.send('inspect_form', {});
@@ -266,6 +342,8 @@ test('unclassified button clicks also fail closed instead of trusting an unknown
   const safe = byName(inspected, 'Show details');
   target.controls.safe.attributes.delete('aria-expanded');
   target.controls.safe.attributes.delete('aria-controls');
+  target.controls.safe.textContent = 'Mystery action';
+  target.controls.safe.innerText = 'Mystery action';
 
   const result = await target.send('click', { ref: safe.ref });
   assert.equal(result.ok, false);

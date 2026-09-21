@@ -10,17 +10,30 @@
   const MAX_OPTIONS = 25;
   const MAX_REFS = 500;
   const REDACTED = '[REDACTED]';
-  const CONTROL_SELECTOR = [
+  const FORM_CONTROL_SELECTOR = [
     'input',
     'textarea',
     'select',
     'button',
+    '[contenteditable="true"]',
     '[role="button"]',
     '[role="checkbox"]',
     '[role="radio"]',
     '[role="combobox"]',
     '[role="textbox"]',
     '[role="spinbutton"]',
+  ].join(',');
+
+  const PAGE_INTERACTIVE_SELECTOR = [
+    FORM_CONTROL_SELECTOR,
+    'a[href]',
+    '[role="link"]',
+    '[role="row"]',
+    '[role="tab"]',
+    '[role="treeitem"]',
+    '[role="option"]',
+    '[onclick]',
+    '[tabindex]:not([tabindex="-1"])',
   ].join(',');
 
   let nextRef = 1;
@@ -223,7 +236,7 @@
   }
 
   function inspectPage() {
-    const elements = uniqueVisible(document.querySelectorAll?.(CONTROL_SELECTOR) ?? []).map(describe);
+    const elements = uniqueVisible(document.querySelectorAll?.(PAGE_INTERACTIVE_SELECTOR) ?? []).map(describe);
     const crossOriginIframes = crossOriginFrameCount();
     return success({
       title: cleanText(document.title, 500),
@@ -237,8 +250,8 @@
   function inspectForm() {
     const forms = uniqueVisible(document.querySelectorAll?.('form') ?? []);
     const source = forms.length > 0
-      ? forms.flatMap((form) => Array.from(form.querySelectorAll?.(CONTROL_SELECTOR) ?? []))
-      : Array.from(document.querySelectorAll?.('input,textarea,select,button') ?? []);
+      ? forms.flatMap((form) => Array.from(form.querySelectorAll?.(FORM_CONTROL_SELECTOR) ?? []))
+      : Array.from(document.querySelectorAll?.(FORM_CONTROL_SELECTOR) ?? []);
     const controls = uniqueVisible(source).map(describe);
     const crossOriginIframes = crossOriginFrameCount();
     return success({
@@ -272,12 +285,42 @@
     const element = found.element;
     const tag = String(element.tagName ?? '').toLowerCase();
     const type = String(element.type ?? '').toLowerCase();
+    const contentEditable = element.getAttribute?.('contenteditable') === 'true'
+      || element.getAttribute?.('role') === 'textbox' && element.isContentEditable === true;
 
-    if (!['input', 'textarea'].includes(tag) || ['hidden', 'file', 'checkbox', 'radio', 'button', 'submit', 'reset', 'image'].includes(type)) {
-      return error('UNSUPPORTED_CONTROL', 'fill supports visible text-like input and textarea controls only.');
-    }
     if (element.readOnly === true || element.getAttribute?.('aria-readonly') === 'true') {
       return error('READ_ONLY', 'The referenced field is read-only.');
+    }
+
+    if (contentEditable) {
+      element.focus?.();
+
+      let inserted = false;
+      try {
+        const selection = globalThis.getSelection?.();
+        if (selection && document.createRange) {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+        inserted = document.execCommand?.('insertText', false, args.value) === true;
+      } catch {
+        inserted = false;
+      }
+
+      if (!inserted) {
+        element.textContent = args.value;
+      }
+      dispatchInputEvents(element, args.value);
+      return success({
+        ref: args.ref,
+        value: cleanText(element.innerText ?? element.textContent, 2000),
+      });
+    }
+
+    if (!['input', 'textarea'].includes(tag) || ['hidden', 'file', 'checkbox', 'radio', 'button', 'submit', 'reset', 'image'].includes(type)) {
+      return error('UNSUPPORTED_CONTROL', 'fill supports visible text-like inputs, textareas, and editable textbox regions only.');
     }
 
     setNativeValue(element, args.value);
@@ -317,18 +360,34 @@
   function clickRiskReason(element) {
     const tag = String(element.tagName ?? '').toLowerCase();
     const type = String(element.type ?? '').toLowerCase();
+    const name = accessibleName(element).toLowerCase();
+
+    const commitPattern = /\b(submit|send|pay|purchase|buy|checkout|place\s+order|confirm\s+booking|book\s+now|delete|remove|publish|post|save|apply|transfer|authorize|accept|sign)\b/i;
+    const explicitSafePattern = /^(reply(?:\s+all)?|forward|open|view|show|details?|expand|collapse|next|previous|back|more)(?:\b|\s|:|-)/i;
+    if (explicitSafePattern.test(name) && !commitPattern.test(name)) return null;
+
     if ((tag === 'button' && type === 'submit') || (tag === 'input' && ['submit', 'image'].includes(type))) {
       return 'form submit control';
     }
 
-    const name = accessibleName(element).toLowerCase();
-    const commitPattern = /\b(submit|send|pay|purchase|buy|checkout|place\s+order|confirm\s+booking|book\s+now|delete|remove|publish|post|save|apply|transfer|authorize|accept|sign)\b/i;
     const match = commitPattern.exec(name);
     if (match) return `commit-like action: ${match[0]}`;
 
+    if (tag === 'a') {
+      const href = cleanText(element.getAttribute?.('href'), 2000);
+      const download = element.getAttribute?.('download');
+      const hasUnsafeScheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.test(href)
+        && !/^https?:/i.test(href);
+      if (href && download === null && !hasUnsafeScheme) return null;
+    }
+
     const role = nativeRole(element);
-    const reversibleRoles = new Set(['checkbox', 'radio', 'switch', 'tab']);
+    const reversibleRoles = new Set(['checkbox', 'radio', 'switch', 'tab', 'link', 'row', 'treeitem', 'option']);
     if (reversibleRoles.has(role)) return null;
+
+    const safeActionPattern = /\b(reply|open|view|show|details?|expand|collapse|next|previous|back|more)\b/i;
+    if (safeActionPattern.test(name)) return null;
+
     if (
       element.getAttribute?.('aria-expanded') !== null
       || element.getAttribute?.('aria-haspopup') !== null
