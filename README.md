@@ -53,6 +53,23 @@ In the panel, **Settings**:
 
 Review changes in your project (for example `git diff`) before running anything on your Mac. Troubleshooting: `cd ~/deepseek-webmcp && npm run doctor`.
 
+## Permissions
+
+The extension asks the browser for:
+
+| Permission | Why |
+|---|---|
+| `https://chat.deepseek.com/*` | the DeepSeek page it drives in its own window |
+| `http://*/*`, `https://*/*` (all sites) | so the assistant can read and fill the page you have open, once you ask it to; nothing is read from a page until your first page request locks it |
+| `scripting` | to inject the page reader into that locked page |
+| `sidePanel` | the panel you work in |
+| `storage` | the panel session and settings |
+| `nativeMessaging` | to reach the local runtime for coding tools in Docker |
+
+Not requested: browsing history, cookies, network inspection, debugger, or the general `tabs` permission. The assistant cannot choose arbitrary tabs or run selectors; password field values are not read; Submit, send, pay and delete clicks are left to you.
+
+**What leaves your machine:** everything the assistant reads from the page or from your chosen folder becomes part of the conversation with DeepSeek's website. Choose the narrowest folder, and do not ask it to read pages that show secrets.
+
 ## Uninstall
 
 Panel → **Settings** → **Uninstall…** → confirm. This removes the local runtime, settings, Docker image, browser registrations, the `~/deepseek-webmcp` folder and the extension. Your project folders are not touched.
