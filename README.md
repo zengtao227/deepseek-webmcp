@@ -34,31 +34,28 @@ To update, run the same command again, then click the extension's reload icon an
 
 ## Use
 
-For local coding:
+Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it and the assistant starts. DeepSeek itself runs in its own window, which is created once and reused; you work in the panel.
 
-1. Open `https://chat.deepseek.com`, click the DeepSeek WebMCP icon → **Work** (or press ⌥⇧W).
-2. Type your task normally and press Enter. The tool instructions are attached to the first message of each new chat automatically.
-3. DeepSeek works on its own. You can switch to other chats meanwhile; the task pauses and continues when you come back. Click **Work** again to stop.
+1. Ask in the panel. To read or fill the page in front of you, just say so; the first page action locks the page that is open in this window.
+2. The task stays on that page. **Stop** releases it; the next page action locks whichever page is open then, so switching pages means going there and asking again.
+3. A click that opens another page (for example Reply in a mail app, or a popup) is followed, and closing that page returns to the one you came from.
+4. Page actions use semantic DOM refs; the model cannot choose arbitrary tabs or use selectors/XPath. It may open, read and fill. **Submit, send, pay, delete and other commit-like clicks are never pressed by the assistant** (`CONFIRMATION_REQUIRED`): you press them.
+5. For local files, ask it to work in your folder (see Settings). Coding tools run in an isolated Docker container on that folder only.
 
-For the experimental Browser WebMCP V1 form-filling path:
-
-1. Open the normal webpage you want to work on, open the popup there, and click **Attach this tab**.
-2. Switch to normal DeepSeek Web, turn **Work** on, and ask it to inspect/fill the attached page.
-3. Browser tools act directly on that one real page through semantic DOM refs. The model cannot choose arbitrary tabs or use CSS selectors/XPath.
-4. Reloading/navigating the target invalidates the attachment. Submit/send/pay/delete-like or otherwise unclassified clicks fail closed with `CONFIRMATION_REQUIRED`.
+The old in-page flow still works: on `chat.deepseek.com` press ⌥⇧W to turn **Work** on for that tab and type your task there.
 
 Use `docs/browser-v1-live-test.md` for the first deterministic browser acceptance run; do not begin with an important production site.
 
-In the popup:
+In the panel, **Settings**:
 
-- **Folder / Other…** — the folder DeepSeek may read and change; *Other…* opens the macOS folder dialog.
+- **Folder / Change…** — the folder DeepSeek may read and change; *Change…* opens the macOS folder dialog. It must be a folder you actually want to expose (for example your projects folder), not a test fixture.
 - **Full access** — temporarily allow the whole home folder (15 min – 1 h, confirmed in a macOS dialog, with a Stop button). DeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek.
 
 Review changes in your project (for example `git diff`) before running anything on your Mac. Troubleshooting: `cd ~/deepseek-webmcp && npm run doctor`.
 
 ## Uninstall
 
-Popup → **Uninstall…** → confirm. This removes the local runtime, settings, Docker image, browser registrations, the `~/deepseek-webmcp` folder and the extension. Your project folders are not touched.
+Panel → **Settings** → **Uninstall…** → confirm. This removes the local runtime, settings, Docker image, browser registrations, the `~/deepseek-webmcp` folder and the extension. Your project folders are not touched.
 
 The local part is shared by all browsers: after Uninstall in one browser, the extension in any other browser shows *Local program not installed*, and its **Uninstall…** just removes that extension. To use DeepSeek WebMCP again, run the install command.
 

@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
-const [popup, sidepanel, content, background, manifestText] = await Promise.all([
-  readFile(new URL('../extension/popup.js', import.meta.url), 'utf8'),
+const [sidepanel, content, background, manifestText] = await Promise.all([
   readFile(new URL('../extension/sidepanel.js', import.meta.url), 'utf8'),
   readFile(new URL('../extension/content.js', import.meta.url), 'utf8'),
   readFile(new URL('../extension/background.js', import.meta.url), 'utf8'),
@@ -12,12 +11,12 @@ const [popup, sidepanel, content, background, manifestText] = await Promise.all(
 ]);
 const manifest = JSON.parse(manifestText);
 
-test('Compact Assistant opens the Side Panel inside the direct popup click path before provider startup can await', () => {
-  const open = popup.indexOf('chrome.sidePanel.open({ tabId: tab.id })');
-  const start = popup.indexOf("chrome.runtime.sendMessage({ type: 'assistant.open' })");
-  assert.ok(open >= 0);
-  assert.ok(start > open);
-  assert.match(popup, /#assistant'\)\.addEventListener\('click', \(\) =>/);
+test('the toolbar icon opens the Side Panel directly and opening it starts the assistant; there is no popup or Open Assistant step', () => {
+  assert.equal(manifest.action?.default_popup, undefined);
+  assert.match(background, /setPanelBehavior\(\{ openPanelOnActionClick: true \}\)/);
+  assert.match(sidepanel, /type: 'assistant\.ensure', windowId: currentWindow\.id/);
+  assert.match(sidepanel, /type: 'assistant\.closed'/);
+  assert.match(sidepanel, /initSettings\(\)/);
 });
 
 test('Compact Assistant panel is a local extension resource and renders provider text without HTML injection', () => {
@@ -66,7 +65,7 @@ test('answer rendering modules never parse HTML and the panel does not import De
   assert.doesNotMatch(answerRender, /className\s*=\s*['"]ds-/);
   assert.match(content, /assistant\.action/);
   assert.match(background, /assistant\.action/);
-  assert.match(background, /sidePanel && message\.type === 'assistant\.action'/);
+  assert.match(background, /if \(!isSidePanel\(sender\)\) return undefined;[\s\S]*message\.type === 'assistant\.action'\) return runAssistantAction/);
 });
 
 test('a failed answer action shows its diagnostic in the panel as copyable text, and clears it on success', () => {

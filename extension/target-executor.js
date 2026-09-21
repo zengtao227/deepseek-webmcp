@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const INSTALL_KEY = '__deepseekWebMcpBrowserTargetV1';
+  const INSTALL_KEY = '__webMcpBrowserTargetV1';
   if (globalThis[INSTALL_KEY]) return;
   globalThis[INSTALL_KEY] = true;
 

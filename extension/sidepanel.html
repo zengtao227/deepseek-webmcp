@@ -48,6 +48,12 @@
     .actions button { padding: 2px 9px; font-size: 12px; }
     #notice { margin: 0 12px 8px; color: #b35900; white-space: pre-wrap; }
     #tools { margin: 0 12px 8px; }
+    #settings { margin: 0 12px 8px; }
+    #settings .row { margin: 4px 0; }
+    #folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; opacity: .8; }
+    #full-active { color: #b35900; font-weight: 600; }
+    #uninstall { color: #a40e26; background: none; border: none; padding: 0; }
+    [hidden] { display: none !important; }
     #diagnostic { margin: 0 12px 8px; }
     #diagnostic-text { max-height: 220px; overflow: auto; margin: 6px 0; padding: 6px 8px; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, currentColor 8%, transparent); }
     #tool-list { margin: 6px 0 0; padding-left: 18px; }
@@ -95,6 +101,21 @@
     <details id="tools" hidden>
       <summary id="tool-summary">Working</summary>
       <ul id="tool-list"></ul>
+    </details>
+
+    <details id="settings">
+      <summary>Settings</summary>
+      <div class="label">Folder DeepSeek may read and change</div>
+      <div class="row"><span id="folder">…</span><button id="choose" type="button">Change…</button></div>
+      <div class="label">Full access (home folder)</div>
+      <div id="full-off" class="row">
+        <select id="minutes"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="15">15 minutes</option></select>
+        <button id="grant" type="button">Allow…</button>
+      </div>
+      <div id="full-on" class="row" hidden><span id="full-active"></span><button id="full-stop" type="button">Stop</button></div>
+      <div class="row"><span style="flex:1"></span><button id="uninstall" type="button">Uninstall…</button></div>
+      <p id="settings-message"></p>
+      <button id="copy-install" type="button" hidden>Copy install command</button>
     </details>
 
     <form id="composer">

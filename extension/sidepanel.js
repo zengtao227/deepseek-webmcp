@@ -1,5 +1,6 @@
 import { blocksToPlainText } from './answer-blocks.js';
 import { renderBlocks } from './answer-render.js';
+import { initSettings } from './settings-ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -8,6 +9,7 @@ let lastCompleted = false;
 let lastGenerating = false;
 // The panel polls every 500 ms; history and the current answer are only rebuilt when they
 // change, so a click on an action button is never swallowed by a re-render between press and release.
+let providerNote = '';
 let lastHistorySignature = '';
 let lastAnswerSignature = '';
 
@@ -163,12 +165,10 @@ function render(response) {
   const health = response?.health ?? null;
 
   $('#empty').hidden = Boolean(session);
-  $('#stop').hidden = !session;
   $('#restore').hidden = session?.state !== 'paused';
 
   if (!session) {
     $('#state').textContent = 'Assistant not started';
-    $('#target').textContent = '';
     $('#history').replaceChildren();
     lastHistorySignature = '';
     lastAnswerSignature = '';
@@ -187,8 +187,7 @@ function render(response) {
     : session.state === 'paused'
       ? 'Assistant paused'
       : 'Preparing Assistant';
-  $('#target').textContent = 'Work tab ' + session.workTabId
-    + (health?.page?.visibility ? ' · provider ' + health.page.visibility : '');
+  providerNote = health?.page?.visibility ? ' · DeepSeek ' + health.page.visibility : '';
 
   const presentation = session.presentation ?? {};
   renderHistory(presentation.history);
@@ -219,7 +218,6 @@ function render(response) {
   $('#send').disabled = session.state !== 'active' || presentation.generating === true;
 
   const sessionKey = [
-    session.workTabId,
     presentation.history?.length ?? 0,
     answer.length,
     reasoning.length,
@@ -231,9 +229,32 @@ function render(response) {
   }
 }
 
+// The page the task works on: locked by the first browser tool call, released by Stop.
+async function refreshPage() {
+  const response = await chrome.runtime.sendMessage({ type: 'assistant.page-status' }).catch(() => null);
+  const task = response?.task ?? { mode: 'idle' };
+  const candidate = response?.candidate ?? null;
+  const stop = $('#stop');
+
+  if (task.mode === 'locked' && task.target) {
+    $('#target').textContent = `Working on: ${task.target.title}${providerNote}`;
+    $('#target').title = `${task.target.title} — ${task.target.origin}`;
+    stop.hidden = false;
+  } else if (task.mode === 'blocked' && task.target) {
+    $('#target').textContent = `Paused: ${task.target.title}`;
+    $('#target').title = `Task page unavailable (${task.reason || 'PAGE_UNAVAILABLE'}). Press Stop to release it.`;
+    stop.hidden = false;
+  } else {
+    $('#target').textContent = (candidate ? `Ready — current page: ${candidate.title}` : 'Ready — open a webpage to work on') + providerNote;
+    $('#target').title = 'The first page action locks the page that is open in this window. Stop releases it.';
+    stop.hidden = true;
+  }
+}
+
 async function refresh() {
   try {
     render(await chrome.runtime.sendMessage({ type: 'assistant.status' }));
+    await refreshPage();
   } catch {
     $('#state').textContent = 'Extension unavailable';
     $('#send').disabled = true;
@@ -274,5 +295,16 @@ $('#stop').addEventListener('click', async () => {
   await refresh();
 });
 
+// Closing the panel releases the locked page; the conversation stays for the next time.
+window.addEventListener('pagehide', () => {
+  void chrome.runtime.sendMessage({ type: 'assistant.closed' }).catch(() => {});
+});
+
+// Opening the panel is all it takes: the assistant starts (or is found already running) here.
+const currentWindow = await chrome.windows.getCurrent();
+void chrome.runtime.sendMessage({ type: 'assistant.ensure', windowId: currentWindow.id })
+  .then((response) => { if (!response?.ok) $('#notice').textContent = response?.error?.message ?? 'Assistant could not start.'; })
+  .catch(() => {});
+await initSettings();
 await refresh();
 setInterval(() => { void refresh(); }, 500);

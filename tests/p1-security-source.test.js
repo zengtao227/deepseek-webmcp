@@ -21,7 +21,12 @@ test('P2 extension uses one-shot Native Messaging without DeepSeek credential ac
   assert.doesNotMatch(source, /chrome\.cookies|document\.cookie/i);
   assert.doesNotMatch(source, /authorization|bearer\s/i);
   assert.match(source, /chrome\.storage\.session/);
-  assert.doesNotMatch(source, /chrome\.storage\.local/);
+  // Persistent storage holds exactly one thing: which window/tab is the DeepSeek provider, so that
+  // opening the panel again reuses it instead of creating another window. Nothing else may use it.
+  const persistent = source.split('\n').filter((line) => /chrome\.storage\.local/.test(line));
+  assert.ok(persistent.length > 0);
+  for (const line of persistent) assert.match(line, /PROVIDER_REF_KEY/, line);
+  assert.match(source, /providerWindowId: provider\.providerWindowId, providerTabId: provider\.providerTabId \}/);
 });
 
 test('P2 extension neither hooks nor originates DeepSeek network traffic', async () => {

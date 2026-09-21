@@ -1,6 +1,7 @@
 import { WorkController, buildFormatCorrection, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
 import { BrowserClientError, callBrowserTool, isBrowserToolAllowed } from './browser-client.js';
 import { normalizeBlocks } from './answer-blocks.js';
+import { createBrowserTask } from './browser-task.js';
 import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
 
 const ORIGIN = 'https://chat.deepseek.com';
@@ -8,7 +9,6 @@ const AUTHORITY_PREFIX = 'work.authority.';
 // Diagnostics live in session storage too: a reconstructed worker must not
 // report `diagnostics: null` for a completion it actually handled.
 const DIAGNOSTICS_PREFIX = 'work.diagnostics.';
-const TARGET_KEY = 'browser.target';
 const ASSISTANT_KEY = 'assistant.session';
 const ASSISTANT_VERSION = 1;
 const MAX_ANSWER_CHARS = 512 * 1024;
@@ -17,6 +17,19 @@ const MAX_ASSISTANT_HISTORY = 20;
 const MAX_TOOL_EVENTS = 32;
 const CONVERSATION_PATH = /^\/a\/chat\/s\/[A-Za-z0-9-]+$/;
 const controllers = new Map();
+
+// The page in front of the owner: the active tab of the window whose Side Panel is open.
+async function activeWorkTab() {
+  const session = await assistantSession();
+  const query = Number.isInteger(session?.workWindowId)
+    ? { active: true, windowId: session.workWindowId }
+    : { active: true, lastFocusedWindow: true };
+  const [tab] = await chrome.tabs.query(query);
+  return tab ?? null;
+}
+
+const browserTask = createBrowserTask({ activeTab: activeWorkTab });
+const { readTask, releaseTask, targetStatus, runBrowserTool, considerChildHandoff, handleTargetTabUpdate, handleTaskTabRemoved } = browserTask;
 
 function conversationKey(rawUrl) {
   try {
@@ -90,7 +103,7 @@ function historyEntry(item) {
 
 function normalizeAssistantSession(value) {
   if (!value || value.version !== ASSISTANT_VERSION) return null;
-  if (!Number.isInteger(value.workTabId) || !Number.isInteger(value.workWindowId)) return null;
+  if (!Number.isInteger(value.workWindowId)) return null;
   if (value.providerTabId !== null && !Number.isInteger(value.providerTabId)) return null;
   if (value.providerWindowId !== null && !Number.isInteger(value.providerWindowId)) return null;
   if (!['preparing', 'active', 'paused'].includes(value.state)) return null;
@@ -101,7 +114,6 @@ function normalizeAssistantSession(value) {
 
   return {
     version: ASSISTANT_VERSION,
-    workTabId: value.workTabId,
     workWindowId: value.workWindowId,
     providerTabId: value.providerTabId,
     providerWindowId: value.providerWindowId,
@@ -161,7 +173,7 @@ function mutateAssistantSession(mutate) {
 // stale patch is dropped instead of resurrecting or overwriting it.
 function patchAssistantSession(base, patch, { bindsProvider = false } = {}) {
   return mutateAssistantSession((current) => {
-    if (!current || current.workTabId !== base.workTabId) return null;
+    if (!current || current.workWindowId !== base.workWindowId) return null;
     if (!bindsProvider && current.providerTabId !== base.providerTabId) return null;
     return { ...current, ...(typeof patch === 'function' ? patch(current) : patch) };
   });
@@ -176,10 +188,10 @@ function patchActiveProviderPresentation(tabId, change) {
   });
 }
 
-function clearAssistantSession(workTabId) {
+function clearAssistantSession(workWindowId) {
   return enqueueAssistant(async () => {
     const current = await storedAssistantSession();
-    if (!current || (workTabId !== undefined && current.workTabId !== workTabId)) return;
+    if (!current || (workWindowId !== undefined && current.workWindowId !== workWindowId)) return;
     await chrome.storage.session.remove(ASSISTANT_KEY);
   });
 }
@@ -358,27 +370,45 @@ function requireApplied(session) {
 
 const withNotice = (notice) => (current) => ({ presentation: { ...current.presentation, notice } });
 
-async function openAssistantSession() {
-  const attached = await attachActiveTarget();
-  if (!attached.ok) return attached;
+// The provider window is remembered across sessions (and extension reloads), so opening the panel
+// again reuses it instead of creating another DeepSeek window.
+const PROVIDER_REF_KEY = 'assistant.provider';
 
-  const workTab = await chrome.tabs.get(attached.target.tabId);
-  if (!Number.isInteger(workTab.windowId)) {
+async function rememberedProvider() {
+  const stored = (await chrome.storage.local.get(PROVIDER_REF_KEY))[PROVIDER_REF_KEY];
+  if (!Number.isInteger(stored?.providerWindowId) || !Number.isInteger(stored?.providerTabId)) return null;
+  return { providerWindowId: stored.providerWindowId, providerTabId: stored.providerTabId };
+}
+
+const rememberProvider = (provider) => chrome.storage.local.set({ [PROVIDER_REF_KEY]: { providerWindowId: provider.providerWindowId, providerTabId: provider.providerTabId } });
+
+// Called each time the Side Panel opens. Idempotent: a healthy session for this window is returned
+// as it is; otherwise the remembered (or a new) provider window is prepared. No page is attached
+// here; the first browser tool call locks the page that is active in this window.
+async function ensureAssistantSession(windowId) {
+  if (!Number.isInteger(windowId)) {
     return { ok: false, error: { code: 'WORK_WINDOW_UNAVAILABLE', message: 'The work window is unavailable.' } };
   }
+
+  const existing = await assistantSession();
+  if (existing?.workWindowId === windowId && existing.state === 'active') {
+    const health = await providerHealth(existing);
+    if (health.ok) return { ok: true, session: existing };
+  }
+
+  const remembered = existing?.workWindowId === windowId && Number.isInteger(existing.providerTabId)
+    ? { providerWindowId: existing.providerWindowId, providerTabId: existing.providerTabId }
+    : await rememberedProvider();
 
   // Opening is an explicit user action, so it replaces whatever session exists.
   let session = await enqueueAssistant(async () => {
     const previous = await storedAssistantSession();
-    const presentation = previous?.workTabId === workTab.id
-      ? previous.presentation
-      : emptyAssistantPresentation();
+    const presentation = previous?.workWindowId === windowId ? previous.presentation : emptyAssistantPresentation();
     return saveAssistantSession({
       version: ASSISTANT_VERSION,
-      workTabId: workTab.id,
-      workWindowId: workTab.windowId,
-      providerTabId: previous?.providerTabId ?? null,
-      providerWindowId: previous?.providerWindowId ?? null,
+      workWindowId: windowId,
+      providerTabId: remembered?.providerTabId ?? null,
+      providerWindowId: remembered?.providerWindowId ?? null,
       state: 'preparing',
       pauseCode: null,
       presentation: { ...presentation, notice: 'Preparing DeepSeek provider…' },
@@ -387,6 +417,7 @@ async function openAssistantSession() {
 
   try {
     const provider = await normalizeProviderWindow(session, { createIfMissing: true });
+    await rememberProvider(provider);
     session = requireApplied(await patchAssistantSession(session, (current) => ({
       ...provider,
       state: 'preparing',
@@ -440,15 +471,11 @@ async function restoreAssistantSession() {
   }
 }
 
-async function stopAssistantSession() {
-  const session = await assistantSession();
-  if (!session) return { ok: true, session: null };
-
-  if (Number.isInteger(session.providerTabId)) await workOff(session.providerTabId).catch(() => {});
-  const target = await targetForBrowserTools();
-  if (target?.tabId === session.workTabId) await chrome.storage.session.remove(TARGET_KEY);
-  await clearAssistantSession(session.workTabId);
-  return { ok: true, session: null };
+// Stop releases the page the task is locked to; the next browser tool call locks whichever page
+// is active then. The provider and the conversation stay as they are.
+async function stopAssistantTask() {
+  await releaseTask();
+  return { ok: true, task: idleTask() };
 }
 
 async function assistantStatus({ refreshHealth = true } = {}) {
@@ -689,58 +716,6 @@ async function assistantProviderGate(tabId) {
   return { allowed: true, session };
 }
 
-async function targetForBrowserTools() {
-  const stored = (await chrome.storage.session.get(TARGET_KEY))[TARGET_KEY];
-  if (!stored || !Number.isInteger(stored.tabId) || typeof stored.origin !== 'string') return null;
-  return stored;
-}
-
-async function clearTargetForTab(tabId) {
-  const target = await targetForBrowserTools();
-  if (target?.tabId === tabId) await chrome.storage.session.remove(TARGET_KEY);
-}
-
-async function targetStatus() {
-  return { ok: true, target: await targetForBrowserTools() };
-}
-
-async function attachActiveTarget() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!Number.isInteger(tab?.id) || typeof tab.url !== 'string') {
-    return { ok: false, error: { code: 'TARGET_UNAVAILABLE', message: 'No attachable active browser tab.' } };
-  }
-
-  let url;
-  try {
-    url = new URL(tab.url);
-  } catch {
-    return { ok: false, error: { code: 'TARGET_UNAVAILABLE', message: 'The active tab URL is not attachable.' } };
-  }
-  if (!['http:', 'https:'].includes(url.protocol) || url.origin === ORIGIN) {
-    return { ok: false, error: { code: 'TARGET_UNAVAILABLE', message: 'Attach a normal http(s) webpage, not the DeepSeek planner tab.' } };
-  }
-
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['target-executor.js'] });
-    const ping = await chrome.tabs.sendMessage(tab.id, { type: 'webmcp.browser.ping' });
-    if (ping?.ok !== true || ping?.result?.ready !== true) throw new Error('Target executor did not answer.');
-  } catch {
-    return { ok: false, error: { code: 'TARGET_ATTACH_FAILED', message: 'This page cannot be attached. Reload it if needed, then click the extension on that page again.' } };
-  }
-
-  const target = {
-    tabId: tab.id,
-    origin: url.origin,
-    title: String(tab.title ?? url.hostname).replace(/\s+/g, ' ').trim().slice(0, 200),
-  };
-  await chrome.storage.session.set({ [TARGET_KEY]: target });
-  return { ok: true, target };
-}
-
-async function detachTarget() {
-  await chrome.storage.session.remove(TARGET_KEY);
-  return { ok: true, target: null };
-}
 
 async function statusFor(tabId) {
   const controller = await controllerFor(tabId);
@@ -830,19 +805,7 @@ async function processCompletion(tabId, key, text, resume) {
 
   let toolResponse;
   if (browserTool) {
-    const target = await targetForBrowserTools();
-    if (gate.session && target?.tabId !== gate.session.workTabId) {
-      toolResponse = { version: 1, id: call.id, ok: false, error: { code: 'SESSION_TARGET_MISMATCH', message: 'The bound work page is no longer attached.' } };
-    } else if (!target) {
-      toolResponse = { version: 1, id: call.id, ok: false, error: { code: 'TARGET_NOT_ATTACHED', message: 'No browser target is attached. Open the target page and attach it from the DeepSeek WebMCP popup.' } };
-    } else {
-      try {
-        toolResponse = await callBrowserTool(target.tabId, call);
-      } catch (error) {
-        if (error instanceof BrowserClientError && error.code === 'TARGET_NOT_ATTACHED') await clearTargetForTab(target.tabId);
-        toolResponse = { version: 1, id: call.id, ok: false, error: { code: error?.code ?? 'BROWSER_CALL_FAILED', message: error?.message ?? 'The attached browser target is unavailable.' } };
-      }
-    }
+    toolResponse = await runBrowserTool(call);
   } else {
     try {
       toolResponse = await callNativeTool(call);
@@ -873,7 +836,7 @@ async function arrive(tabId, key) {
   if (!controller) return { work: false };
   // Without this the contract only says tools act on a tab "I explicitly attached", and the
   // model answers that nothing is attached even though the owner already attached one.
-  const pageAttached = (await targetForBrowserTools()) !== null;
+  const pageAttached = (await assistantSession()) !== null;
   return { work: true, instructions: buildWorkInstructions({ pageAttached }), ...deliveryFor(controller, key) };
 }
 
@@ -927,10 +890,6 @@ function senderContext(sender) {
   return { tabId: sender.tab.id, key };
 }
 
-function isPopup(sender) {
-  return !sender.tab && sender.url === chrome.runtime.getURL('popup.html');
-}
-
 function isSidePanel(sender) {
   return !sender.tab && sender.url === chrome.runtime.getURL('sidepanel.html');
 }
@@ -976,32 +935,17 @@ function handleMessage(message, sender) {
     return recordAssistantSnapshot(context.tabId, message).then(() => ({ ok: true }));
   }
 
-  const popup = isPopup(sender);
-  const sidePanel = isSidePanel(sender);
-  if (!popup && !sidePanel) return undefined;
+  if (!isSidePanel(sender)) return undefined;
 
   if (message.type === 'assistant.status') return assistantStatus();
-  if (popup && message.type === 'assistant.open') return openAssistantSession();
-  if (sidePanel && message.type === 'assistant.restore') return restoreAssistantSession();
-  if (sidePanel && message.type === 'assistant.stop') return stopAssistantSession();
-  if (sidePanel && message.type === 'assistant.prompt') return sendAssistantPrompt(message.text);
-  if (sidePanel && message.type === 'assistant.action') return runAssistantAction(message.action);
-
-  if (!popup) return undefined;
+  if (message.type === 'assistant.ensure') return ensureAssistantSession(message.windowId);
+  if (message.type === 'assistant.restore') return restoreAssistantSession();
+  if (message.type === 'assistant.stop') return stopAssistantTask();
+  if (message.type === 'assistant.prompt') return sendAssistantPrompt(message.text);
+  if (message.type === 'assistant.action') return runAssistantAction(message.action);
+  if (message.type === 'assistant.page-status') return targetStatus();
+  if (message.type === 'assistant.closed') return releaseTask();
   if (message.type === 'settings.control' && typeof message.control === 'string') return runControl(message.control, message.arguments);
-  if (message.type === 'browser.target-status') return targetStatus();
-  if (message.type === 'browser.target-attach') return attachActiveTarget();
-  if (message.type === 'browser.target-detach') return detachTarget();
-  if (!Number.isInteger(message.tabId)) return undefined;
-  if (message.type === 'work.ui-status') {
-    const key = diagnosticsKey(message.tabId);
-    return Promise.all([statusFor(message.tabId), chrome.storage.session.get(key)]).then(([status, stored]) => ({
-      ok: true,
-      status,
-      diagnostics: stored[key] ?? null,
-    }));
-  }
-  if (message.type === 'work.ui-toggle') return toggleWork(message.tabId);
   return undefined;
 }
 
@@ -1022,57 +966,30 @@ chrome.commands.onCommand.addListener((command, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   controllers.delete(tabId);
   void chrome.storage.session.remove([authorityKey(tabId), diagnosticsKey(tabId)]);
-  void clearTargetForTab(tabId);
+  void handleTaskTabRemoved(tabId);
   void assistantSession().then(async (session) => {
-    if (!session) return;
-    if (session.workTabId === tabId) {
-      if (Number.isInteger(session.providerTabId)) await workOff(session.providerTabId).catch(() => {});
-      await clearAssistantSession(session.workTabId);
-      return;
-    }
-    if (session.providerTabId === tabId) {
+    if (session?.providerTabId === tabId) {
       await pauseAssistant(session, 'PROVIDER_CLOSED', 'DeepSeek provider was closed. Use Restore to continue.');
     }
   });
 });
 
+chrome.tabs.onCreated.addListener((tab) => {
+  void considerChildHandoff(tab);
+});
+
 // Moving within DeepSeek keeps Work (results wait for their conversation); leaving
-// DeepSeek switches it off.
+// DeepSeek switches it off. The same event drives the locked page through navigation and handoff.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (typeof changeInfo.url === 'string' && conversationKey(changeInfo.url) === null) void workOff(tabId);
 
-  void targetForBrowserTools().then(async (target) => {
-    if (target?.tabId !== tabId) return;
-
-    if (typeof changeInfo.url === 'string') {
-      let next;
-      try {
-        next = new URL(changeInfo.url);
-      } catch {
-        await clearTargetForTab(tabId);
-        return;
-      }
-      if (!['http:', 'https:'].includes(next.protocol) || next.origin !== target.origin) {
-        await clearTargetForTab(tabId);
-        return;
-      }
-    }
-
-    if (changeInfo.status !== 'complete') return;
-    try {
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['target-executor.js'] });
-      const ping = await chrome.tabs.sendMessage(tabId, { type: 'webmcp.browser.ping' });
-      if (ping?.ok !== true || ping?.result?.ready !== true) throw new Error('Target executor did not answer.');
-      const url = new URL(tab.url);
-      await chrome.storage.session.set({
-        [TARGET_KEY]: {
-          tabId,
-          origin: url.origin,
-          title: String(tab.title ?? url.hostname).replace(/\s+/g, ' ').trim().slice(0, 200),
-        },
-      });
-    } catch {
-      await clearTargetForTab(tabId);
-    }
-  });
+  void (async () => {
+    const childHandled = await considerChildHandoff(tab);
+    const task = await readTask();
+    if (childHandled && task.mode === 'locked' && task.target.tabId !== tabId) return;
+    await handleTargetTabUpdate(tabId, changeInfo, tab);
+  })();
 });
+
+// The panel opens on a click of the toolbar icon, like the ChatGPT panel; there is no popup.
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });

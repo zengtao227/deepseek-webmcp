@@ -7,7 +7,6 @@ const TAB_ID = 7;
 const OTHER_TAB_ID = 12;
 const PROVIDER_TAB_ID = 21;
 const PROVIDER_WINDOW_ID = 20;
-const POPUP = { url: 'chrome-extension://test/popup.html' };
 const SIDE_PANEL = { url: 'chrome-extension://test/sidepanel.html' };
 const TOOL_CALL_TEXT = '<webmcp_tool_call>{"id":"p2_open","name":"open_workspace","arguments":{"path":"/workspace"}}</webmcp_tool_call>';
 const BROWSER_TOOL_CALL_TEXT = '<webmcp_tool_call>{"id":"browser_1","name":"inspect_form","arguments":{}}</webmcp_tool_call>';
@@ -18,6 +17,7 @@ let importCounter = 0;
 // last committed URL, which tracks SPA pushState (what tabs.get/onUpdated report).
 async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHidden = false, slowStorage = false, browserReply = { version: 1, ok: true, result: { controls: [] } } } = {}) {
   const session = new Map();
+  const local = new Map();
   const listeners = {};
   const nativeCalls = [];
   const browserMessages = [];
@@ -36,6 +36,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
   // Live 2026-09-20: an unfocused fresh provider window reports 'hidden' until activated once.
   let providerActivated = !providerStartsHidden;
   const focusLog = [];
+  let windowsCreated = 0;
   let promptReply = { ok: true, code: 'SEND_CLICKED' };
   let actionReply = { ok: true, code: 'ACTION_CLICKED' };
   const actionCalls = [];
@@ -44,12 +45,17 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
   let active = tab;
   globalThis.chrome = {
     storage: {
+      local: {
+        get: async (key) => (local.has(key) ? { [key]: structuredClone(local.get(key)) } : {}),
+        set: async (items) => { for (const [key, value] of Object.entries(items)) local.set(key, structuredClone(value)); },
+      },
       session: {
         get: async (key) => { await yieldToLoop(); return session.has(key) ? { [key]: structuredClone(session.get(key)) } : {}; },
         set: async (items) => { await yieldToLoop(); for (const [key, value] of Object.entries(items)) session.set(key, structuredClone(value)); },
         remove: async (keys) => { await yieldToLoop(); for (const key of [keys].flat()) session.delete(key); },
       },
     },
+    sidePanel: { setPanelBehavior: async () => {} },
     management: { uninstallSelf: async (options) => { selfUninstalls.push(options); } },
     action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
     commands: { onCommand: { addListener: (fn) => { listeners.onCommand = fn; } } },
@@ -77,7 +83,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
         return { ...found };
       },
       sendMessage: async (tabId, message) => {
-        if (tabId === targetTab.id && message?.type === 'webmcp.browser.ping') {
+        if ((tabId === targetTab.id || tabId >= 100) && message?.type === 'webmcp.browser.ping') {
           return { version: 1, ok: true, result: { ready: true } };
         }
         if (tabId === targetTab.id && message?.type === 'webmcp.browser.tool') {
@@ -97,10 +103,12 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
         return undefined;
       },
       onRemoved: { addListener: (fn) => { listeners.onRemoved = fn; } },
+      onCreated: { addListener: (fn) => { listeners.onCreated = fn; } },
       onUpdated: { addListener: (fn) => { listeners.onUpdated = fn; } },
     },
     windows: {
       create: async (createData) => {
+        windowsCreated += 1;
         const created = { id: PROVIDER_WINDOW_ID, state: 'normal', focused: createData?.focused === true, tabs: [providerTab] };
         windows.set(PROVIDER_WINDOW_ID, created);
         tabs.set(PROVIDER_TAB_ID, providerTab);
@@ -155,26 +163,43 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
     providerTab,
     windows,
     focusLog,
+    windowsCreated: () => windowsCreated,
     hideProvider() { providerActivated = false; },
     setPromptReply(next) { promptReply = next; },
     setActionReply(next) { actionReply = next; },
     actionCalls,
     session,
+    local,
     listeners,
     nativeCalls,
     browserMessages,
     scriptingCalls,
     selfUninstalls,
     setActive(next) { active = next; },
+    addTab(added) { tabs.set(added.id, added); },
   };
+}
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+const WORK_WINDOW_ID = 2;
+
+// Work is switched on with the keyboard command (the toolbar icon now opens the panel, not a popup).
+async function enableWork(background, tabId) {
+  background.listeners.onCommand('toggle-work', { id: tabId });
+  await flush();
 }
 
 async function working(options) {
   const background = await loadBackground(options);
-  const on = await background.send({ type: 'work.ui-toggle', tabId: TAB_ID }, POPUP);
-  assert.equal(on.status.work, true);
+  await enableWork(background, TAB_ID);
+  const arrived = await background.send({ type: 'work.arrive' }, background.from(A));
+  assert.equal(arrived.work, true);
   return background;
 }
+
+// Opening the Side Panel starts (or finds) the assistant for its window.
+const openAssistant = (background, windowId = WORK_WINDOW_ID) => background.send({ type: 'assistant.ensure', windowId }, SIDE_PANEL);
+const pageTask = async (background) => (await background.send({ type: 'assistant.page-status' }, SIDE_PANEL)).task;
 
 test('completion is bound to the SPA route even when sender.url is the stale document-load URL', async () => {
   // Chromium sets MessageSender.url from the content script's ScriptContext URL,
@@ -219,32 +244,40 @@ test('a reply that finished while the user was away is executed once on return, 
   assert.deepEqual(background.nativeCalls.map((call) => call.id), ['p2_open', 'p2_next']);
 });
 
-test('settings-changing messages are accepted only from the extension popup', async () => {
+test('panel messages are accepted only from the extension Side Panel', async () => {
   const background = await loadBackground();
-  assert.equal(await background.send({ type: 'work.ui-toggle', tabId: TAB_ID }, background.from(A)), undefined);
-  const status = await background.send({ type: 'work.ui-status', tabId: TAB_ID }, POPUP);
-  assert.equal(status.status.work, false);
+  for (const message of [{ type: 'assistant.ensure', windowId: WORK_WINDOW_ID }, { type: 'assistant.stop' }, { type: 'assistant.page-status' }, { type: 'assistant.closed' }]) {
+    assert.equal(await background.send(message, background.from(A)), undefined, message.type);
+  }
+  assert.equal(await background.send({ type: 'assistant.page-status' }, { url: 'chrome-extension://test/popup.html' }), undefined);
+  assert.equal((await background.send({ type: 'assistant.page-status' }, SIDE_PANEL)).ok, true);
 });
 
-test('only the popup can attach the currently active target tab; supplied tab ids are ignored', async () => {
-  const background = await loadBackground();
-  background.setActive(background.targetTab);
+test('the first browser tool call locks the page active in the assistant window; nothing is attached before that', async () => {
+  const background = await working();
+  background.setActive(background.tab);
 
-  assert.equal(await background.send({ type: 'browser.target-attach' }, background.from(A)), undefined);
-  const attached = await background.send({ type: 'browser.target-attach', tabId: 999 }, POPUP);
-  assert.equal(attached.ok, true);
-  assert.equal(attached.target.tabId, background.targetTab.id);
+  const before = (await background.send({ type: 'assistant.page-status' }, SIDE_PANEL));
+  assert.equal(before.task.mode, 'idle');
+  assert.equal(before.candidate, null, 'the DeepSeek tab itself is never a candidate');
+  assert.deepEqual(background.scriptingCalls, []);
+
+  await openAssistant(background);
+  const idle = (await background.send({ type: 'assistant.page-status' }, SIDE_PANEL));
+  assert.equal(idle.task.mode, 'idle');
+  assert.equal(idle.candidate.tabId, background.targetTab.id, 'the page open in the panel window is the candidate');
+
+  await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT }, providerSenderFor(background));
+  const task = await pageTask(background);
+  assert.equal(task.mode, 'locked');
+  assert.equal(task.target.tabId, background.targetTab.id);
+  assert.equal(task.target.origin, 'https://fixture.example');
   assert.deepEqual(background.scriptingCalls, [{ target: { tabId: background.targetTab.id }, files: ['target-executor.js'] }]);
-
-  const status = await background.send({ type: 'browser.target-status' }, POPUP);
-  assert.equal(status.target.tabId, background.targetTab.id);
-  assert.equal(status.target.origin, 'https://fixture.example');
 });
 
-test('browser tools use only the owner-attached target and never Native Messaging', async () => {
+test('browser tools act on the locked page and never go through Native Messaging', async () => {
   const background = await working();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'browser.target-attach' }, POPUP)).ok, true);
 
   const reply = await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT }, background.from(A));
   assert.equal(background.nativeCalls.length, 0);
@@ -254,46 +287,49 @@ test('browser tools use only the owner-attached target and never Native Messagin
   assert.match(reply.continueWith, /\"isError\":false/);
 });
 
-test('same-origin target reload keeps the explicit attachment and reinjects the existing executor', async () => {
-  const background = await loadBackground();
+async function lockedPage() {
+  const background = await working();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'browser.target-attach' }, POPUP)).ok, true);
+  await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT }, background.from(A));
+  assert.equal((await pageTask(background)).mode, 'locked');
+  return background;
+}
+
+test('a same-origin reload keeps the task on its page and reinjects the executor', async () => {
+  const background = await lockedPage();
   const initialInjectionCount = background.scriptingCalls.length;
+  const reloaded = { ...background.targetTab, url: 'https://fixture.example/form?reload=1', title: 'Employee Travel Claim Reloaded' };
 
-  background.listeners.onUpdated(
-    background.targetTab.id,
-    { status: 'loading', url: 'https://fixture.example/form?reload=1' },
-    { ...background.targetTab, url: 'https://fixture.example/form?reload=1', title: 'Employee Travel Claim Reloaded' },
-  );
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal((await background.send({ type: 'browser.target-status' }, POPUP)).target.tabId, background.targetTab.id);
+  background.listeners.onUpdated(background.targetTab.id, { status: 'loading', url: reloaded.url }, reloaded);
+  await flush();
+  assert.equal((await pageTask(background)).target.tabId, background.targetTab.id);
 
-  background.listeners.onUpdated(
-    background.targetTab.id,
-    { status: 'complete' },
-    { ...background.targetTab, url: 'https://fixture.example/form?reload=1', title: 'Employee Travel Claim Reloaded' },
-  );
-  await new Promise((resolve) => setImmediate(resolve));
-  const status = await background.send({ type: 'browser.target-status' }, POPUP);
-  assert.equal(status.target.tabId, background.targetTab.id);
-  assert.equal(status.target.origin, 'https://fixture.example');
-  assert.equal(status.target.title, 'Employee Travel Claim Reloaded');
+  background.listeners.onUpdated(background.targetTab.id, { status: 'complete' }, reloaded);
+  await flush();
+  const task = await pageTask(background);
+  assert.equal(task.mode, 'locked');
+  assert.equal(task.target.origin, 'https://fixture.example');
+  assert.equal(task.target.title, 'Employee Travel Claim Reloaded');
   assert.equal(background.scriptingCalls.length, initialInjectionCount + 1);
 });
 
-test('cross-origin target navigation invalidates the explicit attachment', async () => {
-  const background = await loadBackground();
-  background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'browser.target-attach' }, POPUP)).ok, true);
-
+test('a cross-origin navigation the owner did not cause pauses the task instead of following the page', async () => {
+  const background = await lockedPage();
   background.listeners.onUpdated(
     background.targetTab.id,
     { status: 'loading', url: 'https://other.example/form' },
     { ...background.targetTab, url: 'https://other.example/form' },
   );
-  await new Promise((resolve) => setImmediate(resolve));
-  const status = await background.send({ type: 'browser.target-status' }, POPUP);
-  assert.equal(status.target, null);
+  await flush();
+  const task = await pageTask(background);
+  assert.equal(task.mode, 'blocked');
+  assert.equal(task.reason, 'ORIGIN_CHANGED');
+
+  const blocked = await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT.replace('browser_1', 'browser_2') }, background.from(A, {}));
+  assert.match(blocked.continueWith, /TASK_BLOCKED/);
+
+  await background.send({ type: 'assistant.stop' }, SIDE_PANEL);
+  assert.equal((await pageTask(background)).mode, 'idle', 'Stop releases the page');
 });
 
 test('sub-frames, senders without a tab URL and foreign origins are ignored', async () => {
@@ -312,10 +348,10 @@ test('moving inside DeepSeek keeps Work; leaving DeepSeek switches it off', asyn
   const background = await working();
   background.listeners.onUpdated(TAB_ID, { url: B });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal((await background.send({ type: 'work.ui-status', tabId: TAB_ID }, POPUP)).status.work, true);
+  assert.equal((await background.send({ type: 'work.arrive' }, background.from(B))).work, true);
   background.listeners.onUpdated(TAB_ID, { url: 'https://example.com/' });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal((await background.send({ type: 'work.ui-status', tabId: TAB_ID }, POPUP)).status.work, false);
+  assert.equal((await background.send({ type: 'work.arrive' }, background.from(B))).work, false);
 });
 
 test('switching away right after sending the task still resumes the first tool call on return', async () => {
@@ -330,7 +366,7 @@ test('local settings controls are relayed only from the popup', async () => {
   const background = await loadBackground();
   assert.equal(await background.send({ type: 'settings.control', control: 'grant-full-access', arguments: { minutes: 60 } }, background.from(A)), undefined);
   assert.equal(background.nativeCalls.length, 0);
-  await background.send({ type: 'settings.control', control: 'status' }, POPUP);
+  await background.send({ type: 'settings.control', control: 'status' }, SIDE_PANEL);
   assert.deepEqual(background.nativeCalls.map((call) => call.control), ['status']);
 });
 
@@ -347,7 +383,7 @@ test('after the shared local program is gone, the popup is told so and the worke
   // the uninstall dialog, and a call from the worker did nothing live.
   const background = await loadBackground({ nativeError: 'Specified native messaging host not found.' });
   for (const control of ['status', 'uninstall']) {
-    const reply = await background.send({ type: 'settings.control', control }, POPUP);
+    const reply = await background.send({ type: 'settings.control', control }, SIDE_PANEL);
     assert.equal(reply.ok, false);
     assert.equal(reply.error.code, 'LOCAL_PROGRAM_MISSING');
     assert.match(reply.error.message, /all browsers share it/);
@@ -357,18 +393,18 @@ test('after the shared local program is gone, the popup is told so and the worke
 
 test('other native failures never remove the extension', async () => {
   const background = await loadBackground({ nativeError: 'Native host has exited.' });
-  const uninstall = await background.send({ type: 'settings.control', control: 'uninstall' }, POPUP);
+  const uninstall = await background.send({ type: 'settings.control', control: 'uninstall' }, SIDE_PANEL);
   assert.equal(uninstall.ok, false);
   assert.deepEqual(background.selfUninstalls, []);
 });
 
-test('Compact Assistant creates one bound provider session for the owner-attached work tab', async () => {
+test('Compact Assistant starts for the panel window with one bound provider session', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
 
-  const opened = await background.send({ type: 'assistant.open' }, POPUP);
+  const opened = await openAssistant(background);
   assert.equal(opened.ok, true);
-  assert.equal(opened.session.workTabId, background.targetTab.id);
+  assert.equal(opened.session.workWindowId, WORK_WINDOW_ID);
   assert.equal(opened.session.providerTabId, PROVIDER_TAB_ID);
   assert.equal(opened.session.providerWindowId, PROVIDER_WINDOW_ID);
   assert.equal(opened.session.state, 'active');
@@ -382,10 +418,11 @@ test('Compact Assistant creates one bound provider session for the owner-attache
 test('while Compact Assistant is active, another Work-enabled DeepSeek tab cannot execute a valid tool call', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
-  const otherOn = await background.send({ type: 'work.ui-toggle', tabId: OTHER_TAB_ID }, POPUP);
-  assert.equal(otherOn.status.work, true);
+  await enableWork(background, OTHER_TAB_ID);
+  const otherArrived = await background.send({ type: 'work.arrive' }, background.from(B, { tab: { ...background.otherDeepSeekTab } }));
+  assert.equal(otherArrived.work, true);
 
   const otherSender = background.from(B, {
     tab: { ...background.otherDeepSeekTab },
@@ -411,7 +448,7 @@ test('while Compact Assistant is active, another Work-enabled DeepSeek tab canno
 test('provider minimization pauses Compact Assistant and explicit Restore re-arms the recorded provider only', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
   background.windows.get(PROVIDER_WINDOW_ID).state = 'minimized';
   const paused = await background.send({ type: 'assistant.status' }, SIDE_PANEL);
@@ -428,7 +465,7 @@ test('provider minimization pauses Compact Assistant and explicit Restore re-arm
 test('only the Side Panel may send assistant prompts and provider-visible snapshots update presentation without changing tool authority', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
   assert.equal(
     await background.send({ type: 'assistant.prompt', text: 'Inspect this page' }, background.from(A)),
@@ -464,7 +501,7 @@ test('a fresh provider window that starts hidden is activated once, then focus r
   const background = await loadBackground({ providerStartsHidden: true });
   background.setActive(background.targetTab);
 
-  const opened = await background.send({ type: 'assistant.open' }, POPUP);
+  const opened = await openAssistant(background);
   assert.equal(opened.ok, true);
   assert.equal(opened.session.state, 'active');
 
@@ -487,7 +524,7 @@ test('content-script readiness alone does not activate the assistant: a provider
   const create = globalThis.chrome.windows.create;
   globalThis.chrome.windows.create = async (createData) => create({ ...createData, focused: false });
 
-  const opened = await background.send({ type: 'assistant.open' }, POPUP);
+  const opened = await openAssistant(background);
   assert.equal(opened.ok, false);
   assert.equal(opened.error.code, 'PROVIDER_HIDDEN');
   assert.equal(opened.session.state, 'paused');
@@ -496,7 +533,7 @@ test('content-script readiness alone does not activate the assistant: a provider
 test('Restore from minimized re-bootstraps a provider that comes back hidden', async () => {
   const background = await loadBackground({ providerStartsHidden: true });
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
   background.windows.get(PROVIDER_WINDOW_ID).state = 'minimized';
   background.hideProvider();
@@ -530,7 +567,7 @@ async function streamSnapshots(background, provider, count, snapshot) {
 test('interleaved snapshot, tool and final updates cannot erase one another', async () => {
   const background = await loadBackground({ slowStorage: true });
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   assert.equal((await background.send({ type: 'assistant.prompt', text: 'Open the workspace' }, SIDE_PANEL)).ok, true);
   const provider = providerSenderFor(background);
 
@@ -566,7 +603,7 @@ test('interleaved snapshot, tool and final updates cannot erase one another', as
 test('an unchanged snapshot re-reported after the final does not reopen the finished turn', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const provider = providerSenderFor(background);
 
   await background.send({ type: 'work.completion', text: 'All done.' }, provider);
@@ -575,25 +612,47 @@ test('an unchanged snapshot re-reported after the final does not reopen the fini
   assert.equal(status.session.presentation.completed, true);
 });
 
-test('updates that arrive after Stop can neither resurrect nor change the ended session', async () => {
+test('Stop releases the locked page but keeps the assistant, its conversation and the provider', async () => {
   const background = await loadBackground({ slowStorage: true });
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const provider = providerSenderFor(background);
+  await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT }, provider);
+  assert.equal((await pageTask(background)).mode, 'locked');
 
   await Promise.all([
     background.send({ type: 'assistant.stop' }, SIDE_PANEL),
-    background.send({ type: 'assistant.snapshot', reasoning: 'late', answer: 'late', generating: true }, provider),
-    background.send({ type: 'work.generating' }, provider),
+    background.send({ type: 'assistant.snapshot', reasoning: 'later', answer: 'later answer', generating: false }, provider),
   ]);
+  assert.equal((await pageTask(background)).mode, 'idle');
   const status = await background.send({ type: 'assistant.status' }, SIDE_PANEL);
-  assert.equal(status.session, null);
+  assert.equal(status.session.state, 'active');
+  assert.equal(status.session.presentation.answer, 'later answer');
+});
+
+test('opening the panel again reuses the running assistant and the remembered provider window', async () => {
+  const background = await loadBackground();
+  const first = await openAssistant(background);
+  assert.equal(first.session.providerWindowId, PROVIDER_WINDOW_ID);
+  const created = background.focusLog.length;
+
+  const again = await openAssistant(background);
+  assert.equal(again.ok, true);
+  assert.equal(again.session.providerTabId, first.session.providerTabId);
+  assert.equal(background.focusLog.length, created, 'no window is created or focused a second time');
+
+  // After the session is lost (browser restart) the provider window is still found, not duplicated.
+  background.session.delete('assistant.session');
+  const restored = await openAssistant(background);
+  assert.equal(restored.ok, true);
+  assert.equal(restored.session.providerWindowId, PROVIDER_WINDOW_ID);
+  assert.equal(background.windowsCreated(), 1);
 });
 
 test('a prompt DeepSeek did not accept is withdrawn from history and can be retried without duplicates', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
   background.setPromptReply({ ok: false, code: 'SEND_NOT_CONFIRMED' });
   const failed = await background.send({ type: 'assistant.prompt', text: 'Explain WebMCP' }, SIDE_PANEL);
@@ -611,7 +670,7 @@ test('a prompt DeepSeek did not accept is withdrawn from history and can be retr
 test('a prompt reported as failed stays in history when the provider is already replying to it', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const provider = providerSenderFor(background);
 
   // The provider's generation is observed while the send acknowledgement is still pending.
@@ -628,23 +687,22 @@ test('a prompt reported as failed stays in history when the provider is already 
   assert.deepEqual(status.session.presentation.history.map((item) => item.text), ['Explain WebMCP']);
 });
 
-test('the tool contract tells DeepSeek a page is attached once the owner attached one, and not before', async () => {
+test('the tool contract tells DeepSeek the owner\'s page is available once the assistant is running', async () => {
   const background = await loadBackground();
-  const before = await background.send({ type: 'work.ui-toggle', tabId: TAB_ID }, POPUP);
-  assert.equal(before.status.work, true);
-  const noTarget = await background.send({ type: 'work.arrive' }, background.from(A));
-  assert.ok(!noTarget.instructions.includes('already attached'));
+  await enableWork(background, TAB_ID);
+  const noAssistant = await background.send({ type: 'work.arrive' }, background.from(A));
+  assert.ok(!noAssistant.instructions.includes('already attached'));
 
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
-  const attached = await background.send({ type: 'work.arrive' }, background.from(A));
-  assert.ok(attached.instructions.includes('already attached'));
+  assert.equal((await openAssistant(background)).ok, true);
+  const running = await background.send({ type: 'work.arrive' }, background.from(A));
+  assert.ok(running.instructions.includes('already attached'));
 });
 
 test('the assistant marks only the first prompt of a session for the tool contract', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
   const sentMessages = [];
   const original = globalThis.chrome.tabs.sendMessage;
@@ -673,7 +731,7 @@ async function finishedAnswer(background, provider, { answer = 'Plan see docsbad
 test('the answer structure is stored re-validated, and a hostile link loses its target', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const presentation = await finishedAnswer(background, providerSenderFor(background));
   assert.deepEqual(presentation.blocks.map((block) => block.type), ['heading', 'paragraph', 'code']);
   assert.deepEqual(presentation.blocks[1].runs.at(-1), { text: 'bad' });
@@ -684,7 +742,7 @@ test('the answer structure is stored re-validated, and a hostile link loses its 
 test('structure never outlives its text: a filtered answer and a changed final both drop the blocks', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const provider = providerSenderFor(background);
 
   await background.send({ type: 'assistant.snapshot', reasoning: '', answer: '<webmcp_tool_call>{"id":"x"}</webmcp_tool_call>', blocks: RICH, generating: false }, provider);
@@ -702,7 +760,7 @@ test('structure never outlives its text: a filtered answer and a changed final b
 test('a finished answer keeps its structure in history for the next turn, and stored blocks are re-checked on every read', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   await background.send({ type: 'assistant.prompt', text: 'first' }, SIDE_PANEL);
   await finishedAnswer(background, providerSenderFor(background));
 
@@ -721,24 +779,24 @@ test('a finished answer keeps its structure in history for the next turn, and st
 test('Regenerate and Share are Side Panel actions on the bound provider only', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
 
-  for (const sender of [POPUP, background.from(A), providerSenderFor(background)]) {
+  for (const sender of [{ url: 'chrome-extension://test/popup.html' }, background.from(A), providerSenderFor(background)]) {
     assert.equal(await background.send({ type: 'assistant.action', action: 'regenerate' }, sender), undefined);
   }
   assert.equal((await background.send({ type: 'assistant.action', action: 'format-disk' }, SIDE_PANEL)).ok, false);
   assert.deepEqual(background.actionCalls, []);
 
-  await background.send({ type: 'assistant.stop' }, SIDE_PANEL);
-  const stopped = await background.send({ type: 'assistant.action', action: 'regenerate' }, SIDE_PANEL);
-  assert.equal(stopped.error.code, 'ASSISTANT_NOT_ACTIVE');
-  assert.deepEqual(background.actionCalls, []);
+  const idle = await loadBackground();
+  const notStarted = await idle.send({ type: 'assistant.action', action: 'regenerate' }, SIDE_PANEL);
+  assert.equal(notStarted.error.code, 'ASSISTANT_NOT_ACTIVE');
+  assert.deepEqual(idle.actionCalls, []);
 });
 
 test('Regenerate replaces the current reply and waits for the new one; it is refused while generating', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   const provider = providerSenderFor(background);
   await finishedAnswer(background, provider);
 
@@ -759,7 +817,7 @@ test('Regenerate replaces the current reply and waits for the new one; it is ref
 test('a missing DeepSeek control keeps the answer and tells the panel why', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   await finishedAnswer(background, providerSenderFor(background));
 
   background.setActionReply({ ok: false, code: 'CONTROL_NOT_FOUND', message: 'DeepSeek regenerate control not found. Controls seen: div.ds-icon-button[|M8.3125]' });
@@ -775,7 +833,7 @@ test('a missing DeepSeek control keeps the answer and tells the panel why', asyn
 test('Share presses the provider control and brings the DeepSeek window forward for the owner to finish', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   await finishedAnswer(background, providerSenderFor(background));
 
   background.focusLog.length = 0;
@@ -790,7 +848,7 @@ test('Share presses the provider control and brings the DeepSeek window forward 
 test('a failed Regenerate/Share hands the provider diagnostic to the panel; success and oversize or malformed detail do not', async () => {
   const background = await loadBackground();
   background.setActive(background.targetTab);
-  assert.equal((await background.send({ type: 'assistant.open' }, POPUP)).ok, true);
+  assert.equal((await openAssistant(background)).ok, true);
   await finishedAnswer(background, providerSenderFor(background));
 
   const diagnostics = { action: 'share', count: 1, controls: [{ index: 0, svg: { path: 'M8.5 2.15137' } }] };
@@ -809,4 +867,82 @@ test('a failed Regenerate/Share hands the provider diagnostic to the panel; succ
   const done = await background.send({ type: 'assistant.action', action: 'share' }, SIDE_PANEL);
   assert.equal(done.ok, true);
   assert.equal('diagnostics' in done, false);
+});
+
+// ---- A click that opens another page (the email case): the task follows it, causally ----
+
+const CLICK_TEXT = (id) => `<webmcp_tool_call>{"id":"${id}","name":"click","arguments":{"ref":"e1"}}</webmcp_tool_call>`;
+const COMPOSE = { id: 101, url: 'https://mail.example/compose', title: 'New message', windowId: 2, status: 'complete', active: false };
+
+async function afterClick(options) {
+  const background = await lockedPage();
+  await background.send({ type: 'work.continuation-result', result: { ok: true, code: 'SEND_CLICKED' }, conversationPath: new URL(A).pathname }, background.from(A));
+  await background.send({ type: 'work.completion', text: CLICK_TEXT('c1'), resume: true }, background.from(A));
+  return background;
+}
+
+test('a click starts a short handoff lease on the page it acts on', async () => {
+  const background = await afterClick();
+  const task = await pageTask(background);
+  assert.equal(task.mode, 'locked');
+  assert.equal(task.handoff.sourceTabId, background.targetTab.id);
+  assert.equal(task.handoff.destinationTabId, null);
+  assert.equal(background.browserMessages.at(-1).tool, 'click');
+});
+
+test('a popup or new tab opened by that click is adopted, and closing it returns to the page it came from', async () => {
+  const background = await afterClick();
+  background.addTab({ ...COMPOSE });
+
+  background.listeners.onCreated({ ...COMPOSE, openerTabId: background.targetTab.id });
+  await flush();
+  const followed = await pageTask(background);
+  assert.equal(followed.mode, 'locked');
+  assert.equal(followed.target.tabId, COMPOSE.id);
+  assert.equal(followed.target.origin, 'https://mail.example');
+  assert.deepEqual(followed.parents.map((parent) => parent.tabId), [background.targetTab.id]);
+
+  background.listeners.onRemoved(COMPOSE.id);
+  await flush();
+  await flush();
+  const back = await pageTask(background);
+  assert.equal(back.mode, 'locked');
+  assert.equal(back.target.tabId, background.targetTab.id);
+});
+
+test('a tab that was not opened by the clicked page, or that appears after the lease, is never adopted', async () => {
+  const background = await afterClick();
+  background.listeners.onCreated({ ...COMPOSE, openerTabId: 999 });
+  background.listeners.onCreated({ ...COMPOSE, id: 102 });
+  await flush();
+  assert.equal((await pageTask(background)).target.tabId, background.targetTab.id);
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + 5000;
+  try {
+    background.listeners.onCreated({ ...COMPOSE, id: 103, openerTabId: background.targetTab.id });
+    await flush();
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal((await pageTask(background)).target.tabId, background.targetTab.id);
+});
+
+test('the same tab may cross origin only while the click lease is live; otherwise the task pauses', async () => {
+  const live = await afterClick();
+  const moved = { ...live.targetTab, url: 'https://accounts.example/login', title: 'Sign in' };
+  live.listeners.onUpdated(live.targetTab.id, { status: 'loading', url: moved.url }, moved);
+  await flush();
+  assert.notEqual((await pageTask(live)).mode, 'blocked');
+
+  const idle = await lockedPage();
+  idle.listeners.onUpdated(idle.targetTab.id, { status: 'loading', url: moved.url }, moved);
+  await flush();
+  assert.equal((await pageTask(idle)).reason, 'ORIGIN_CHANGED');
+});
+
+test('a submit-like click is refused by the page module and the page work stays with the owner', async () => {
+  const source = await (await import('node:fs/promises')).readFile(new URL('../extension/target-executor.js', import.meta.url), 'utf8');
+  assert.match(source, /CONFIRMATION_REQUIRED/);
+  assert.match(source, /commitPattern = \/\\b\(submit\|send\|pay/);
 });

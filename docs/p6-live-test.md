@@ -50,3 +50,17 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 ## Automated
 
 `npm run check`: 197 tests, 197 pass, 0 fail.
+
+## Panel-first flow (2026-09-21) — automated only, live run pending
+
+Changed after the owner's feedback: no popup and no Open Assistant step; the toolbar icon opens the Side Panel, which starts the assistant and reuses one remembered provider window. The first browser tool call locks the page active in the panel's window; **Stop** releases it; a click that opens another page is followed (same handoff logic as the ChatGPT Embedded Panel); commit-like clicks stay with the owner. Folder / Full access / Uninstall moved into the panel's Settings. The page module was replaced by the newer shared one (links, rows, editable regions, safe Reply/Open clicks).
+
+| Area | Result |
+|---|---|
+| Icon click opens the panel and starts the assistant; second click reuses it and the provider window (no new window) | not yet run live |
+| Read and fill the open page from the panel; Stop releases it; page action on another page after Stop | not yet run live |
+| Email: Reply/compose opens a popup or new tab, the task follows it, closing it returns | not yet run live |
+| Local folder: Settings → Change… to the real projects folder, then list its contents | not yet run live |
+| Diagnosis of "workspace shows nothing": the configured folder was `deepseek-webmcp-p4-fixture` (a 4-entry test repo); the runtime itself answered correctly when called directly | found 2026-09-21 |
+
+Manifest change, decided by the owner: `host_permissions` now include `http://*/*` and `https://*/*` (as in the ChatGPT Embedded Panel); `activeTab` and the popup are gone. Browsing history, cookies, network and debugger permissions remain absent.
