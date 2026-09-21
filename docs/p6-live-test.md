@@ -12,7 +12,7 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 | Prompt sent entirely from the Side Panel; DeepSeek answers; answer shown in the panel | PASS (owner-reported, after finding 2) |
 | Close and reopen the Side Panel: earlier conversation is still there | PASS (owner-reported) |
 | Provider minimized → Restore, provider window partly uncovered | PASS (owner-reported) |
-| Provider window **completely covered** by the work window | **FAIL — macOS limitation, open** (finding 1) |
+| Provider window **completely covered** by the work window | **FAIL — macOS limitation; handled by product rule "keep a strip uncovered"** (finding 1) |
 | Browser task from the Side Panel on the attached work page (P6-C1) | PASS (owner-reported) |
 | Regenerate under the latest answer starts a new answer | PASS (owner-reported) |
 | Share under the latest answer opens DeepSeek's share dialog and a share link was created | PASS (owner-reported) |
@@ -23,7 +23,7 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 ## Findings fixed during acceptance
 
 1. **Hidden provider window.** A provider window created without focus, or restored from minimized, could report `visibilityState === "hidden"`, and DeepSeek renders no answer DOM while hidden. The window is now focused once, the worker waits until the page reports `visible`, then focus returns to the work window. The `PROVIDER_HIDDEN` fail-closed check is unchanged.
-   **Still open:** a provider window that is *fully* covered goes hidden again, because macOS window occlusion marks it hidden. It works while some part of it stays uncovered. Options not yet decided: keep a strip uncovered, use a second display, or host DeepSeek inside the Side Panel.
+   **Decided 2026-09-21 (owner):** a provider window that is *fully* covered goes hidden again, because macOS window occlusion marks it hidden; it works while some part stays uncovered. Product rule: keep a strip of the provider window uncovered. The panel's PROVIDER_HIDDEN notice and the README say so; there is no automatic placement, because a maximized work window leaves no free area to place it in.
 2. **Prompt accepted but reported as not accepted.** `sendText()` only treated an empty composer as confirmation. It now also accepts a detached composer, generation starting, or the route moving to `/a/chat/s/...`.
 3. **Session write race.** Snapshots, tool events, pause and status polling each read the whole `assistant.session` and wrote it back, so a slow update could erase a newer one. All access now goes through one queue and applies to the latest stored session; stale updates after Stop or a provider change are dropped.
 4. **Failed prompt stayed in history.** A prompt DeepSeek did not accept is withdrawn from the panel history (kept only if the provider already shows a reply).

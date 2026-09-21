@@ -34,7 +34,7 @@ To update, run the same command again, then click the extension's reload icon an
 
 ## Use
 
-Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it and the assistant starts. DeepSeek itself runs in its own window, which is created once and reused; you work in the panel.
+Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it and the assistant starts. DeepSeek itself runs in its own window, which is created once and reused; you work in the panel. **Keep a strip of that window uncovered** (for example at a screen edge): macOS marks a fully covered window hidden and DeepSeek then renders no answer; the panel pauses and tells you to press Restore after you uncover it.
 
 1. Ask in the panel. To read or fill the page in front of you, just say so; the first page action locks the page that is open in this window.
 2. The task stays on that page. **Stop** releases it; the next page action locks whichever page is open then, so switching pages means going there and asking again.

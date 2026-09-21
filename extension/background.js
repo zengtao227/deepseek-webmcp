@@ -282,7 +282,7 @@ async function providerHealth(session) {
   const page = await providerPageHealth(session.providerTabId);
   if (!page.ok) return { ok: false, code: page.code, message: 'DeepSeek provider is still loading or unavailable.' };
   if (page.visibility !== 'visible') {
-    return { ok: false, code: 'PROVIDER_HIDDEN', message: `DeepSeek provider is not rendering while hidden.${await windowStateNote(session, windowInfo)}` };
+    return { ok: false, code: 'PROVIDER_HIDDEN', message: `The DeepSeek window is hidden (fully covered windows cannot render answers). Leave a strip of it visible, then press Restore.${await windowStateNote(session, windowInfo)}` };
   }
   return { ok: true, page };
 }
