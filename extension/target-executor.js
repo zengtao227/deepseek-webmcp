@@ -14,6 +14,11 @@
   const MAX_SCROLL_DELTA = 3000;
   const SCROLL_EPSILON = 1;
   const SCROLL_CANDIDATE_ATTEMPTS = 3;
+  // inspect_page text: text nodes examined at most, and the window around the viewport it is taken from.
+  const MAX_TEXT_SCAN = 20000;
+  const TEXT_WINDOW_ABOVE = 0.5;
+  const TEXT_WINDOW_BELOW = 2;
+  const TEXT_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
   const REDACTED = '[REDACTED]';
   const FORM_CONTROL_SELECTOR = [
     'input',
@@ -326,9 +331,56 @@
     return count;
   }
 
-  function visiblePageText() {
-    const raw = document.body?.innerText ?? '';
-    return cleanText(raw, MAX_TEXT_CHARS);
+  function textBox(element) {
+    try {
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return null;
+      const hidden = typeof element.checkVisibility === 'function'
+        ? !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+        : (() => {
+          const style = getComputedStyle(element);
+          return style?.visibility === 'hidden' || style?.visibility === 'collapse' || style?.display === 'none' || style?.opacity === '0';
+        })();
+      return hidden ? null : { top: rect.top, bottom: rect.bottom };
+    } catch {
+      return null;
+    }
+  }
+
+  // Text around the viewport (half a screen above to one screen below its bottom edge), in document order.
+  // If that is more than the budget, only what is actually on screen is kept. Returns null when the page
+  // gives no usable geometry, so the caller can fall back to the whole-page text.
+  function viewportText() {
+    if (typeof document.createTreeWalker !== 'function' || !document.body) return null;
+    const { height } = viewportSize();
+    if (!height) return null;
+    const windowTop = -height * TEXT_WINDOW_ABOVE;
+    const windowBottom = height * TEXT_WINDOW_BELOW;
+    const walker = document.createTreeWalker(document.body, 4);
+    const boxes = new Map();
+    const pieces = [];
+    let scanned = 0;
+    for (let node = walker.nextNode(); node && scanned < MAX_TEXT_SCAN; node = walker.nextNode()) {
+      scanned += 1;
+      const value = String(node.nodeValue ?? '').trim();
+      const parent = node.parentElement;
+      if (!value || !parent || TEXT_SKIP_TAGS.has(parent.tagName)) continue;
+      if (!boxes.has(parent)) boxes.set(parent, textBox(parent));
+      const box = boxes.get(parent);
+      if (!box || box.bottom < windowTop || box.top > windowBottom) continue;
+      pieces.push({ value, onScreen: box.bottom > 0 && box.top < height });
+    }
+    const joined = (list) => list.map((piece) => piece.value).join(' ');
+    let chosen = pieces;
+    if (cleanText(joined(chosen), MAX_TEXT_CHARS + 1).length > MAX_TEXT_CHARS) chosen = pieces.filter((piece) => piece.onScreen);
+    const text = cleanText(joined(chosen), MAX_TEXT_CHARS);
+    return text ? text : null;
+  }
+
+  function pageText() {
+    const near = viewportText();
+    if (near !== null) return { text: near, textScope: 'viewport' };
+    return { text: cleanText(document.body?.innerText ?? '', MAX_TEXT_CHARS), textScope: 'page' };
   }
 
   function inspectPage() {
@@ -337,7 +389,7 @@
     const crossOriginIframes = crossOriginFrameCount();
     return success({
       title: cleanText(document.title, 500),
-      text: visiblePageText(),
+      ...pageText(),
       elements,
       truncated,
       viewport: pageViewport(),

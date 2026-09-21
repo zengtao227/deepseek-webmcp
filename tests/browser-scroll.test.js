@@ -50,7 +50,7 @@ function loadPage({ setup }) {
   const root = new El('html');
   scrollArea(root, { scrollHeight: VIEW_HEIGHT, clientHeight: VIEW_HEIGHT });
   const body = new El('body', { parent: root });
-  const world = { root, body, interactive: [], stacks: () => [] };
+  const world = { root, body, interactive: [], textNodes: [], noWalker: false, stacks: () => [] };
   setup(world);
 
   const document = {
@@ -64,6 +64,10 @@ function loadPage({ setup }) {
       return world.interactive;
     },
     elementsFromPoint: (x, y) => world.stacks(x, y),
+    createTreeWalker: world.noWalker ? undefined : () => {
+      let index = 0;
+      return { nextNode: () => world.textNodes[index++] ?? null };
+    },
   };
   let onMessage;
   const context = {
@@ -308,3 +312,70 @@ test('a list item that was unmounted fails closed, and its replacement gets its 
   assert.notEqual(second.result.elements[0].ref, oldRef);
   assert.equal(rows[0].clicks, 0);
 });
+
+const textNode = (element) => ({ nodeValue: element.innerText, parentElement: element });
+
+test('inspect_page text follows the viewport, not the top of the page', async () => {
+  const target = loadPage({
+    setup(world) {
+      scrollArea(world.root, { scrollHeight: 8000, clientHeight: VIEW_HEIGHT });
+      world.interactive = Array.from({ length: 200 }, (_, index) => link(`link-${index}`, world.body, () => {
+        const top = index * 40 - world.root.scrollTop;
+        return { top, left: 0, bottom: top + 30, right: 200, width: 200, height: 30 };
+      }));
+      world.textNodes = world.interactive.map(textNode);
+    },
+  });
+  const first = await target.send('inspect_page', {});
+  assert.equal(first.result.textScope, 'viewport');
+  assert.match(first.result.text, /link-0\b/);
+  assert.doesNotMatch(first.result.text, /link-150\b/);
+
+  await target.send('scroll', { deltaY: 3000 });
+  await target.send('scroll', { deltaY: 2800 });
+  const second = await target.send('inspect_page', {});
+  assert.match(second.result.text, /link-150\b/, 'what is on screen now is in the text');
+  assert.doesNotMatch(second.result.text, /link-0\b/, 'what scrolled far away is not');
+  assert.doesNotMatch(second.result.text, /link-2\b/);
+});
+
+test('when the text around the viewport is more than the budget, only what is on screen is kept', async () => {
+  const target = loadPage({
+    setup(world) {
+      const onScreen = new El('p', { text: 'ON-SCREEN', parent: world.body });
+      onScreen.layout = () => ({ top: 100, left: 0, bottom: 130, right: 300, width: 300, height: 30 });
+      const below = new El('p', { text: 'BELOW '.repeat(1500), parent: world.body });
+      below.layout = () => ({ top: VIEW_HEIGHT + 100, left: 0, bottom: VIEW_HEIGHT + 400, right: 300, width: 300, height: 300 });
+      world.textNodes = [textNode(onScreen), textNode(below)];
+    },
+  });
+  const result = await target.send('inspect_page', {});
+  assert.equal(result.result.text, 'ON-SCREEN');
+});
+
+test('hidden text, scripts and text far from the viewport are not part of the text', async () => {
+  const target = loadPage({
+    setup(world) {
+      const make = (tag, text, layout, overflowY) => {
+        const element = new El(tag, { text, parent: world.body, overflowY });
+        element.layout = layout;
+        return element;
+      };
+      const visible = make('p', 'VISIBLE', () => ({ top: 10, left: 0, bottom: 40, right: 100, width: 100, height: 30 }));
+      const collapsed = make('p', 'DISPLAY-NONE', () => ({ top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 }));
+      const script = make('script', 'SCRIPT-BODY', () => ({ top: 10, left: 0, bottom: 40, right: 100, width: 100, height: 30 }));
+      const far = make('p', 'FAR-AWAY', () => ({ top: VIEW_HEIGHT * 5, left: 0, bottom: VIEW_HEIGHT * 5 + 30, right: 100, width: 100, height: 30 }));
+      world.textNodes = [visible, collapsed, script, far].map(textNode);
+    },
+  });
+  const result = await target.send('inspect_page', {});
+  assert.equal(result.result.text, 'VISIBLE');
+});
+
+test('without usable geometry the text falls back to the whole page and says so', async () => {
+  const target = loadPage({ setup(world) { world.noWalker = true; } });
+  const result = await target.send('inspect_page', {});
+  assert.equal(result.result.textScope, 'page');
+  assert.equal(result.result.text, 'Fixture page');
+});
+

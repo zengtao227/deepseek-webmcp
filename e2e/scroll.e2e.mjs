@@ -81,6 +81,9 @@ test('long page: a link past the first 80 gets a ref after scrolling, and the cl
   const second = toolPayload(received[4]);
   assert.equal(second.result.elements[0].name, 'long-150', 'what is on screen comes first');
   assert.equal(second.result.viewport.y, 6000);
+  assert.equal(second.result.textScope, 'viewport');
+  assert.match(second.result.text, /long-150\b/, 'the text is from the screen now shown');
+  assert.doesNotMatch(second.result.text, /long-0\b/, 'not from the top of the page');
   const clicked = toolPayload(received[5]);
   assert.equal(clicked.isError, false);
   await waitFor(() => work.url().endsWith('#long150'), { message: 'the click to reach link long-150' });
