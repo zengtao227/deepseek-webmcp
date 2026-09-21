@@ -35,6 +35,8 @@ class El {
   getClientRects() { return [{}]; }
   getBoundingClientRect() { return this.layout(); }
   click() { this.clicks += 1; }
+  focus() {}
+  dispatchEvent() { return true; }
 
   scrollBy({ left = 0, top = 0 }) {
     this.scrollTop = Math.max(0, Math.min(this.scrollHeight - this.clientHeight, this.scrollTop + top));
@@ -379,3 +381,89 @@ test('without usable geometry the text falls back to the whole page and says so'
   assert.equal(result.result.text, 'Fixture page');
 });
 
+
+function checkbox(labelText, parent, layout) {
+  const element = new El('input', { parent });
+  element.type = 'checkbox';
+  element.checked = false;
+  element.labels = [{ textContent: labelText }];
+  element.layout = layout;
+  return element;
+}
+const setLabel = (element, text) => { element.labels = [{ textContent: text }]; };
+const row = (top) => () => ({ top, left: 0, bottom: top + 30, right: 200, width: 200, height: 30 });
+
+test('a reused checkbox whose label changed is not clicked through the old ref', async () => {
+  let box;
+  const target = loadPage({
+    setup(world) {
+      box = checkbox('Buy milk', world.body, row(10));
+      world.interactive = [box];
+    },
+  });
+  const first = await target.send('inspect_page', {});
+  const oldRef = first.result.elements[0].ref;
+  assert.equal(first.result.elements[0].name, 'Buy milk');
+
+  setLabel(box, 'Delete my account');
+  const result = await target.send('click', { ref: oldRef });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'STALE_REF');
+  assert.equal(box.clicks, 0, 'the row that now has a different label was not toggled');
+});
+
+test('a ref that stopped matching never comes back when the node shows the old content again (A to B to A)', async () => {
+  const rows = [];
+  const target = loadPage({
+    setup(world) {
+      const item = new El('a', { text: 'item A', attrs: { href: '/a' }, parent: world.body });
+      item.layout = row(10);
+      rows.push(item);
+      world.interactive = rows;
+    },
+  });
+  const first = await target.send('inspect_page', {});
+  const oldRef = first.result.elements[0].ref;
+
+  rows[0].innerText = 'item B';
+  rows[0].textContent = 'item B';
+  rows[0].attributes.set('href', '/b');
+  await target.send('inspect_form', {});          // any later call notices that the ref stopped matching
+
+  rows[0].innerText = 'item A';
+  rows[0].textContent = 'item A';
+  rows[0].attributes.set('href', '/a');
+  const back = await target.send('click', { ref: oldRef });
+  assert.equal(back.ok, false);
+  assert.equal(back.error.code, 'STALE_REF', 'the old ref is not revived');
+  assert.equal(rows[0].clicks, 0);
+
+  const second = await target.send('inspect_page', {});
+  assert.notEqual(second.result.elements[0].ref, oldRef, 'a new inspect gives a new ref');
+  assert.equal((await target.send('click', { ref: second.result.elements[0].ref })).ok, true);
+});
+
+test('filling a field or an editor does not make its ref stale', async () => {
+  let field;
+  let editor;
+  const target = loadPage({
+    setup(world) {
+      field = new El('input', { parent: world.body });
+      field.type = 'text';
+      field.value = '';
+      field.labels = [{ textContent: 'Name' }];
+      field.layout = row(10);
+      editor = new El('div', { attrs: { role: 'textbox', contenteditable: 'true', 'aria-label': 'Message body' }, parent: world.body });
+      editor.isContentEditable = true;
+      editor.layout = row(60);
+      world.interactive = [field, editor];
+    },
+  });
+  const inspected = await target.send('inspect_page', {});
+  const [nameRef, bodyRef] = ['Name', 'Message body'].map((name) => inspected.result.elements.find((element) => element.name === name).ref);
+  for (const [ref, value] of [[nameRef, 'Ada'], [nameRef, 'Grace'], [bodyRef, 'Hello'], [bodyRef, 'Hello again']]) {
+    editor.innerText = editor.textContent = editor.innerText;
+    const result = await target.send('fill', { ref, value });
+    assert.equal(result.ok, true, `${ref} <- ${value}`);
+  }
+});

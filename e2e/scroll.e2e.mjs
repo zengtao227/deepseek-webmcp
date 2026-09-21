@@ -24,8 +24,19 @@ function render() {
 c.addEventListener('scroll', render); render();
 </script></body>`;
 
+const CHECKS = `<body style="margin:0"><div id="c" style="height:240px;width:500px;overflow-y:auto;position:relative"><div style="height:40000px"></div></div><script>
+const c = document.getElementById('c'); const rows = []; const N = 6; window.toggled = [];
+function render() {
+  const first = Math.floor(c.scrollTop / 40);
+  while (rows.length < N) { const l = document.createElement('label'); l.style.cssText = 'position:absolute;left:0;height:40px;display:block'; const i = document.createElement('input'); i.type = 'checkbox'; const t = document.createElement('span'); l.append(i, t); i.addEventListener('click', () => window.toggled.push(t.textContent)); c.appendChild(l); rows.push({ l, t }); }
+  rows.forEach((r, k) => { r.t.textContent = 'todo-' + (first + k); r.l.style.top = ((first + k) * 40) + 'px'; });
+}
+c.addEventListener('scroll', render); render();
+</script></body>`;
+
 const page = (request, response, url) => {
   const html = url.pathname === '/long' ? LONG
+    : url.pathname === '/checks' ? CHECKS
     : url.pathname === '/inner' ? INNER
       : url.pathname === '/virtual' ? virtual(url.searchParams.get('mode') === 'recycle' ? 'recycle' : 'remount')
         : null;
@@ -147,3 +158,32 @@ for (const mode of ['remount', 'recycle']) {
     await waitFor(() => work.url().endsWith(`#v${after.name.replace('virt-', '')}`), { message: 'the fresh click to reach the row shown now' });
   });
 }
+
+test('recycled checkbox rows: the old ref never toggles another row, also after the list returns to what it showed (A, B, A)', async () => {
+  await go('https://scroll.test/checks');
+  await ask(panel, provider, 'Tick the first item', () => {
+    const mock = window.__mock;
+    mock.replies.push(
+      () => mock.toolCall('c1', 'inspect_page'),
+      (text) => {
+        const box = mock.resultOf(text).result.elements.find((entry) => entry.role === 'checkbox');
+        window.__box = { ref: box.ref, name: box.name };
+        return mock.toolCall('c2', 'scroll', { deltaY: 400 });
+      },
+      () => mock.toolCall('c3', 'inspect_page'),
+      () => mock.toolCall('c4', 'click', { ref: window.__box.ref }),
+      () => mock.toolCall('c5', 'scroll', { deltaY: -400 }),
+      // a different tool with the same ref: an identical failing call twice in a row is stopped by the extension
+      () => mock.toolCall('c6', 'scroll', { ref: window.__box.ref, deltaY: 10 }),
+    );
+  });
+  const received = await turnDone(env, panel, provider, 7);
+  assert.equal(toolPayload(received[1]).result.elements.find((entry) => entry.role === 'checkbox').name, 'todo-0');
+  const whileAway = toolPayload(received[4]);
+  assert.equal(whileAway.isError, true);
+  assert.equal(whileAway.error.code, 'STALE_REF', 'the node now shows another row');
+  const whenBack = toolPayload(received[6]);
+  assert.equal(whenBack.isError, true);
+  assert.equal(whenBack.error.code, 'STALE_REF', 'the old ref is not revived when the row is back');
+  assert.deepEqual(await work.evaluate(() => window.toggled), [], 'no checkbox was toggled through a stale ref');
+});

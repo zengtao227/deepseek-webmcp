@@ -50,6 +50,10 @@
   const refToElement = new Map();
   const elementToRef = new WeakMap();
   const refIdentity = new Map();
+  // Refs that stopped matching their element. They never become valid again, even if the node later shows
+  // the same content as before (a windowed list can go A, B, A).
+  const retiredRefs = new Set();
+  const MAX_RETIRED_REFS = 2000;
 
   function cleanText(value, max = 300) {
     return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -103,11 +107,11 @@
 
   // What a ref was when it was handed out. Windowed lists reuse one DOM node for different rows; if that
   // node no longer is what was inspected, the ref must not act on the new content. Editable controls
-  // are identified without their live text, which changes when they are filled.
+  // are identified by their label, not their live text, which changes when they are filled.
   function identityOf(element) {
     const role = nativeRole(element);
     if (isEditable(element)) {
-      const stable = cleanText(element.getAttribute?.('aria-label') ?? element.getAttribute?.('name') ?? element.getAttribute?.('placeholder') ?? '');
+      const stable = labelName(element) || cleanText(element.getAttribute?.('name'));
       return `${role}|${String(element.tagName ?? '').toLowerCase()}|${stable}`;
     }
     const href = String(element.tagName ?? '').toLowerCase() === 'a' ? cleanText(element.getAttribute?.('href'), 500) : '';
@@ -135,9 +139,27 @@
     return ref;
   }
 
+  function retireRef(ref) {
+    refToElement.delete(ref);
+    refIdentity.delete(ref);
+    retiredRefs.add(ref);
+    while (retiredRefs.size > MAX_RETIRED_REFS) retiredRefs.delete(retiredRefs.values().next().value);
+  }
+
+  // Run at the start of every tool call: any ref whose element was removed or no longer shows what was
+  // inspected is retired now, so a change that is undone before the ref is used cannot revive it.
+  function retireStaleRefs() {
+    for (const [ref, element] of [...refToElement]) {
+      if (element.isConnected === false || refIdentity.get(ref) !== identityOf(element)) retireRef(ref);
+    }
+  }
+
   function lookup(ref) {
     if (typeof ref !== 'string' || !/^e\d{1,10}$/.test(ref)) {
       return { error: error('INVALID_REF', 'Element ref is invalid.') };
+    }
+    if (retiredRefs.has(ref)) {
+      return { error: error('STALE_REF', 'Element ref is stale or no longer interactive. Inspect the page again.') };
     }
     const element = refToElement.get(ref);
     if (!element) return { error: error('INVALID_REF', 'Element ref is unknown. Inspect the page again.') };
@@ -181,7 +203,8 @@
     );
   }
 
-  function accessibleName(element) {
+  // The name a control gets from its label, without the control's own live content.
+  function labelName(element) {
     const aria = cleanText(element.getAttribute?.('aria-label'));
     if (aria) return aria;
 
@@ -197,8 +220,12 @@
     const wrapping = cleanText(wrappingLabel?.textContent);
     if (wrapping) return wrapping;
 
-    const placeholder = cleanText(element.getAttribute?.('placeholder'));
-    if (placeholder) return placeholder;
+    return cleanText(element.getAttribute?.('placeholder'));
+  }
+
+  function accessibleName(element) {
+    const labelled = labelName(element);
+    if (labelled) return labelled;
 
     const text = cleanText(element.innerText ?? element.textContent);
     if (text) return text;
@@ -713,6 +740,7 @@
   }
 
   function execute(tool, args) {
+    retireStaleRefs();
     if (tool === 'inspect_page') {
       if (!exactArgs(args, [])) return error('INVALID_ARGUMENTS', 'inspect_page accepts no arguments.');
       return inspectPage();
