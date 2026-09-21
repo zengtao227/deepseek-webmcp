@@ -17,7 +17,8 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 | Regenerate under the latest answer starts a new answer | PASS (owner-reported); **E2E 覆盖** (S8, against the mock bar built from the recorded icons) |
 | Share under the latest answer opens DeepSeek's share dialog and a share link was created | PASS (owner-reported); **E2E 覆盖** for pressing exactly one control and the changed-icon / duplicate diagnostic (S8); the real share dialog stays manual |
 | Rich answer rendering (headings, lists, code, quotes, tables, links) and Copy | automated tests only; live result not yet reported. **E2E 覆盖** rendering of headings, lists, code, table, link (S3); Copy (clipboard) and quotes are not covered |
-| Close provider → fails closed; work tab closed → session ends | not yet run live. **E2E 覆盖** close provider → paused, prompts refused, Restore opens a new provider and re-arms the tools (S9), and a hidden provider pauses and refuses a completing tool call (S10). Work tab closed is not covered |
+| Close provider → fails closed | not yet run live. **E2E 覆盖** close provider → paused, prompts refused, Restore opens a new provider and re-arms the tools (S9), and a hidden provider pauses and refuses a completing tool call (S10) |
+| Close the page the task is locked to | PASS (owner-reported 2026-09-21): the task becomes blocked, the header shows "Paused: <title>" and Stop stays; the next page action returns `TASK_BLOCKED … Press Stop`; **the assistant itself keeps running** (it does not end the session). The "Paused" line was easy to miss, so the panel now also shows a notice (`aab4e35`). **E2E 覆盖** (S7b) |
 | Legacy DeepSeek-page Work, local coding tools, Browser V1 regression | not yet run live |
 
 ## Findings fixed during acceptance
@@ -58,7 +59,7 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 - toolbar icon opens the Side Panel (needs a user gesture)
 - the real DeepSeek page: login, DOM changes, the real share dialog, Copy to the clipboard
 - whether a fully covered provider window turns hidden (macOS occlusion; E2E only checks the fail-closed reaction to a page that reports hidden)
-- work tab closed → session ends; provider minimized → Restore; close and reopen the panel keeps the conversation
+- provider minimized → Restore; close and reopen the panel keeps the conversation
 - local folder picker, Full access and Uninstall dialogs, real Docker runtime
 
 ## Panel-first flow (2026-09-21) — automated only, live run pending
@@ -67,11 +68,12 @@ Changed after the owner's feedback: no popup and no Open Assistant step; the too
 
 | Area | Result |
 |---|---|
-| Icon click opens the panel and starts the assistant; second click reuses it and the provider window (no new window) | not yet run live. **E2E 覆盖** start and reuse of the provider window (S1, S2); the toolbar-icon click itself is not covered |
+| Icon click opens the panel and starts the assistant; second click reuses it and the provider window (no new window) | PASS (owner-reported 2026-09-21). **E2E 覆盖** start and reuse of the provider window (S1, S2); the toolbar-icon click itself is not covered |
 | Read and fill the open page from the panel; Stop releases it; page action on another page after Stop | not yet run live. **E2E 覆盖** (S4 read, S5 fill/select and Submit refused, S7 Stop) on fixture pages |
 | Email: Reply/compose opens a popup or new tab, the task follows it, closing it returns | not yet run live. **E2E 覆盖** (S6) on the fixture mail page: new tab, popup, same-tab navigation, an unrelated tab is not adopted; a real webmail stays manual |
-| Extension reload with the provider window open, then the panel is opened again: same provider, no new window, prompts work | not yet run live. **E2E 覆盖** (reload scenario, `e2e/reload.e2e.mjs`); the Reload button in the owner's real Chrome stays manual |
-| Local folder: Settings → Change… to the real projects folder, then list its contents | not yet run live |
+| Extension reload with the provider window open, then the panel is opened again: same provider, no new window, prompts work | PASS (owner-reported 2026-09-21, real Chrome). **E2E 覆盖** (reload scenario, `e2e/reload.e2e.mjs`) |
+| Local folder: Settings → Change… to the real projects folder, then list its contents; local coding tools and Docker on it | PASS (owner-reported 2026-09-21) |
+| Uninstall… and Full access… show their confirmation dialogs (cancelled, nothing changed) | PASS (owner-reported 2026-09-21) |
 | Diagnosis of "workspace shows nothing": the configured folder was `deepseek-webmcp-p4-fixture` (a 4-entry test repo); the runtime itself answered correctly when called directly | found 2026-09-21 |
 
 Manifest change, decided by the owner: `host_permissions` now include `http://*/*` and `https://*/*` (as in the ChatGPT Embedded Panel); `activeTab` and the popup are gone. Browsing history, cookies, network and debugger permissions remain absent.
