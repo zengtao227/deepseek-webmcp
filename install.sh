@@ -53,7 +53,7 @@ if [ "$UPDATE" = 1 ]; then
 else
   echo "1. The browser extensions page and the 'extension' folder are opening."
   echo "2. Turn on Developer mode (top right), then drag the 'extension' folder onto the page."
-  echo "3. Open chat.deepseek.com, click the DeepSeek WebMCP icon, click Work, and type your task."
+  echo "3. Click the DeepSeek WebMCP icon on any webpage: the side panel opens and a DeepSeek window is created. Log in to DeepSeek there if asked, and keep a strip of that window visible."
   open -R "$DIR/extension" || true
 fi
 for browser in "Google Chrome" "Comet"; do
