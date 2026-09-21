@@ -12,7 +12,7 @@ runBrowserTool()              extension/browser-task.js
         v
 browser-client.js             identical in both projects
         v
-target-executor.js            identical in both projects  (inspect_page / inspect_form / fill / select / click)
+target-executor.js            identical in both projects  (inspect_page / inspect_form / fill / select / click / scroll)
 ```
 
 ## Rules

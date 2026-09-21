@@ -9,6 +9,11 @@
   const MAX_TEXT_CHARS = 6000;
   const MAX_OPTIONS = 25;
   const MAX_REFS = 500;
+  // inspect_page examines at most this many candidates before choosing which 80 to return.
+  const MAX_SCAN = 1500;
+  const MAX_SCROLL_DELTA = 3000;
+  const SCROLL_EPSILON = 1;
+  const SCROLL_CANDIDATE_ATTEMPTS = 3;
   const REDACTED = '[REDACTED]';
   const FORM_CONTROL_SELECTOR = [
     'input',
@@ -39,6 +44,7 @@
   let nextRef = 1;
   const refToElement = new Map();
   const elementToRef = new WeakMap();
+  const refIdentity = new Map();
 
   function cleanText(value, max = 300) {
     return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -82,17 +88,44 @@
     return true;
   }
 
+  function isEditable(element) {
+    const tag = String(element.tagName ?? '').toLowerCase();
+    const role = element.getAttribute?.('role');
+    return ['input', 'textarea', 'select'].includes(tag)
+      || element.getAttribute?.('contenteditable') === 'true'
+      || ['textbox', 'combobox', 'spinbutton'].includes(role);
+  }
+
+  // What a ref was when it was handed out. Windowed lists reuse one DOM node for different rows; if that
+  // node no longer is what was inspected, the ref must not act on the new content. Editable controls
+  // are identified without their live text, which changes when they are filled.
+  function identityOf(element) {
+    const role = nativeRole(element);
+    if (isEditable(element)) {
+      const stable = cleanText(element.getAttribute?.('aria-label') ?? element.getAttribute?.('name') ?? element.getAttribute?.('placeholder') ?? '');
+      return `${role}|${String(element.tagName ?? '').toLowerCase()}|${stable}`;
+    }
+    const href = String(element.tagName ?? '').toLowerCase() === 'a' ? cleanText(element.getAttribute?.('href'), 500) : '';
+    return `${role}|${href}|${accessibleName(element)}`;
+  }
+
+  // A ref stands for an element as it was when inspected. If a reused node now shows something else it
+  // gets a new ref, and the old ref stays bound to the old identity, so it keeps failing closed.
   function refFor(element) {
+    const identity = identityOf(element);
     const existing = elementToRef.get(element);
-    if (existing && refToElement.get(existing) === element) return existing;
+    if (existing && refToElement.get(existing) === element && refIdentity.get(existing) === identity) return existing;
 
     const ref = `e${nextRef}`;
     nextRef += 1;
     elementToRef.set(element, ref);
     refToElement.set(ref, element);
+    refIdentity.set(ref, identity);
 
     while (refToElement.size > MAX_REFS) {
-      refToElement.delete(refToElement.keys().next().value);
+      const oldest = refToElement.keys().next().value;
+      refToElement.delete(oldest);
+      refIdentity.delete(oldest);
     }
     return ref;
   }
@@ -105,6 +138,9 @@
     if (!element) return { error: error('INVALID_REF', 'Element ref is unknown. Inspect the page again.') };
     if (element.isConnected === false || !isVisible(element)) {
       return { error: error('STALE_REF', 'Element ref is stale or no longer interactive. Inspect the page again.') };
+    }
+    if (refIdentity.get(ref) !== identityOf(element)) {
+      return { error: error('STALE_REF', 'Element ref no longer matches what was inspected. Inspect the page again.') };
     }
     return { element };
   }
@@ -217,6 +253,66 @@
     return result;
   }
 
+  function viewportSize() {
+    return {
+      width: globalThis.innerWidth ?? document.documentElement?.clientWidth ?? 0,
+      height: globalThis.innerHeight ?? document.documentElement?.clientHeight ?? 0,
+    };
+  }
+
+  function inViewport(element) {
+    if (typeof element.getBoundingClientRect !== 'function') return true;
+    const { width, height } = viewportSize();
+    try {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > 0 && rect.right > 0 && rect.top < height && rect.left < width;
+    } catch {
+      return false;
+    }
+  }
+
+  // Elements in the current viewport come first (document order), then the rest fill the remaining
+  // slots. A long page therefore shows what is on screen even when it has more than MAX_ELEMENTS
+  // controls, and scrolling changes which ones are returned.
+  function selectPageElements(nodes) {
+    const inside = [];
+    const outside = [];
+    const seen = new Set();
+    let scanned = 0;
+    let capped = false;
+    for (const element of nodes) {
+      if (seen.has(element)) continue;
+      seen.add(element);
+      if (scanned >= MAX_SCAN) {
+        capped = true;
+        break;
+      }
+      scanned += 1;
+      if (!isVisible(element)) continue;
+      (inViewport(element) ? inside : outside).push(element);
+      if (inside.length >= MAX_ELEMENTS) break;
+    }
+    const chosen = inside.concat(outside).slice(0, MAX_ELEMENTS);
+    return { chosen, truncated: chosen.length >= MAX_ELEMENTS || capped };
+  }
+
+  function scrollRoot() {
+    return document.scrollingElement ?? document.documentElement ?? null;
+  }
+
+  function pageViewport() {
+    const root = scrollRoot();
+    const { width, height } = viewportSize();
+    return {
+      x: Math.round(globalThis.scrollX ?? 0),
+      y: Math.round(globalThis.scrollY ?? 0),
+      width,
+      height,
+      scrollWidth: root?.scrollWidth ?? width,
+      scrollHeight: root?.scrollHeight ?? height,
+    };
+  }
+
   function crossOriginFrameCount() {
     let count = 0;
     for (const frame of document.querySelectorAll?.('iframe') ?? []) {
@@ -236,13 +332,15 @@
   }
 
   function inspectPage() {
-    const elements = uniqueVisible(document.querySelectorAll?.(PAGE_INTERACTIVE_SELECTOR) ?? []).map(describe);
+    const { chosen, truncated } = selectPageElements(document.querySelectorAll?.(PAGE_INTERACTIVE_SELECTOR) ?? []);
+    const elements = chosen.map(describe);
     const crossOriginIframes = crossOriginFrameCount();
     return success({
       title: cleanText(document.title, 500),
       text: visiblePageText(),
       elements,
-      truncated: elements.length >= MAX_ELEMENTS,
+      truncated,
+      viewport: pageViewport(),
       ...(crossOriginIframes > 0 ? { warnings: [{ code: 'CROSS_ORIGIN_IFRAME_UNSUPPORTED', count: crossOriginIframes }] } : {}),
     });
   }
@@ -420,6 +518,141 @@
     return success(result);
   }
 
+  function clampDelta(value) {
+    return Math.max(-MAX_SCROLL_DELTA, Math.min(MAX_SCROLL_DELTA, Math.round(value)));
+  }
+
+  function overflowAllows(element, axis) {
+    try {
+      const style = getComputedStyle(element);
+      const value = axis === 'y' ? style?.overflowY : style?.overflowX;
+      return ['auto', 'scroll', 'overlay'].includes(value);
+    } catch {
+      return false;
+    }
+  }
+
+  function scrollMetrics(target) {
+    const element = target.element;
+    const page = target.kind === 'page';
+    return {
+      x: page ? (globalThis.scrollX ?? element.scrollLeft ?? 0) : (element.scrollLeft ?? 0),
+      y: page ? (globalThis.scrollY ?? element.scrollTop ?? 0) : (element.scrollTop ?? 0),
+      maxX: Math.max(0, (element.scrollWidth ?? 0) - (element.clientWidth ?? 0)),
+      maxY: Math.max(0, (element.scrollHeight ?? 0) - (element.clientHeight ?? 0)),
+    };
+  }
+
+  function hasRange(target, dx, dy) {
+    const m = scrollMetrics(target);
+    return (dy !== 0 && m.maxY > SCROLL_EPSILON) || (dx !== 0 && m.maxX > SCROLL_EPSILON);
+  }
+
+  function hasRoom(target, dx, dy) {
+    const m = scrollMetrics(target);
+    return (dy > 0 && m.y < m.maxY - SCROLL_EPSILON)
+      || (dy < 0 && m.y > SCROLL_EPSILON)
+      || (dx > 0 && m.x < m.maxX - SCROLL_EPSILON)
+      || (dx < 0 && m.x > SCROLL_EPSILON);
+  }
+
+  function containerAllowed(element, dx, dy) {
+    return (dy === 0 || overflowAllows(element, 'y')) && (dx === 0 || overflowAllows(element, 'x'));
+  }
+
+  // The nearest scrollable area around a referenced element: the element itself, then its ancestors, then
+  // the page. Nothing else is ever scrolled on its behalf.
+  function targetForRef(element, dx, dy) {
+    const root = scrollRoot();
+    for (let node = element; node && node !== root && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+      const target = { kind: 'container', element: node };
+      if (containerAllowed(node, dx, dy) && hasRange(target, dx, dy)) return target;
+    }
+    const page = root ? { kind: 'page', element: root } : null;
+    return page && hasRange(page, dx, dy) ? page : null;
+  }
+
+  // Containers under a coarse grid of points in the viewport that can still move in the requested
+  // direction, largest visible area first.
+  function visibleContainers(dx, dy) {
+    if (typeof document.elementsFromPoint !== 'function') return [];
+    const { width, height } = viewportSize();
+    const root = scrollRoot();
+    const seen = new Set();
+    const found = [];
+    for (let row = 1; row <= 5; row += 1) {
+      for (let column = 1; column <= 5; column += 1) {
+        const stack = document.elementsFromPoint((width * column) / 6, (height * row) / 6) ?? [];
+        for (const start of stack) {
+          for (let node = start; node && node !== root && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+            if (seen.has(node)) break;
+            seen.add(node);
+            const target = { kind: 'container', element: node };
+            if (containerAllowed(node, dx, dy) && hasRange(target, dx, dy) && hasRoom(target, dx, dy)) {
+              let area = 0;
+              try {
+                const rect = node.getBoundingClientRect();
+                area = Math.max(0, Math.min(rect.right, width) - Math.max(rect.left, 0)) * Math.max(0, Math.min(rect.bottom, height) - Math.max(rect.top, 0));
+              } catch {
+                area = 0;
+              }
+              found.push({ target, area });
+            }
+          }
+        }
+      }
+    }
+    return found.sort((a, b) => b.area - a.area).map((entry) => entry.target);
+  }
+
+  function attemptScroll(target, dx, dy) {
+    const before = scrollMetrics(target);
+    const options = { left: dx, top: dy, behavior: 'instant' };
+    if (target.kind === 'page') globalThis.scrollBy?.(options);
+    else target.element.scrollBy?.(options);
+    const after = scrollMetrics(target);
+    return Math.abs(after.x - before.x) > 0.01 || Math.abs(after.y - before.y) > 0.01;
+  }
+
+  function scrollResult(target, moved, dx, dy) {
+    const m = scrollMetrics(target);
+    const vertical = Math.abs(dy) >= Math.abs(dx);
+    return success({
+      moved,
+      target: target.kind,
+      axis: vertical ? 'y' : 'x',
+      x: Math.round(m.x),
+      y: Math.round(m.y),
+      maxX: Math.round(m.maxX),
+      maxY: Math.round(m.maxY),
+      atStart: vertical ? m.y <= SCROLL_EPSILON : m.x <= SCROLL_EPSILON,
+      atEnd: vertical ? m.y >= m.maxY - SCROLL_EPSILON : m.x >= m.maxX - SCROLL_EPSILON,
+    });
+  }
+
+  function scroll(args) {
+    const dx = clampDelta(args.deltaX ?? 0);
+    const dy = clampDelta(args.deltaY);
+    if (dx === 0 && dy === 0) return error('INVALID_ARGUMENTS', 'scroll needs a non-zero deltaX or deltaY.');
+
+    if (args.ref !== undefined) {
+      const found = lookup(args.ref);
+      if (found.error) return found.error;
+      const target = targetForRef(found.element, dx, dy);
+      if (!target) return error('SCROLL_TARGET_NOT_FOUND', 'No scrollable area contains the referenced element.');
+      return scrollResult(target, attemptScroll(target, dx, dy), dx, dy);
+    }
+
+    const root = scrollRoot();
+    const page = root ? { kind: 'page', element: root } : null;
+    if (page && hasRoom(page, dx, dy) && attemptScroll(page, dx, dy)) return scrollResult(page, true, dx, dy);
+    for (const target of visibleContainers(dx, dy).slice(0, SCROLL_CANDIDATE_ATTEMPTS)) {
+      if (attemptScroll(target, dx, dy)) return scrollResult(target, true, dx, dy);
+    }
+    if (!page) return error('SCROLL_TARGET_NOT_FOUND', 'This page has no scrollable area.');
+    return scrollResult(page, false, dx, dy);
+  }
+
   function exactArgs(args, keys) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) return false;
     const actual = Object.keys(args).sort();
@@ -453,6 +686,16 @@
         return error('INVALID_ARGUMENTS', 'click requires exactly one ref string.');
       }
       return click(args);
+    }
+    if (tool === 'scroll') {
+      const keys = args && typeof args === 'object' && !Array.isArray(args) ? Object.keys(args) : null;
+      const valid = keys
+        && keys.every((key) => ['deltaY', 'deltaX', 'ref'].includes(key))
+        && Number.isFinite(args.deltaY)
+        && (args.deltaX === undefined || Number.isFinite(args.deltaX))
+        && (args.ref === undefined || typeof args.ref === 'string');
+      if (!valid) return error('INVALID_ARGUMENTS', 'scroll requires deltaY (number) and accepts optional deltaX (number) and ref (string).');
+      return scroll(args);
     }
     return error('TOOL_NOT_ALLOWED', 'Unknown browser tool.');
   }

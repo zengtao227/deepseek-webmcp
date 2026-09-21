@@ -338,17 +338,30 @@ test('submit-like click fails closed with CONFIRMATION_REQUIRED', async () => {
 
 test('unclassified button clicks also fail closed instead of trusting an unknown JavaScript action', async () => {
   const target = loadTarget();
-  const inspected = await target.send('inspect_form', {});
-  const safe = byName(inspected, 'Show details');
   target.controls.safe.attributes.delete('aria-expanded');
   target.controls.safe.attributes.delete('aria-controls');
+  target.controls.safe.textContent = 'Mystery action';
+  target.controls.safe.innerText = 'Mystery action';
+  const inspected = await target.send('inspect_form', {});
+  const mystery = byName(inspected, 'Mystery action');
+
+  const result = await target.send('click', { ref: mystery.ref });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'CONFIRMATION_REQUIRED');
+  assert.equal(result.error.details.reason, 'unclassified click action');
+  assert.equal(target.controls.safe.clicks, 0);
+});
+
+test('a control that changed after it was inspected is stale and is never clicked', async () => {
+  const target = loadTarget();
+  const inspected = await target.send('inspect_form', {});
+  const safe = byName(inspected, 'Show details');
   target.controls.safe.textContent = 'Mystery action';
   target.controls.safe.innerText = 'Mystery action';
 
   const result = await target.send('click', { ref: safe.ref });
   assert.equal(result.ok, false);
-  assert.equal(result.error.code, 'CONFIRMATION_REQUIRED');
-  assert.equal(result.error.details.reason, 'unclassified click action');
+  assert.equal(result.error.code, 'STALE_REF');
   assert.equal(target.controls.safe.clicks, 0);
 });
 

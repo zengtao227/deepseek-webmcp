@@ -39,7 +39,7 @@ Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it an
 1. Ask in the panel. To read or fill the page in front of you, just say so; the first page action locks the page that is open in this window.
 2. The task stays on that page. **Stop** releases it; the next page action locks whichever page is open then, so switching pages means going there and asking again.
 3. A click that opens another page (for example Reply in a mail app, or a popup) is followed, and closing that page returns to the one you came from.
-4. Page actions use semantic DOM refs; the model cannot choose arbitrary tabs or use selectors/XPath. It may open, read and fill. **Submit, send, pay, delete and other commit-like clicks are never pressed by the assistant** (`CONFIRMATION_REQUIRED`): you press them.
+4. Page actions use semantic DOM refs; the model cannot choose arbitrary tabs or use selectors/XPath. It may open, read, fill and scroll (a long page or an inner list: `inspect_page` lists what is on screen first, and `scroll` moves the page or the list). **Submit, send, pay, delete and other commit-like clicks are never pressed by the assistant** (`CONFIRMATION_REQUIRED`): you press them.
 5. For local files, ask it to work in your folder (see Settings). Coding tools run in an isolated Docker container on that folder only.
 
 The old in-page flow still works: on `chat.deepseek.com` press ⌥⇧W to turn **Work** on for that tab and type your task there.
@@ -100,7 +100,7 @@ Browser WebMCP V1 reuses the same DeepSeek planner/continuation loop but dispatc
 ```text
 normal DeepSeek Web
   → existing WebMCP one-call loop
-  → inspect_page / inspect_form / fill / select / click
+  → inspect_page / inspect_form / fill / select / click / scroll
   → owner-attached real browser tab
   → semantic DOM
 ```

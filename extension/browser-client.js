@@ -1,4 +1,4 @@
-export const BROWSER_TOOL_NAMES = Object.freeze(['inspect_page', 'inspect_form', 'fill', 'select', 'click']);
+export const BROWSER_TOOL_NAMES = Object.freeze(['inspect_page', 'inspect_form', 'fill', 'select', 'click', 'scroll']);
 
 export const BROWSER_TOOL_ARGUMENTS = Object.freeze({
   inspect_page: { required: {}, optional: {} },
@@ -6,6 +6,10 @@ export const BROWSER_TOOL_ARGUMENTS = Object.freeze({
   fill: { required: { ref: '<element-ref>', value: '<text>' }, optional: {} },
   select: { required: { ref: '<element-ref>', value: '<option value or label>' }, optional: {} },
   click: { required: { ref: '<element-ref>' }, optional: {} },
+  scroll: {
+    required: { deltaY: '<pixels; positive scrolls down, negative up; at most 3000>' },
+    optional: { deltaX: '<pixels; positive scrolls right, negative left; at most 3000>', ref: '<element-ref of an element inside the area to scroll>' },
+  },
 });
 
 const ALLOWED_BROWSER_TOOLS = new Set(BROWSER_TOOL_NAMES);
@@ -32,6 +36,17 @@ export function validateBrowserToolArguments(name, args) {
   if (!isBrowserToolAllowed(name)) return { code: 'TOOL_NOT_ALLOWED', message: 'Browser tool is not allowed.' };
   if (name === 'inspect_page' || name === 'inspect_form') {
     return exactKeys(args, []) ? null : { code: 'INVALID_ARGUMENTS', message: `${name} accepts no arguments.` };
+  }
+  if (name === 'scroll') {
+    const allowed = ['deltaY', 'deltaX', 'ref'];
+    const valid = args
+      && typeof args === 'object'
+      && !Array.isArray(args)
+      && Object.keys(args).every((key) => allowed.includes(key))
+      && Number.isFinite(args.deltaY)
+      && (args.deltaX === undefined || Number.isFinite(args.deltaX))
+      && (args.ref === undefined || (typeof args.ref === 'string' && args.ref.length > 0 && args.ref.length <= 64));
+    return valid ? null : { code: 'INVALID_ARGUMENTS', message: 'scroll requires deltaY (number) and accepts optional deltaX (number) and ref (string).' };
   }
   if (name === 'click') {
     if (!exactKeys(args, ['ref']) || typeof args.ref !== 'string' || args.ref.length === 0 || args.ref.length > 64) {

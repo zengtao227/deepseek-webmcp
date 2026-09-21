@@ -87,6 +87,7 @@ export function buildWorkInstructions({ pageAttached = false } = {}) {
     'For webpage/form tasks, start with inspect_form when the task is about a form, otherwise inspect_page. Use only returned element refs; never invent selectors, XPath, tab ids, or refs.',
     'For coding/filesystem tasks only, start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later coding-tool call. /workspace is the folder the owner chose, whatever its real name; its contents are what the owner means by "my folder".',
     'A page read is a snapshot. After the owner switches pages or presses Stop, read again with inspect_page instead of reusing an earlier result.',
+    'inspect_page returns at most 80 controls and lists the ones on screen first. If the control you need is not returned (truncated is true) or the page is longer than the screen, call scroll with deltaY (positive scrolls down, for example 700) and read again with inspect_page. Refs from before a scroll or a page update can be stale: use the refs from your newest read.',
     'A browser click may fail with CONFIRMATION_REQUIRED for a commit-like action. Do not retry it automatically.',
     'Use one tool call per reply. Do not commit or push. When the task is finished, reply normally without a tool call.',
   ].join('\n');

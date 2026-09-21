@@ -16,6 +16,7 @@ npm run e2e          # not part of `npm run check`
 | `harness.mjs` | launches with the mock, starts the assistant, small helpers |
 | `assistant.e2e.mjs` | S1 boot, S2 reuse, S3 prompt to rich answer (incl. the kept-composer regression), S3b very short tool-call reply |
 | `page-tools.e2e.mjs` | S4 page read, S5 fill/select and Submit refused, S7 Stop semantics |
+| `scroll.e2e.mjs` | the scroll tool on a long page (target past the first 80 controls), an inner scroll container (page does not move) and windowed lists that remount or recycle nodes (old refs stay stale) |
 | `handoff.e2e.mjs` | S6 mail handoff: new tab, popup, same-tab navigation, an unrelated tab is never adopted |
 | `reload.e2e.mjs` | a real extension reload with the provider window open: the panel recovers the same provider |
 | `provider.e2e.mjs` | S8 Regenerate/Share, S10 hidden provider fails closed, S9 provider close, Restore |

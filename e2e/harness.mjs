@@ -6,10 +6,10 @@ import { mockDeepSeek } from './mock-deepseek.mjs';
 export const EXTENSION = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const DEEPSEEK = 'https://chat.deepseek.com';
 
-export async function launchDeepSeek() {
+export async function launchDeepSeek({ hosts = {} } = {}) {
   const env = await launchExtension({
     extensionPath: EXTENSION,
-    hosts: { 'chat.deepseek.com': mockDeepSeek },
+    hosts: { 'chat.deepseek.com': mockDeepSeek, ...hosts },
     nativeHostNames: ['com.deepseek.webmcp.native'],
   });
 
