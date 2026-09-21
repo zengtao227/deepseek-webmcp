@@ -14,10 +14,10 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 | Provider minimized → Restore, provider window partly uncovered | PASS (owner-reported) |
 | Provider window **completely covered** by the work window | **FAIL — macOS limitation; handled by product rule "keep a strip uncovered"** (finding 1) |
 | Browser task from the Side Panel on the attached work page (P6-C1) | PASS (owner-reported) |
-| Regenerate under the latest answer starts a new answer | PASS (owner-reported) |
-| Share under the latest answer opens DeepSeek's share dialog and a share link was created | PASS (owner-reported) |
-| Rich answer rendering (headings, lists, code, quotes, tables, links) and Copy | automated tests only; live result not yet reported |
-| Close provider → fails closed; work tab closed → session ends | not yet run live |
+| Regenerate under the latest answer starts a new answer | PASS (owner-reported); **E2E 覆盖** (S8, against the mock bar built from the recorded icons) |
+| Share under the latest answer opens DeepSeek's share dialog and a share link was created | PASS (owner-reported); **E2E 覆盖** for pressing exactly one control and the changed-icon / duplicate diagnostic (S8); the real share dialog stays manual |
+| Rich answer rendering (headings, lists, code, quotes, tables, links) and Copy | automated tests only; live result not yet reported. **E2E 覆盖** rendering of headings, lists, code, table, link (S3); Copy (clipboard) and quotes are not covered |
+| Close provider → fails closed; work tab closed → session ends | not yet run live. **E2E 覆盖** close provider → paused, prompts refused, Restore opens a new provider and re-arms the tools (S9), and a hidden provider pauses and refuses a completing tool call (S10). Work tab closed is not covered |
 | Legacy DeepSeek-page Work, local coding tools, Browser V1 regression | not yet run live |
 
 ## Findings fixed during acceptance
@@ -51,15 +51,26 @@ Results marked "owner-reported" were run and reported by the owner; nothing here
 
 `npm run check`: 197 tests, 197 pass, 0 fail.
 
+## E2E coverage (2026-09-21)
+
+`npm run e2e` drives a real Chromium, the unpacked extension and its real Side Panel against a mock `chat.deepseek.com` and local fixture pages (`e2e/README.md`, `docs/dev-test-automation-plan.md`). It replaces manual checking of the rows marked **E2E 覆盖** above, **against the mock only**: it cannot tell whether real DeepSeek changed. Still manual, on the owner's machine:
+
+- toolbar icon opens the Side Panel (needs a user gesture)
+- the real DeepSeek page: login, DOM changes, the real share dialog, Copy to the clipboard
+- whether a fully covered provider window turns hidden (macOS occlusion; E2E only checks the fail-closed reaction to a page that reports hidden)
+- work tab closed → session ends; provider minimized → Restore; close and reopen the panel keeps the conversation
+- local folder picker, Full access and Uninstall dialogs, real Docker runtime
+
 ## Panel-first flow (2026-09-21) — automated only, live run pending
 
 Changed after the owner's feedback: no popup and no Open Assistant step; the toolbar icon opens the Side Panel, which starts the assistant and reuses one remembered provider window. The first browser tool call locks the page active in the panel's window; **Stop** releases it; a click that opens another page is followed (same handoff logic as the ChatGPT Embedded Panel); commit-like clicks stay with the owner. Folder / Full access / Uninstall moved into the panel's Settings. The page module was replaced by the newer shared one (links, rows, editable regions, safe Reply/Open clicks).
 
 | Area | Result |
 |---|---|
-| Icon click opens the panel and starts the assistant; second click reuses it and the provider window (no new window) | not yet run live |
-| Read and fill the open page from the panel; Stop releases it; page action on another page after Stop | not yet run live |
-| Email: Reply/compose opens a popup or new tab, the task follows it, closing it returns | not yet run live |
+| Icon click opens the panel and starts the assistant; second click reuses it and the provider window (no new window) | not yet run live. **E2E 覆盖** start and reuse of the provider window (S1, S2); the toolbar-icon click itself is not covered |
+| Read and fill the open page from the panel; Stop releases it; page action on another page after Stop | not yet run live. **E2E 覆盖** (S4 read, S5 fill/select and Submit refused, S7 Stop) on fixture pages |
+| Email: Reply/compose opens a popup or new tab, the task follows it, closing it returns | not yet run live. **E2E 覆盖** (S6) on the fixture mail page: new tab, popup, same-tab navigation, an unrelated tab is not adopted; a real webmail stays manual |
+| Extension reload with the provider window open, then the panel is opened again: same provider, no new window, prompts work | not yet run live. **E2E 覆盖** (reload scenario, `e2e/reload.e2e.mjs`); the Reload button in the owner's real Chrome stays manual |
 | Local folder: Settings → Change… to the real projects folder, then list its contents | not yet run live |
 | Diagnosis of "workspace shows nothing": the configured folder was `deepseek-webmcp-p4-fixture` (a 4-entry test repo); the runtime itself answered correctly when called directly | found 2026-09-21 |
 

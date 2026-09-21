@@ -171,3 +171,37 @@ The suite found two real product bugs on its first run, both fixed with unit reg
 2. **Whitespace between block elements became empty paragraphs** in the answer structure, because "\n" was also the marker for `<br>`.
 
 Remaining scenarios (S4–S10) are phases 2 and 3.
+
+## 15. Phase 2 and 3 result (2026-09-21)
+
+Built (increments only; the Phase 1 files are unchanged apart from a few lines added to the mock):
+
+| File | Scenarios |
+|---|---|
+| `e2e/page-tools.e2e.mjs` | S4 page read (password value redacted), S5 fill/select and `CONFIRMATION_REQUIRED` on Submit with the form untouched, S7 Stop (note sent once, next action locks the page open now) |
+| `e2e/handoff.e2e.mjs` | S6 new tab and popup (task follows, closing returns to the mail page), same-tab navigation (followed), an unrelated tab (not adopted) |
+| `e2e/reload.e2e.mjs` | a real extension reload with the provider window open: the reopened panel finds the same provider tab and window, opens no window, and a prompt works |
+| `e2e/provider.e2e.mjs` | S8 Regenerate/Share against a mock action bar built from the recorded icons (`e2e/recorded-action-bar.mjs`), changed icon and duplicate match press nothing and show a diagnostic; S10 hidden provider; S9 provider closed, Restore |
+
+`npm run check`: 226 tests, offline. `npm run e2e`: 21 tests (18 scenarios and 3 setup steps), all pass, 117 s (the plan's phase 1 target of 60 s was for S1–S3; the added scenarios wait on real handoff leases and provider settle times).
+
+Fault injection, each in a temporary copy of the extension (production files untouched), the named scenario turned red:
+
+| Change in the copy | Failed |
+|---|---|
+| `clickRiskReason` returns `null` (any click allowed) | S5 |
+| the "page released" note is never added | S7 |
+| `considerChildHandoff` returns `false` | S6 new tab, S6 popup (same-tab S6 still passes: it is another code path, `handleTargetTabUpdate`) |
+| remove the provider-tab reload added in `2304bdd` | the reload scenario (assistant never becomes active again) |
+| Regenerate/Share take the first match instead of requiring exactly one | S8 duplicate match |
+| `providerHealth` no longer fails on a hidden page | S10 (never pauses) |
+| the `ASSISTANT_PAUSED` check in `assistantProviderGate` removed | S10 (the completing tool call is not refused) |
+
+Corrections to this plan found while building:
+
+1. **S10's override cannot be set on the mock page.** The content script runs in its own JavaScript world, so an override on the page's `document` is invisible to it. The test sets it in the extension's isolated world over the debugging connection (`overrideReportedVisibility` in `e2e/steps.mjs`); the extension is unchanged. Headless Chromium has no window occlusion, so a page that *reports* hidden is what is tested, as planned.
+2. **The extension can be reloaded**, contrary to the Phase 0 note: `chrome.runtime.reload()` does leave a flag-loaded extension unloaded, but the Reload button's own call (`chrome.developerPrivate.reload` on `chrome://extensions`) works once developer mode is on in the temporary profile (without it the extension is left disabled as `unsupportedDeveloperExtension`). This is `env.reloadExtension()` in the shared harness (`browser-webmcp-e2e` commit `f729fa9`, with a self-test). No extension permission was added and the owner's Chrome is not involved.
+3. **`env.openPage` can land in the provider window.** A tab opened that way made the provider tab inactive and the assistant paused with `PROVIDER_TAB_INACTIVE`, which is the product working as designed. Scenarios that need a second tab in the work window use `openInWorkWindow` (`chrome.tabs.create` with the panel's window id).
+4. **A tool-call id repeated in one conversation is refused as `DUPLICATE_CALL`.** Scenario replies use unique ids.
+
+Not covered, stays manual: see `docs/p6-live-test.md`, section "E2E coverage".

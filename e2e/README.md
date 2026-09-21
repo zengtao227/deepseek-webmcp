@@ -15,5 +15,11 @@ npm run e2e          # not part of `npm run check`
 | `mock-deepseek.mjs` | the page content.js talks to; every part is marked with its recorded source or "assumed" |
 | `harness.mjs` | launches with the mock, starts the assistant, small helpers |
 | `assistant.e2e.mjs` | S1 boot, S2 reuse, S3 prompt to rich answer (incl. the kept-composer regression), S3b very short tool-call reply |
+| `page-tools.e2e.mjs` | S4 page read, S5 fill/select and Submit refused, S7 Stop semantics |
+| `handoff.e2e.mjs` | S6 mail handoff: new tab, popup, same-tab navigation, an unrelated tab is never adopted |
+| `reload.e2e.mjs` | a real extension reload with the provider window open: the panel recovers the same provider |
+| `provider.e2e.mjs` | S8 Regenerate/Share, S10 hidden provider fails closed, S9 provider close, Restore |
+| `steps.mjs` | helpers: ask a prompt and wait for the turn, open a tab in the panel's window, override the reported visibility |
+| `recorded-action-bar.mjs` | the two recorded action-bar icons the mock draws |
 
-Not covered (see the plan, section 6): real DeepSeek, real macOS window occlusion and dialogs, the toolbar-icon click, a real service-worker restart. These stay a short manual check.
+Not covered (see the plan, section 6): real DeepSeek, real macOS window occlusion and dialogs, the toolbar-icon click, a service-worker idle restart without an extension reload. These stay a short manual check. `docs/p6-live-test.md` marks which acceptance rows the suite covers ("E2E 覆盖").
