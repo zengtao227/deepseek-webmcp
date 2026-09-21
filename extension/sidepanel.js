@@ -244,6 +244,8 @@ async function refreshPage() {
     $('#target').textContent = `Paused: ${task.target.title}`;
     $('#target').title = `Task page unavailable (${task.reason || 'PAGE_UNAVAILABLE'}). Press Stop to release it.`;
     stop.hidden = false;
+    // The "Paused" line above is easy to miss; render() has just written presentation.notice, so only fill an empty notice.
+    if (!$('#notice').textContent) $('#notice').textContent = `The page this task was working on is no longer available (${task.reason || 'PAGE_UNAVAILABLE'}). Press Stop, then ask again.`;
   } else {
     $('#target').textContent = (candidate ? `Ready — current page: ${candidate.title}` : 'Ready — open a webpage to work on') + providerNote;
     $('#target').title = 'The first page action locks the page that is open in this window. Stop releases it.';

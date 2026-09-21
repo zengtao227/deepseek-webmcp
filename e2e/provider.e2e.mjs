@@ -20,7 +20,7 @@ test('setup: the assistant is active and one answer is finished', async () => {
   ({ panel } = await env.startAssistant());
   provider = await providerPage(env);
   await ask(panel, provider, 'Say something', () => { window.__mock.replies.push({ html: '<p>First answer</p>' }); });
-  await turnDone(panel, provider, 1);
+  await turnDone(env, panel, provider, 1);
 });
 
 // S8 — Regenerate and Share press DeepSeek's own control, only when exactly one control matches
@@ -119,7 +119,7 @@ test('S9: Restore opens a new provider window and re-arms the tools', async () =
 
   provider = await providerPage(env);
   await ask(panel, provider, 'Read the page again', () => { const mock = window.__mock; mock.replies.push(() => mock.toolCall('s9_1', 'inspect_page')); });
-  const received = await turnDone(panel, provider, 2);
+  const received = await turnDone(env, panel, provider, 2);
   const payload = toolPayload(received[1]);
   assert.equal(payload.isError, false);
   assert.ok(JSON.stringify(payload.result).includes('Fixture Form'));

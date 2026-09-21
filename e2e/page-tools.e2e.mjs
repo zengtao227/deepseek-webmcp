@@ -21,7 +21,7 @@ test('S4: inspect_page locks the open page and the result typed back holds its t
     const mock = window.__mock;
     mock.replies.push(() => mock.toolCall('s4_1', 'inspect_page'));
   });
-  const received = await turnDone(panel, provider, 2);
+  const received = await turnDone(env, panel, provider, 2);
   assert.ok(received[1].startsWith('DeepSeek WebMCP tool result.'));
   const payload = toolPayload(received[1]);
   assert.equal(payload.isError, false);
@@ -49,7 +49,7 @@ test('S5: fill and select change the form; clicking Submit returns CONFIRMATION_
     mock.replies.push(() => mock.toolCall('s5_3', 'select', { ref: mock.refs.country, value: 'CH' }));
     mock.replies.push(() => mock.toolCall('s5_4', 'click', { ref: mock.refs.submit }));
   });
-  const received = await turnDone(panel, provider, 5);
+  const received = await turnDone(env, panel, provider, 5);
   const [, filled, selected, clicked] = received.slice(1).map(toolPayload);
   assert.equal(filled.isError, false);
   assert.equal(selected.isError, false);
@@ -73,7 +73,7 @@ test('S7: Stop releases the page, the next prompt says so once, and the next pag
   const inspect = () => { const mock = window.__mock; mock.replies.push(() => mock.toolCall('s7_read', 'inspect_page')); };
 
   await ask(panel, provider, 'Now read this page', inspect);
-  const first = await turnDone(panel, provider, 2);
+  const first = await turnDone(env, panel, provider, 2);
   assert.ok(first[0].includes('the owner pressed Stop'), 'the first prompt after Stop carries the released note');
   const payload = toolPayload(first[1]);
   assert.equal(payload.isError, false);
@@ -84,7 +84,29 @@ test('S7: Stop releases the page, the next prompt says so once, and the next pag
   assert.equal(status.task.target.title, 'Fixture Second Page');
 
   await ask(panel, provider, 'And once more', () => {});
-  const later = await turnDone(panel, provider, 1);
+  const later = await turnDone(env, panel, provider, 1);
   assert.ok(!later[0].includes('the owner pressed Stop'), 'the note is sent once, not on every prompt');
   await second.close();
+});
+
+// A locked page that disappears is easy to miss on the small "Paused" line, so the panel also says it in the notice.
+test('S7b: closing the locked page shows a notice that says what to do, and Stop clears it', async () => {
+  // S7 ended by closing the page it had locked, which leaves the task blocked; start from a released task.
+  if ((await pageStatus(panel)).task.mode !== 'idle') {
+    await panel.click('#stop');
+    await waitFor(async () => (await pageStatus(panel)).task.mode === 'idle', { message: 'a clean start: the task to be idle' });
+  }
+  const doomed = await openInWorkWindow(env, panel, env.fixtureUrl('/second'));
+  await ask(panel, provider, 'Read this page too', () => { const mock = window.__mock; mock.replies.push(() => mock.toolCall('s7b_1', 'inspect_page')); });
+  await turnDone(env, panel, provider, 2);
+  assert.equal((await pageStatus(panel)).task.mode, 'locked');
+  assert.equal(await panel.textContent('#notice'), '');
+
+  await doomed.close();
+  await waitFor(async () => (await panel.textContent('#notice')).includes('Press Stop'), { message: 'the notice about the closed page' });
+  assert.ok((await panel.textContent('#notice')).includes('TAB_CLOSED'));
+  assert.ok((await panel.textContent('#target')).startsWith('Paused:'));
+
+  await panel.click('#stop');
+  await waitFor(async () => (await panel.textContent('#notice')) === '', { message: 'the notice to clear after Stop' });
 });

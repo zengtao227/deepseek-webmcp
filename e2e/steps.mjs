@@ -21,8 +21,15 @@ export async function ask(panel, provider, prompt, install, arg) {
 }
 
 /** Waits until the mock received `count` messages and the final answer is shown with its actions. */
-export async function turnDone(panel, provider, count) {
+export async function turnDone(env, panel, provider, count) {
   await waitFor(async () => (await provider.evaluate(() => window.__mock.received.length)) >= count, { message: `${count} messages to reach the mock`, timeout: 30_000 });
+  // The actions of an earlier answer can still be on screen, so the turn is only done when the provider has
+  // stopped generating and the session says the answer is complete; a prompt sent earlier is refused.
+  await waitFor(() => provider.evaluate(() => !document.querySelector('#send path').getAttribute('d').startsWith('M2 4')), { message: 'the mock to stop generating', timeout: 20_000 });
+  await waitFor(async () => {
+    const presentation = (await env.status(panel)).session?.presentation;
+    return presentation?.completed === true && presentation.generating !== true;
+  }, { message: 'the session to report the answer complete', timeout: 20_000 });
   await waitFor(() => panel.locator('#answer-actions').isVisible(), { message: 'the final answer with its actions', timeout: 20_000 });
   return provider.evaluate(() => [...window.__mock.received]);
 }

@@ -37,7 +37,7 @@ test('setup: the assistant is active on the fixture mail page', async () => {
 // S6 — a click that opens a page hands the task over to it, but only that page
 test('S6a: Reply that opens a new tab: the task follows the new tab, and closing it returns to the mail page', async () => {
   await readClickRead(panel, 'Reply to this mail', 'newtab', 'Reply (new tab)');
-  const received = await turnDone(panel, provider, 4);
+  const received = await turnDone(env, panel, provider, 4);
   assert.equal(titleOf(received[1]), 'Fixture Mail');
   assert.equal(toolPayload(received[2]).isError, false, 'the safe Reply click was executed');
   assert.equal(titleOf(received[3]), 'Fixture Compose', 'the task follows the tab the click opened');
@@ -55,7 +55,7 @@ test('S6b: an unrelated tab that no click opened is never adopted', async () => 
     const mock = window.__mock;
     mock.replies.push(() => mock.toolCall('u_1', 'inspect_page'));
   });
-  const received = await turnDone(panel, provider, 2);
+  const received = await turnDone(env, panel, provider, 2);
   assert.equal(titleOf(received[1]), 'Fixture Mail', 'the task stays on the page it is locked to');
   await unrelated.close();
   await mail.bringToFront();
@@ -63,7 +63,7 @@ test('S6b: an unrelated tab that no click opened is never adopted', async () => 
 
 test('S6c: Reply that opens a popup window: the task follows it, and closing it returns to the mail page', async () => {
   await readClickRead(panel, 'Reply in a popup', 'popup', 'Reply (popup)');
-  const received = await turnDone(panel, provider, 4);
+  const received = await turnDone(env, panel, provider, 4);
   assert.equal(toolPayload(received[2]).isError, false);
   assert.equal(titleOf(received[3]), 'Fixture Compose');
 
@@ -74,7 +74,7 @@ test('S6c: Reply that opens a popup window: the task follows it, and closing it 
 
 test('S6d: a same-tab navigation is followed (there is no child to close, so no return is asserted)', async () => {
   await readClickRead(panel, 'Open the message', 'sametab', 'Open message (same tab)');
-  const received = await turnDone(panel, provider, 4);
+  const received = await turnDone(env, panel, provider, 4);
   assert.equal(toolPayload(received[2]).isError, false);
   assert.equal(titleOf(received[3]), 'Fixture Second Page');
   assert.equal(await currentTitle(), 'Fixture Second Page');

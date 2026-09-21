@@ -39,7 +39,7 @@ test('extension reload with the provider window open: reopening the panel recove
   // and it really works again: a prompt reaches the provider and the answer comes back
   const provider = await providerPage(env);
   await ask(reopened, provider, 'Are you back?', () => { window.__mock.replies.push({ html: '<p>Yes.</p>' }); });
-  const received = await turnDone(reopened, provider, 1);
+  const received = await turnDone(env, reopened, provider, 1);
   assert.ok(received[0].startsWith('Are you back?'));
   assert.equal(await reopened.locator('#answer').textContent(), 'Yes.');
 });
