@@ -7,7 +7,7 @@ import {
   buildWorkInstructions,
   neutralizeToolMarkers,
 } from '../extension/core/agent-controller.js';
-import { TOOL_NAMES } from '../extension/native-client.js';
+import { TOOL_NAMES } from '../extension/tool-contract.js';
 import { parseToolCalls } from '../extension/tool-loop/tool-call-format.js';
 
 const A = 'https://chat.deepseek.com/a/chat/s/aaaa';
@@ -87,7 +87,7 @@ test('work instructions teach the same contract as tool results and cannot execu
   assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   for (const name of TOOL_NAMES) assert.ok(text.split('\n').some((line) => line.startsWith(`- ${name} `)), name);
   assert.match(text, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
-  assert.ok(text.startsWith('---\nYou can use local tools through DeepSeek WebMCP'));
+  assert.ok(text.startsWith('---\nYou can use owner-approved tools through DeepSeek WebMCP'));
   assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
 });
 
@@ -114,14 +114,14 @@ test('native tool results restate the exact marked wire format after the untrust
   const lines = result.split('\n');
   assert.match(lines[1], /<webmcp_tool_call_neutralized>/);
   const instructions = lines.slice(2).join('\n');
-  assert.match(instructions, /Available tools: open_workspace, read, write, edit, bash\./);
+  assert.ok(instructions.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   assert.match(instructions, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
   assert.match(instructions, /Bare JSON without these markers is not a tool call and stops WebMCP\./);
   // Echoing the template must never execute: its JSON is intentionally invalid.
   assert.throws(() => parseToolCalls(instructions), { code: 'INVALID_JSON' });
 });
 
-test('native tool results name the exact coding tool set so the next turn does not invent tools', () => {
+test('tool results name the exact browser + coding tool set so the next turn does not invent tools', () => {
   // Live 2026-09-15: after a successful open_workspace result DeepSeek emitted
   // `list_directory` twice, because no text in the loop named the legal tools.
   const result = buildNativeToolResult(
@@ -129,7 +129,7 @@ test('native tool results name the exact coding tool set so the next turn does n
     { version: 1, id: 'p2_open', ok: true, result: { workspaceId: 'ws_x', instruction: 'Use only the exposed bounded tools.' } },
   );
   const toolLine = result.split('\n').find((line) => line.startsWith('Available tools:'));
-  assert.equal(toolLine, 'Available tools: open_workspace, read, write, edit, bash. No other tool exists; any other tool name is rejected and stops WebMCP.');
+  assert.equal(toolLine, `Available tools: ${TOOL_NAMES.join(', ')}. No other tool exists; any other tool name is rejected and stops WebMCP.`);
   assert.match(result, /If the task is finished or no available tool fits, reply without a tool call\./);
 });
 
@@ -161,4 +161,9 @@ test('the format correction restates the WebMCP contract and cannot execute if e
   assert.match(text, /Nothing was executed\./);
   assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
+});
+
+test('work instructions say a page is attached only when one really is', () => {
+  assert.ok(!buildWorkInstructions().includes('already attached'));
+  assert.ok(buildWorkInstructions({ pageAttached: true }).includes('already attached'));
 });

@@ -7,7 +7,7 @@
   <style>
     body { font: 13px system-ui, sans-serif; width: 310px; margin: 14px; }
     button { cursor: pointer; }
-    #work { width: 100%; padding: 10px; font-size: 15px; font-weight: 600; border-radius: 8px; border: 1px solid #999; }
+    #work, #assistant { width: 100%; padding: 10px; font-size: 15px; font-weight: 600; border-radius: 8px; border: 1px solid #999; }
     #work.on { background: #1a7f37; color: #fff; border-color: #1a7f37; }
     .note { color: #555; margin: 6px 0; }
     section { border-top: 1px solid #ddd; margin-top: 10px; padding-top: 8px; }
@@ -24,6 +24,18 @@
 <body>
   <button id="work" disabled>Work</button>
   <p id="summary" class="note">Loading…</p>
+
+  <section>
+    <div class="label">Compact Assistant</div>
+    <button id="assistant" disabled>Open Assistant</button>
+    <p id="assistant-note" class="note">Open an ordinary webpage to use the assistant beside it.</p>
+  </section>
+
+  <section>
+    <div class="label">Browser target</div>
+    <p id="target" class="note">No target attached.</p>
+    <button id="target-action">Attach this tab</button>
+  </section>
 
   <section>
     <div class="label">Folder</div>

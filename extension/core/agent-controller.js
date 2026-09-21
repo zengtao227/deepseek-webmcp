@@ -1,5 +1,5 @@
 import { parseToolCalls } from '../tool-loop/tool-call-format.js';
-import { TOOL_ARGUMENTS, TOOL_NAMES } from '../native-client.js';
+import { TOOL_ARGUMENTS, TOOL_NAMES } from '../tool-contract.js';
 
 const MARKER_OPEN = '<webmcp_tool_call>';
 const MARKER_CLOSE = '</webmcp_tool_call>';
@@ -76,12 +76,17 @@ export function buildFormatCorrection() {
 // Appended after the user's first message of a new chat while Work is on, so the
 // question stays visible when DeepSeek collapses a long message (the content script
 // checks the exact first sentence); every tool result restates the contract.
-export function buildWorkInstructions() {
+export function buildWorkInstructions({ pageAttached = false } = {}) {
   return [
     '---',
-    'You can use local tools through DeepSeek WebMCP for the task above. They run in an isolated container with no network; /workspace is my selected folder.',
+    'You can use owner-approved tools through DeepSeek WebMCP for the task above. Browser tools act only on the one browser tab I explicitly attached; coding tools run in the isolated local workspace.',
     ...toolContractLines('To call a tool, reply with exactly one fenced text block and nothing else, then wait for the result:'),
-    'Start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later call.',
+    ...(pageAttached
+      ? ['A browser page is already attached for this task; do not ask me to attach one. Requests about "the current page" or "the work page" mean that attached page.']
+      : []),
+    'For webpage/form tasks, start with inspect_form when the task is about a form, otherwise inspect_page. Use only returned element refs; never invent selectors, XPath, tab ids, or refs.',
+    'For coding/filesystem tasks only, start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later coding-tool call.',
+    'A browser click may fail with CONFIRMATION_REQUIRED for a commit-like action. Do not retry it automatically.',
     'Use one tool call per reply. Do not commit or push. When the task is finished, reply normally without a tool call.',
   ].join('\n');
 }

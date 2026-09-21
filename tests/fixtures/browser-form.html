@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Employee Travel Claim</title>
+</head>
+<body>
+  <h1>Employee Travel Claim</h1>
+  <form id="claim-form">
+    <label for="employee-name">Employee Name</label>
+    <input id="employee-name" name="employeeName" type="text">
+
+    <label for="travel-date">Travel Date</label>
+    <input id="travel-date" name="travelDate" type="date">
+
+    <label for="country">Country</label>
+    <select id="country" name="country">
+      <option value="">Choose a country</option>
+      <option value="CH">Switzerland</option>
+      <option value="SG">Singapore</option>
+    </select>
+
+    <label for="amount">Amount</label>
+    <input id="amount" name="amount" type="number">
+
+    <label for="approval-password">Approval Password</label>
+    <input id="approval-password" name="approvalPassword" type="password" value="fixture-secret">
+
+    <input type="hidden" name="csrfToken" value="hidden-security-token">
+    <input type="text" name="inactiveField" value="do-not-touch" disabled>
+
+    <button id="show-details" type="button" aria-expanded="false" aria-controls="details">Show details</button>
+    <button id="submit-claim" type="submit">Submit</button>
+  </form>
+</body>
+</html>
