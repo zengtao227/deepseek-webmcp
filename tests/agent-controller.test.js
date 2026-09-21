@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPageReleasedNote,
   WorkController,
   buildFormatCorrection,
   buildNativeToolResult,
@@ -166,4 +167,11 @@ test('the format correction restates the WebMCP contract and cannot execute if e
 test('work instructions say a page is attached only when one really is', () => {
   assert.ok(!buildWorkInstructions().includes('already attached'));
   assert.ok(buildWorkInstructions({ pageAttached: true }).includes('already attached'));
+});
+
+test('the tool contract explains /workspace and that page reads are snapshots; a released page has its own note', () => {
+  const text = buildWorkInstructions();
+  assert.match(text, /\/workspace is the folder the owner chose, whatever its real name/);
+  assert.match(text, /A page read is a snapshot/);
+  assert.match(buildPageReleasedNote(), /pressed Stop.*call inspect_page again/);
 });

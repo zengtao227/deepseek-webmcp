@@ -85,10 +85,20 @@ export function buildWorkInstructions({ pageAttached = false } = {}) {
       ? ['A browser page is already attached for this task; do not ask me to attach one. Requests about "the current page" or "the work page" mean that attached page.']
       : []),
     'For webpage/form tasks, start with inspect_form when the task is about a form, otherwise inspect_page. Use only returned element refs; never invent selectors, XPath, tab ids, or refs.',
-    'For coding/filesystem tasks only, start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later coding-tool call.',
+    'For coding/filesystem tasks only, start with open_workspace {"path":"/workspace"} and reuse the returned workspaceId in every later coding-tool call. /workspace is the folder the owner chose, whatever its real name; its contents are what the owner means by "my folder".',
+    'A page read is a snapshot. After the owner switches pages or presses Stop, read again with inspect_page instead of reusing an earlier result.',
     'A browser click may fail with CONFIRMATION_REQUIRED for a commit-like action. Do not retry it automatically.',
     'Use one tool call per reply. Do not commit or push. When the task is finished, reply normally without a tool call.',
   ].join('\n');
+}
+
+// Added to the first prompt after the owner pressed Stop: the model has no other way to learn that
+// the page it read earlier is no longer connected, and otherwise answers from the old result.
+export function buildPageReleasedNote() {
+  return [
+    '[DeepSeek WebMCP: the owner pressed Stop, so the connection to the previous page is closed and anything you read from it is out of date.',
+    'If this request needs a webpage, call inspect_page again; it connects to the page that is open now.]',
+  ].join(' ');
 }
 
 const MAX_CONVERSATIONS = 50;

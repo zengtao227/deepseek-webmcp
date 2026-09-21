@@ -780,3 +780,15 @@ test('a control named by its label is preferred, and two named matches are refus
   assert.equal(refused.ok, false);
   assert.deepEqual(clicksOf(made), { ...NONE, like: 1 });
 });
+
+test('a page-released note follows the assistant prompt and precedes the tool contract', async () => {
+  const page = loadPage({ answers: ['earlier'], path: '/a/chat/s/one', replies: { 'work.arrive': { work: true, instructions: buildWorkInstructions() } } });
+  await page.advance(500, 1);
+  const reply = await new Promise((resolve) => {
+    page.notify({ type: 'assistant.prompt', text: 'read the other page', withInstructions: true, pageNote: '[NOTE: connection closed]' }, {}, resolve);
+  });
+  assert.equal(reply.ok, true);
+  const sent = page.page.sent[0];
+  assert.ok(sent.startsWith('read the other page\n\n[NOTE: connection closed]'));
+  assert.ok(sent.indexOf('[NOTE: connection closed]') < sent.indexOf('You can use owner-approved tools'));
+});

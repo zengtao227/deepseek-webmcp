@@ -108,3 +108,5 @@ Popup final state:
 22. Fixture mutation not committed or pushed (fixture log still `8508afa`). ✅
 23. No Git credential mount or exposure. ✅
 24. Native workspace root restored to `~/Doc/My code/deepseek-webmcp`. ✅
+
+> 2026-09-21: the fixture folder was moved to the Trash after P4 acceptance (a one-commit test repo, clean, no remote). The workspace is now the owner's real folder, chosen in the panel Settings.

@@ -86,7 +86,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
         if ((tabId === targetTab.id || tabId >= 100) && message?.type === 'webmcp.browser.ping') {
           return { version: 1, ok: true, result: { ready: true } };
         }
-        if (tabId === targetTab.id && message?.type === 'webmcp.browser.tool') {
+        if ((tabId === targetTab.id || tabId >= 100) && message?.type === 'webmcp.browser.tool') {
           browserMessages.push(message);
           return browserReply;
         }
@@ -141,6 +141,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
       sendNativeMessage: async (host, payload) => {
         nativeCalls.push(payload);
         if (nativeError) throw new Error(nativeError);
+        if (payload.control === 'status') return { version: 1, id: payload.id, ok: true, result: { folder: '/Users/test/Doc/My code', fullAccessUntil: null } };
         return { version: 1, id: payload.id, ok: true, result: { workspaceId: 'ws_test' } };
       },
     },
@@ -527,6 +528,7 @@ test('content-script readiness alone does not activate the assistant: a provider
   const opened = await openAssistant(background);
   assert.equal(opened.ok, false);
   assert.equal(opened.error.code, 'PROVIDER_HIDDEN');
+  assert.match(opened.error.message, /\[work: .*; DeepSeek: .*\]/, 'both windows\' state is recorded for the next occurrence');
   assert.equal(opened.session.state, 'paused');
 });
 
@@ -945,4 +947,53 @@ test('a submit-like click is refused by the page module and the page work stays 
   const source = await (await import('node:fs/promises')).readFile(new URL('../extension/target-executor.js', import.meta.url), 'utf8');
   assert.match(source, /CONFIRMATION_REQUIRED/);
   assert.match(source, /commitPattern = \/\\b\(submit\|send\|pay/);
+});
+
+test('after Stop the next prompt tells DeepSeek the page is disconnected, once, and the next page action locks the page now open', async () => {
+  const background = await loadBackground();
+  background.setActive(background.targetTab);
+  assert.equal((await openAssistant(background)).ok, true);
+  const provider = providerSenderFor(background);
+  await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT }, provider);
+  assert.equal((await pageTask(background)).target.tabId, background.targetTab.id);
+
+  const sent = [];
+  const original = globalThis.chrome.tabs.sendMessage;
+  globalThis.chrome.tabs.sendMessage = async (tabId, message) => {
+    if (message?.type === 'assistant.prompt') sent.push(message);
+    return original(tabId, message);
+  };
+
+  await background.send({ type: 'assistant.prompt', text: 'read this page' }, SIDE_PANEL);
+  await background.send({ type: 'assistant.stop' }, SIDE_PANEL);
+  await background.send({ type: 'assistant.prompt', text: 'now read the other page' }, SIDE_PANEL);
+  await background.send({ type: 'assistant.prompt', text: 'and summarize' }, SIDE_PANEL);
+  assert.deepEqual(sent.map((message) => Boolean(message.pageNote)), [false, true, false]);
+  assert.match(sent[1].pageNote, /pressed Stop.*call inspect_page again/);
+
+  // The owner moved to another page in the same window; the task is free to lock it.
+  const second = { id: 120, url: 'https://second.example/inbox', title: 'Second page', windowId: WORK_WINDOW_ID, active: true };
+  background.addTab(second);
+  background.targetTab.active = false;
+  background.setActive(second);
+  // (a new conversation in the provider, so the first call's pending result does not gate this one)
+  const laterConversation = background.from(B, { tab: { ...background.providerTab, url: B }, url: B });
+  await background.send({ type: 'work.generating' }, laterConversation);
+  await background.send({ type: 'work.completion', text: BROWSER_TOOL_CALL_TEXT.replace('browser_1', 'browser_9') }, laterConversation);
+  const task = await pageTask(background);
+  assert.equal(task.mode, 'locked');
+  assert.equal(task.target.tabId, second.id);
+  assert.equal(task.target.origin, 'https://second.example');
+});
+
+test('open_workspace tells DeepSeek that /workspace is the owner\'s folder itself, by its real name', async () => {
+  const background = await working();
+  await background.send({ type: 'settings.control', control: 'status' }, SIDE_PANEL);
+  const reply = await background.send({ type: 'work.completion', text: TOOL_CALL_TEXT }, background.from(A));
+  assert.match(reply.continueWith, /\"hostFolderName\":\"My code\"/);
+  assert.match(reply.continueWith, /\/workspace IS the owner's folder named \\"My code\\" itself/);
+
+  const other = await working();
+  const plain = await other.send({ type: 'work.completion', text: TOOL_CALL_TEXT }, other.from(A));
+  assert.doesNotMatch(plain.continueWith, /hostFolderName/, 'nothing is invented when the folder name is not known');
 });

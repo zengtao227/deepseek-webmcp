@@ -1,4 +1,4 @@
-import { WorkController, buildFormatCorrection, buildNativeToolResult, buildWorkInstructions } from './core/agent-controller.js';
+import { WorkController, buildFormatCorrection, buildNativeToolResult, buildPageReleasedNote, buildWorkInstructions } from './core/agent-controller.js';
 import { BrowserClientError, callBrowserTool, isBrowserToolAllowed } from './browser-client.js';
 import { normalizeBlocks } from './answer-blocks.js';
 import { createBrowserTask } from './browser-task.js';
@@ -11,6 +11,7 @@ const AUTHORITY_PREFIX = 'work.authority.';
 const DIAGNOSTICS_PREFIX = 'work.diagnostics.';
 const ASSISTANT_KEY = 'assistant.session';
 const ASSISTANT_VERSION = 1;
+const FOLDER_NAME_KEY = 'workspace.folderName';
 const MAX_ANSWER_CHARS = 512 * 1024;
 const MAX_PRESENTATION_CHARS = 128 * 1024;
 const MAX_ASSISTANT_HISTORY = 20;
@@ -118,6 +119,7 @@ function normalizeAssistantSession(value) {
     providerTabId: value.providerTabId,
     providerWindowId: value.providerWindowId,
     state: value.state,
+    pageReleased: value.pageReleased === true,
     pauseCode: typeof value.pauseCode === 'string' ? value.pauseCode.slice(0, 64) : null,
     presentation: {
       history: Array.isArray(presentation.history)
@@ -238,6 +240,19 @@ async function providerPageHealth(tabId) {
   }
 }
 
+// Why a covered window turns hidden is platform behavior (macOS window occlusion, full-screen
+// Spaces); recording both windows' state makes the next occurrence explainable.
+const describeWindow = (info) => `${info.state ?? '?'}${info.focused ? ' focused' : ''} ${info.width ?? '?'}x${info.height ?? '?'}@${info.left ?? '?'},${info.top ?? '?'}`;
+
+async function windowStateNote(session, providerInfo) {
+  try {
+    const work = await chrome.windows.get(session.workWindowId);
+    return ` [work: ${describeWindow(work)}; DeepSeek: ${describeWindow(providerInfo)}]`;
+  } catch {
+    return '';
+  }
+}
+
 async function providerHealth(session) {
   if (!Number.isInteger(session?.providerTabId) || !Number.isInteger(session?.providerWindowId)) {
     return { ok: false, code: 'PROVIDER_MISSING', message: 'DeepSeek provider is not ready.' };
@@ -267,7 +282,7 @@ async function providerHealth(session) {
   const page = await providerPageHealth(session.providerTabId);
   if (!page.ok) return { ok: false, code: page.code, message: 'DeepSeek provider is still loading or unavailable.' };
   if (page.visibility !== 'visible') {
-    return { ok: false, code: 'PROVIDER_HIDDEN', message: 'DeepSeek provider is not rendering while hidden.' };
+    return { ok: false, code: 'PROVIDER_HIDDEN', message: `DeepSeek provider is not rendering while hidden.${await windowStateNote(session, windowInfo)}` };
   }
   return { ok: true, page };
 }
@@ -475,7 +490,13 @@ async function restoreAssistantSession() {
 // is active then. The provider and the conversation stay as they are.
 async function stopAssistantTask() {
   await releaseTask();
+  await markPageReleased();
   return { ok: true, task: idleTask() };
+}
+
+// The model learns of a release with the next prompt (see buildPageReleasedNote).
+function markPageReleased() {
+  return mutateAssistantSession((current) => (current ? { ...current, pageReleased: true } : null));
 }
 
 async function assistantStatus({ refreshHealth = true } = {}) {
@@ -542,7 +563,9 @@ async function sendAssistantPrompt(text) {
   }
 
   let firstPrompt = false;
+  let pageNote = '';
   session = await patchAssistantSession(session, (current) => {
+    pageNote = current.pageReleased ? buildPageReleasedNote() : '';
     firstPrompt = !current.presentation.history.some((item) => item?.role === 'user');
     const history = archiveCompletedAssistantTurn(current.presentation);
     history.push({ role: 'user', text: boundedPresentationText(prompt) });
@@ -557,13 +580,13 @@ async function sendAssistantPrompt(text) {
   if (!session) return { ok: false, error: { code: 'ASSISTANT_NOT_ACTIVE', message: 'Restore or open the assistant first.' } };
 
   try {
-    const result = await chrome.tabs.sendMessage(session.providerTabId, { type: 'assistant.prompt', text: prompt, withInstructions: firstPrompt });
+    const result = await chrome.tabs.sendMessage(session.providerTabId, { type: 'assistant.prompt', text: prompt, withInstructions: firstPrompt, pageNote });
     if (result?.ok !== true) {
       const message = result?.message ?? 'DeepSeek did not accept the prompt.';
       session = (await withdrawUnacceptedPrompt(session, prompt, message)) ?? session;
       return { ok: false, session, error: { code: result?.code ?? 'PROMPT_SEND_FAILED', message } };
     }
-    session = (await patchAssistantSession(session, withNotice(''))) ?? session;
+    session = (await patchAssistantSession(session, (current) => ({ pageReleased: false, ...withNotice('')(current) }))) ?? session;
     return { ok: true, session };
   } catch {
     await withdrawUnacceptedPrompt(session, prompt, 'DeepSeek provider is unavailable.');
@@ -753,6 +776,21 @@ function deliveryFor(controller, key) {
   return text === null ? {} : { continueWith: text, conversationPath: new URL(key).pathname };
 }
 
+// The model only ever sees "/workspace". Without the folder's real name it searches inside it for a
+// folder of that name (live 2026-09-21: "MyCode" not found) instead of listing the folder itself.
+async function withWorkspaceFolderName(response) {
+  const name = (await chrome.storage.session.get(FOLDER_NAME_KEY))[FOLDER_NAME_KEY];
+  if (typeof name !== 'string' || name === '' || typeof response.result !== 'object' || response.result === null) return response;
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      hostFolderName: name,
+      note: `/workspace IS the owner's folder named "${name}" itself. It is not a folder inside it: list /workspace to see what "${name}" contains.`,
+    },
+  };
+}
+
 async function processCompletion(tabId, key, text, resume) {
   const controller = await controllerFor(tabId);
   if (!controller) return {};
@@ -809,6 +847,7 @@ async function processCompletion(tabId, key, text, resume) {
   } else {
     try {
       toolResponse = await callNativeTool(call);
+      if (call.name === 'open_workspace' && toolResponse.ok) toolResponse = await withWorkspaceFolderName(toolResponse);
     } catch (error) {
       toolResponse = { version: 1, id: call.id, ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: 'The local WebMCP runtime is not reachable. Run npm run doctor on the Mac.' } };
     }
@@ -869,6 +908,11 @@ async function runControl(control, args) {
     // Chromium browser differs from another.
     const reason = typeof error?.message === 'string' ? ` (${error.message.slice(0, 200)})` : '';
     return { ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: `Local runtime not reachable${reason}. Run the install command again.` } };
+  }
+  if ((control === 'status' || control === 'choose-folder') && response.ok && typeof response.result?.folder === 'string') {
+    // Remembered only so the model can be told what /workspace really is (see open_workspace below).
+    const folderName = response.result.folder.split('/').filter(Boolean).pop() ?? '';
+    await chrome.storage.session.set({ [FOLDER_NAME_KEY]: folderName.slice(0, 120) });
   }
   if (control === 'uninstall' && response.ok && response.result?.uninstalled) {
     // The local side is gone; remove the extension too (no extra permission for self).
@@ -944,7 +988,7 @@ function handleMessage(message, sender) {
   if (message.type === 'assistant.prompt') return sendAssistantPrompt(message.text);
   if (message.type === 'assistant.action') return runAssistantAction(message.action);
   if (message.type === 'assistant.page-status') return targetStatus();
-  if (message.type === 'assistant.closed') return releaseTask();
+  if (message.type === 'assistant.closed') return releaseTask().then(markPageReleased);
   if (message.type === 'settings.control' && typeof message.control === 'string') return runControl(message.control, message.arguments);
   return undefined;
 }

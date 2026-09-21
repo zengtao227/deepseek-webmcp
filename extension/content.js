@@ -460,12 +460,13 @@
     return `${clean}\n\n${instructions}`;
   }
 
-  async function sendAssistantPrompt(text, { withInstructions = false } = {}) {
+  async function sendAssistantPrompt(text, { withInstructions = false, pageNote = '' } = {}) {
     if (isGenerating()) return { ok: false, code: 'GENERATION_IN_PROGRESS', message: 'DeepSeek is still generating.' };
     if (instructions === null) await arrive();
     if (instructions === null) return { ok: false, code: 'WORK_OFF', message: 'DeepSeek Work is not active.' };
 
-    const payload = userTextWithInstructions(text, { force: withInstructions });
+    const withNote = pageNote && text.trimEnd() ? `${text.trimEnd()}\n\n${pageNote}` : text;
+    const payload = userTextWithInstructions(withNote, { force: withInstructions });
     if (!payload) return { ok: false, code: 'EMPTY_PROMPT', message: 'Enter a prompt.' };
 
     ownSend = true;
@@ -713,7 +714,10 @@
       return false;
     }
     if (message?.type === 'assistant.prompt' && typeof message.text === 'string') {
-      void sendAssistantPrompt(message.text, { withInstructions: message.withInstructions === true }).then(
+      void sendAssistantPrompt(message.text, {
+        withInstructions: message.withInstructions === true,
+        pageNote: typeof message.pageNote === 'string' ? message.pageNote.slice(0, 600) : '',
+      }).then(
         (result) => sendResponse?.(result),
         () => sendResponse?.({ ok: false, code: 'PROMPT_SEND_FAILED', message: 'DeepSeek prompt failed.' }),
       );
