@@ -13,7 +13,11 @@
     "check": "npm run lint && npm test",
     "setup": "node scripts/install-p2-native-host.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "uninstall": "node scripts/uninstall.mjs"
+    "uninstall": "node scripts/uninstall.mjs",
+    "e2e": "node --test --test-concurrency=1 e2e/*.e2e.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "browser-webmcp-e2e": "file:../browser-webmcp-e2e"
+  }
 }

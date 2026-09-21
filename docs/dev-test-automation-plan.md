@@ -160,3 +160,14 @@ Section 10 rewritten: the generic harness becomes a separate shared repository c
 ## 13. Revision 4 — after phase 0 and the second Codex review (2026-09-21)
 
 Mechanics in section 4 are superseded by the phase 0 report: browser-level host mapping plus a dead proxy (measured boundary, narrow claim), the real Side Panel over `connectOverCDP` (a panel opened as a tab is refused by the `sender.tab` check), a read-only native-host preflight plus a harmless fake host in the temp profile instead of calling the real host, S2 narrowed and worker restart marked uncovered, Playwright installs with `PLAYWRIGHT_SKIP_BROWSER_GC=1`, and the shared GitHub repository created **private**. Scope of the shared repository stays: launcher, side-panel connection, local fixture server, cleanup; mocks, real-DOM samples and scenarios stay per project; no provider plugin, scenario DSL or platform.
+
+## 14. Phase 1 result (2026-09-21)
+
+Built: the shared repository `browser-webmcp-e2e` (private on GitHub; launcher, real Side Panel, local fixtures, network and native guards, self-test with fault injection) and this project's `e2e/` (mock DeepSeek with recorded provenance, S1, S2, S3, S3b). `npm run check` stays offline (225 unit tests, no browser); `npm run e2e` runs the browser scenarios.
+
+The suite found two real product bugs on its first run, both fixed with unit regressions and E2E scenarios that fail when the fix is reverted (checked by fault injection):
+
+1. **A reply that starts and ends between two timer ticks was never seen as a generation**, so its completion was reported as a history replay and ignored: a short tool-call reply (seen live at ~680 ms) could be lost. A send that was acknowledged now counts as the start of the awaited reply (`content.js`, `ownReplyPending`), provided the answer differs from the one present at the send.
+2. **Whitespace between block elements became empty paragraphs** in the answer structure, because "\n" was also the marker for `<br>`.
+
+Remaining scenarios (S4–S10) are phases 2 and 3.
