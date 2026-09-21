@@ -498,6 +498,28 @@ test('only the Side Panel may send assistant prompts and provider-visible snapsh
   assert.equal(status.session.presentation.completed, true);
 });
 
+test('after an extension reload the remembered provider tab has no live content script: it is reloaded once, not duplicated', async () => {
+  const background = await loadBackground();
+  assert.equal((await openAssistant(background)).ok, true);
+
+  // Extension reload: session state is gone and the open tab keeps only a dead content script.
+  background.session.delete('assistant.session');
+  let orphaned = true;
+  const reloaded = [];
+  const originalSend = globalThis.chrome.tabs.sendMessage;
+  globalThis.chrome.tabs.sendMessage = async (tabId, message) => {
+    if (orphaned && tabId === PROVIDER_TAB_ID && message?.type === 'assistant.health') return undefined;
+    return originalSend(tabId, message);
+  };
+  globalThis.chrome.tabs.reload = async (tabId) => { reloaded.push(tabId); orphaned = false; };
+
+  const reopened = await openAssistant(background);
+  assert.equal(reopened.ok, true);
+  assert.equal(reopened.session.state, 'active');
+  assert.deepEqual(reloaded, [PROVIDER_TAB_ID]);
+  assert.equal(background.windowsCreated(), 1, 'the remembered provider window is reused, never duplicated');
+});
+
 test('a fresh provider window that starts hidden is activated once, then focus returns to the work window', async () => {
   const background = await loadBackground({ providerStartsHidden: true });
   background.setActive(background.targetTab);

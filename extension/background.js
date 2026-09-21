@@ -369,6 +369,12 @@ async function normalizeProviderWindow(session, { createIfMissing = false } = {}
       await chrome.windows.update(providerWindowId, { state: 'normal', focused: false });
     }
     if (existing.tab.active !== true) await chrome.tabs.update(providerTabId, { active: true });
+    // After an extension reload or update the open provider tab keeps only a dead copy of the
+    // content script and never answers. A finished page that stays silent is reloaded once so
+    // the manifest injects a live copy; the window and conversation URL are kept.
+    if (existing.tab.status !== 'loading' && !(await providerPageHealth(providerTabId)).ok) {
+      await chrome.tabs.reload(providerTabId);
+    }
     const ready = await waitForProvider(providerTabId);
     if (!ready.ok) throw Object.assign(new Error('DeepSeek provider did not become ready.'), { code: ready.code });
     await bootstrapProviderVisibility(providerWindowId, providerTabId, session.workWindowId);
