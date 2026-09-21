@@ -1,6 +1,6 @@
 # Dev-side end-to-end test automation — plan for review
 
-Status: **PLAN ONLY (revision 2). No code written.** Written 2026-09-21; revised after Codex review the same day (see section 11).
+Status: **PLAN ONLY (revision 3). No code written.** Written 2026-09-21; revised after Codex review and after the owner's point that the harness serves more than DeepSeek (see sections 10 and 11).
 Owner request: "if you (Claude) can run the tests yourself, that is best" — testing by hand has been the main cost of every change so far. Also: "do not build something over-designed that we later have to re-integrate."
 
 ## 0. What reviewers should challenge
@@ -118,7 +118,7 @@ Optional, only if wanted later: read-only checks on real pages through the exist
 
 ## 8. Decisions needed from the owner
 
-1. Approve adding `playwright-core` as a dev dependency (only new dependency).
+1. Approve adding `playwright-core` (only new dependency; it lives in the shared repo, not in each project).
 2. Keep `npm run e2e` separate from `npm run check` (recommended: check stays fast and offline).
 3. Accept that section 6 items stay manual.
 
@@ -126,14 +126,33 @@ Optional, only if wanted later: read-only checks on real pages through the exist
 
 The harness tests the provider shell (DeepSeek) *around* the shared execution plane. Scenarios S4–S7 exercise the shared plane and its owner rules through the existing code only. Nothing here is a provider abstraction and no reuse by another project is promised: it is one launcher, one mock page and some fixtures.
 
-## 10. Where this lives (owner question: separate project, local and GitHub?)
+## 10. Where this lives (revised: shared harness, per-project scenarios)
 
-**Recommendation: not a separate project now. Keep it in this repository under `e2e/`.**
+Revision 2 recommended keeping everything in this repository. **That was wrong for the generic part** and is replaced:
 
-- The tests exercise this extension and must change in the same commit as the code they cover (the shared-core pins, the panel flow and the content-script contract move together). A second repository adds a sync step for every change and is exactly the kind of extra structure the owner asked to avoid.
-- It is already stored twice once pushed: the local checkout and the GitHub repository `zengtao227/deepseek-webmcp`. Branch `p6-compact-assistant` (with this plan) is **local only at the time of writing**; pushing it is a separate approval.
-- When the projects are merged into Browser WebMCP, the launcher and fixtures can be moved to a shared location as part of that integration, when two providers actually need them.
+The owner will use browser-based tests for other projects too (Prism side panel, the ChatGPT Embedded Panel, later ones). What differs per project is small; what is common is most of the plumbing. So:
+
+| Lives in the new shared repo `browser-webmcp-e2e` (name pending) | Stays in each project's own `e2e/` |
+|---|---|
+| launcher: extension into a temp Playwright-Chromium profile, id, worker access, worker restart | the **mock provider page** (mock DeepSeek, mock Prism, mock ChatGPT) |
+| network allowlist policy (abort-and-fail) installed before the panel opens | the **scenarios** that drive that project's code (DeepSeek S1–S10) |
+| helpers: wait-for-condition, open a panel tab in the fixture's window | project-specific fixtures with recorded real-DOM provenance |
+| generic fixture pages: form, mail (popup / new tab / same-tab nav), second page | |
+| the **one** pinned `playwright-core` + Chromium pair and the install note | |
+
+Why this split holds up against the earlier objection ("tests must change with the code"): that is true for scenarios and mocks, which stay with each project. The shared part changes rarely and is consumed as a dependency, not copied.
+
+- **Consumption:** each project lists it as a dev dependency. During development a local path (`file:../browser-webmcp-e2e`); once it is stable, a GitHub dependency pinned to a tag, so a project never picks up a harness change unintentionally.
+- **Storage:** local `~/Doc/My code/browser-webmcp-e2e/`, and a GitHub repository of the same name (creating it is a separate approval; visibility to be chosen by the owner).
+- **Kept deliberately small:** only what DeepSeek's scenarios already need is put into it. The roadmap rule "no abstraction before a second real implementation" is met in principle (the owner names Prism and the ChatGPT panel), but nothing is added on speculation.
+- **Not abstracted yet:** S4–S7 test the shared browser execution plane and will be the same for every provider. They stay in DeepSeek's `e2e/` for now; when a second consumer really needs them, they are lifted into "plane conformance tests" then, not before.
+- **Phase 0 stays a throwaway** in a temporary directory; the shared repository is created only after it passes (phase 1).
+- Branch `p6-compact-assistant` is still **local only**; pushing it is approved by the owner but not yet done.
 
 ## 11. Revision 2 — changes after Codex review (2026-09-21)
 
 Accepted and applied: panel binds its own window, so the panel tab goes in the fixture's window (section 4, phase 0 c); allowlist network policy installed before the panel opens, with abort-and-fail (section 4, phase 0 b); no in-worker native stub, prove the real host is unreachable across restarts (section 4, phase 0 e); E2E files outside `tests/` and an explicit `npm run e2e`, discovery verified (section 4, phase 0 f); mock-vs-product selector check removed in favour of dated, sourced real-DOM fixtures (section 7); S3 keeps-text regression, S6 split by navigation kind, S8 tied to confirmed icons, S10 controlled restore (section 3); exact Playwright/Chromium pin with a documented install (section 4); targeted fault injection in a temporary copy instead of per-scenario mutation (phase 4); wording fixes in sections 2, 6, 7, 9.
+
+## 12. Revision 3 — after the owner's question (2026-09-21)
+
+Section 10 rewritten: the generic harness becomes a separate shared repository consumed by each project as a dev dependency; scenarios, mock provider pages and recorded-DOM fixtures stay per project. The earlier "keep it all in deepseek-webmcp" recommendation is withdrawn for the generic part. Open confirmations: repository name, GitHub visibility, phase 0 as a throwaway before any repository is created.
