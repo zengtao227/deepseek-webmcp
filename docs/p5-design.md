@@ -67,7 +67,7 @@ A page or model cannot trigger these silently: dialogs require a physical click 
 
 ## 6. Runtime access (container side)
 
-**Folder mode (default)** — as today: the chosen folder is the only writable bind; network off, non-root, capabilities dropped, `no-new-privileges`, no Docker socket, fresh container per call.
+**Folder mode (default)** — the chosen project or parent workspace is the writable bind; protected DeepSeek control-plane subtrees beneath it are masked. Network remains off, execution is non-root with capabilities dropped and `no-new-privileges`, the Docker socket is absent, and each call uses a fresh container.
 
 **Full access mode** — adopts Base v1.1:
 - bind `$HOME` to `/workspace`;
@@ -75,7 +75,7 @@ A page or model cannot trigger these silently: dialogs require a physical click 
   - control plane: the code folder (host code + extension), `~/.deepseek-webmcp`, `~/.docker`, Chrome `NativeMessagingHosts`, the node installation used by the launcher;
   - credentials: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.config/gh`, `~/Library/Keychains`, browser profile directories;
 - the lease has one absolute deadline chosen at grant time (≤ 60 min, no renewal); every host call checks it and falls back to folder mode after expiry;
-- the same masks make the current `WORKSPACE_CONTAINS_CONTROL_PLANE` refusal unnecessary for full access; folder mode keeps the refusal.
+- folder mode uses the same control-plane mask principle for protected subtrees inside a broader selected workspace; exact control-plane roots and workspaces containing the host Node/Docker executables are still refused.
 
 Known exposure the owner accepted by choosing opt-in full access: everything unmasked that the model reads is sent to DeepSeek, and the Secret Firewall only redacts recognizable secret formats. Files like project `secrets.env` or personal documents under `$HOME` are readable while the lease is active.
 

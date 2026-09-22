@@ -48,7 +48,7 @@ Use `docs/browser-v1-live-test.md` for the first deterministic browser acceptanc
 
 In the panel, **Settings**:
 
-- **Folder / Change…** — the folder DeepSeek may read and change; *Change…* opens the macOS folder dialog. It must be a folder you actually want to expose (for example your projects folder), not a test fixture.
+- **Folder / Change…** — the project or parent workspace DeepSeek may read and change; *Change…* opens the macOS folder dialog. If that root contains DeepSeek WebMCP's own control plane, the protected subtree is masked from the container. Choose only a folder you actually want to expose (for example your projects folder), not a test fixture.
 - **Full access** — temporarily allow the whole home folder (15 min – 1 h, confirmed in a macOS dialog, with a Stop button). DeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek.
 
 Review changes in your project (for example `git diff`) before running anything on your Mac. Troubleshooting: `cd ~/deepseek-webmcp && npm run doctor`.

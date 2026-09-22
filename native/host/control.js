@@ -3,7 +3,7 @@ import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { HOST_CODE_ROOT, NativeHostError, assertWorkspaceOutsideControlPlane, readFullAccessLease } from './docker-dispatch.js';
+import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, browserProfileRoots, configPath as defaultConfigPath, leasePath, manifestDirFor, stateDir } from './local-paths.js';
 
 const execFileAsync = promisify(execFile);
@@ -105,7 +105,7 @@ async function chooseFolder({ home, configFile, now, exec }) {
   const folder = await realpath(picked).catch(() => fail('The chosen folder cannot be resolved.', 'INVALID_FOLDER'));
   if (!(await stat(folder)).isDirectory()) fail('Please choose a folder.', 'INVALID_FOLDER');
   if (folder === await realpath(home)) fail('For the whole home folder use Full access instead.', 'INVALID_FOLDER');
-  await assertWorkspaceOutsideControlPlane(folder, { configPath: configFile, dockerPath: config.dockerPath, home });
+  await buildWorkspaceControlPlaneMasks(folder, { configPath: configFile, dockerPath: config.dockerPath, home });
   await writeJsonAtomic(configFile, { ...config, workspaceRoot: folder });
   return { changed: true, ...(await status({ home, configFile, now })) };
 }

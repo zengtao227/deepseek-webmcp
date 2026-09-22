@@ -62,9 +62,9 @@ export function validateNativeRequest(request) {
   return request;
 }
 
-// This code (and the extension beside it) runs outside the container. The bind mount
-// is writable, so a workspace containing any host-executed path would let the model
-// rewrite what Chrome launches next as the host user.
+// This code (and the extension beside it) runs outside the container. Protected
+// control-plane paths beneath a broader selected workspace are masked; host executables
+// themselves must remain outside the writable workspace.
 export const HOST_CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function contains(root, candidate) {
@@ -72,21 +72,63 @@ function contains(root, candidate) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-export async function assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath, home = os.homedir() }) {
-  const controlPlane = [
-    HOST_CODE_ROOT,
-    path.dirname(configPath),
-    process.execPath,
-    dockerPath,
-    path.join(home, '.docker'),
-    ...browserProfileRoots(home).map(manifestDirFor),
-  ];
-  for (const target of controlPlane) {
-    const resolved = await realpath(target).catch(() => path.resolve(target));
-    if (contains(canonicalRoot, resolved) || contains(canonicalRoot, path.resolve(target))) {
-      fail('The folder must not contain DeepSeek WebMCP itself, its settings, node, docker or browser Native Messaging manifests. Choose a project folder instead (Full access covers the home folder safely).', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
+  configPath,
+  dockerPath,
+  home = os.homedir(),
+  hostCodeRoot = HOST_CODE_ROOT,
+  nodePath = process.execPath,
+} = {}) {
+  const canonicalHome = await realpath(home).catch(() => path.resolve(home));
+  if (canonicalRoot === canonicalHome) {
+    fail('For the whole home folder use Full access instead.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+  }
+
+  for (const target of [nodePath, dockerPath]) {
+    const lexical = path.resolve(target);
+    const resolved = await realpath(target).catch(() => lexical);
+    if (contains(canonicalRoot, resolved) || contains(canonicalRoot, lexical)) {
+      fail('Node and Docker must stay outside the model-writable workspace.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
     }
   }
+
+  const found = [];
+  const controlPlane = new Set([
+    hostCodeRoot,
+    path.dirname(configPath),
+    path.join(home, '.docker'),
+    ...browserProfileRoots(home).map(manifestDirFor),
+  ]);
+  for (const target of controlPlane) {
+    const lexical = path.resolve(target);
+    const resolved = await realpath(target).catch(() => null);
+    if (!contains(canonicalRoot, lexical) && (!resolved || !contains(canonicalRoot, resolved))) continue;
+    if (!resolved) {
+      fail('A protected DeepSeek WebMCP path inside the selected workspace cannot be resolved.', 'CONTROL_PLANE_PATH_UNAVAILABLE');
+    }
+    if (resolved === canonicalRoot) {
+      fail('The selected workspace must not be the DeepSeek WebMCP control-plane root.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+    }
+    const info = await lstat(resolved);
+    if (!info.isDirectory() && !info.isFile()) {
+      fail('A protected DeepSeek WebMCP path must resolve to a regular file or directory.', 'INVALID_CONTROL_PLANE_PATH');
+    }
+    found.push({
+      type: info.isDirectory() ? 'directory' : 'file',
+      relative: path.relative(canonicalRoot, resolved),
+    });
+  }
+
+  found.sort((left, right) => left.relative.localeCompare(right.relative));
+  const masks = [];
+  for (const item of found) {
+    if (masks.some((mask) => mask.type === 'directory' && contains(mask.relative, item.relative))) continue;
+    masks.push(item);
+  }
+  return masks.map(({ type, relative }) => Object.freeze({
+    type,
+    destination: path.posix.join('/workspace', ...relative.split(path.sep)),
+  }));
 }
 
 // Full access mounts the home folder writable, so everything in the control plane and
@@ -138,7 +180,7 @@ export async function loadNativeHostConfig(configPath, { home = os.homedir(), no
     masks = await buildFullAccessMasks(canonicalRoot, home);
   } else {
     canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
-    await assertWorkspaceOutsideControlPlane(canonicalRoot, { configPath, dockerPath: parsed.dockerPath, home });
+    masks = await buildWorkspaceControlPlaneMasks(canonicalRoot, { configPath, dockerPath: parsed.dockerPath, home });
   }
   const runtimeToken = createHash('sha256').update(`${parsed.image}\0${canonicalRoot}`).digest('hex');
   return Object.freeze({ ...parsed, canonicalRoot, runtimeToken, fullAccessUntil, masks: Object.freeze(masks) });

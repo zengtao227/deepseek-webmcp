@@ -5,7 +5,7 @@ import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertWorkspaceOutsideControlPlane } from '../native/host/docker-dispatch.js';
+import { buildWorkspaceControlPlaneMasks } from '../native/host/docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
 import { promisify } from 'node:util';
 
@@ -128,7 +128,7 @@ const dockerPath = await which('docker').catch(() => {
 });
 await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
-await assertWorkspaceOutsideControlPlane(workspaceRoot, { configPath, dockerPath });
+await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
 const image = options.image ?? await buildImage(dockerPath);
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);

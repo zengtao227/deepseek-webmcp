@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDockerInvocation, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
@@ -74,18 +74,38 @@ test('same local config derives the same stable runtime token across one-shot ho
   assert.match(first.runtimeToken, /^[0-9a-f]{64}$/);
 });
 
-test('host refuses a writable workspace that contains its own control plane', async () => {
-  // A writable /workspace containing host-executed code, its config, node or docker
-  // would let the model rewrite what Chrome runs outside the container.
+test('a parent workspace containing DeepSeek WebMCP stays usable with the checkout masked', async () => {
+  const hostCodeRoot = path.resolve(import.meta.dirname, '..');
+  const workspaceRoot = await realpath(path.dirname(hostCodeRoot));
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-state-'));
+  const configPath = path.join(stateDir, 'config.json');
+  await writeFile(configPath, JSON.stringify({ workspaceRoot, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+
+  const config = await loadNativeHostConfig(configPath);
+  assert.equal(config.canonicalRoot, workspaceRoot);
+  assert.deepEqual(config.masks, [{
+    type: 'directory',
+    destination: path.posix.join('/workspace', path.basename(hostCodeRoot)),
+  }]);
+
+  const mounts = buildDockerInvocation(config, request('read', { workspaceId: 'ws_x', path: 'x' }), {
+    uid: 501,
+    gid: 20,
+    random: () => 'r',
+  }).args.filter((_, index, args) => args[index - 1] === '--mount');
+  assert.ok(mounts.some((mount) => mount.includes(`dst=/workspace/${path.basename(hostCodeRoot)}`)));
+});
+
+test('host still refuses exact control-plane roots, host executables, filesystem root and normal home access', async () => {
   const hostCodeRoot = path.resolve(import.meta.dirname, '..');
   const stateDir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-state-'));
   const configPath = path.join(stateDir, 'config.json');
   const cases = [
-    ['host code root (this repository)', hostCodeRoot],
+    ['host code root itself', hostCodeRoot],
     ['directory holding the host config', stateDir],
     ['ancestor of the node binary', path.dirname(process.execPath)],
     ['filesystem root', '/'],
-    ['home directory (holds ~/.docker and Chrome manifests)', os.homedir()],
+    ['home directory (Full access is required)', os.homedir()],
   ];
   for (const [label, workspaceRoot] of cases) {
     await writeFile(configPath, JSON.stringify({ workspaceRoot, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));

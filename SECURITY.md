@@ -35,7 +35,7 @@ P3 exposes exactly `open_workspace`, `read`, `write`, `edit`, and `bash`. Each c
 
 `write` and `edit` enforce the Native workspace path/symlink policy, but `bash` can also mutate files inside the writable workspace. Therefore the security claim is bounded container/workspace mutation, not that only the structured mutation tools can write.
 
-Because the workspace is writable, it must never contain anything that runs outside the container. The installer and every Native host invocation refuse (`WORKSPACE_CONTAINS_CONTROL_PLANE`) a workspace root that contains the DeepSeek WebMCP checkout (host code and unpacked extension), the host config directory, the node or docker binary, `~/.docker`, or Chrome's `NativeMessagingHosts` directory. Choose a project directory, never the home directory or this repository.
+Because the workspace is writable, host-executed control-plane material must never be writable through it. A selected parent workspace may contain the DeepSeek WebMCP checkout, host config, `~/.docker`, or Chrome `NativeMessagingHosts`; any such protected subtree is explicitly masked from the container. Selecting the control-plane root itself is refused, Node and Docker executables must remain outside the model-writable workspace, and normal home-directory access remains reserved for locally approved Full access.
 
 Residual risk: anything the model writes into the project (for example `.git/hooks`, `package.json` scripts, build files) runs on the host only if you later run it there yourself. Review the diff before running project commands on the host.
 
