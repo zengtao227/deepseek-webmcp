@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
 import { browserProfileRoots, fullAccessMaskCandidates, leasePath, manifestDirFor } from './local-paths.js';
+import { runtimeBootstrapScript } from './runtime-bootstrap.js';
 
 const execFileAsync = promisify(execFile);
 const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'write', 'edit', 'bash', 'host_command']);
@@ -239,7 +240,7 @@ export function buildDockerInvocation(config, request, {
       ? mountSpec(['type=tmpfs', `dst=${mask.destination}`, 'readonly', 'tmpfs-mode=000'])
       : mountSpec(['type=bind', 'src=/dev/null', `dst=${mask.destination}`, 'readonly'])]),
     config.image,
-    'node', '/opt/webmcp/native/bin/start.js',
+    'node', '--input-type=module', '-e', runtimeBootstrapScript(),
   ];
   return Object.freeze({ name, command: config.dockerPath, args });
 }

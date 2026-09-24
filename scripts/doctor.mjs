@@ -5,24 +5,31 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { dispatchNativeRequest, loadNativeHostConfig } from '../native/host/docker-dispatch.js';
 import { HOST_NAME, installedBrowserProfileRoots, manifestDirFor } from '../native/host/local-paths.js';
+import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
+import { redactSecrets } from '../gateway/secret-scanner/index.js';
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = path.join(os.homedir(), '.deepseek-webmcp', 'p2-native-config.json');
 let failed = false;
 
+// Doctor output is meant to be pasted into a bug report: no home path, no secret values.
+function shareable(text) {
+  return redactSecrets(String(text).replaceAll(os.homedir(), '~')).text;
+}
+
 async function check(label, run, hint) {
   try {
     const detail = await run();
-    process.stdout.write(`OK    ${label}${detail ? `: ${detail}` : ''}\n`);
+    process.stdout.write(shareable(`OK    ${label}${detail ? `: ${detail}` : ''}\n`));
     return true;
   } catch (error) {
     failed = true;
-    process.stdout.write(`FAIL  ${label}: ${error?.message ?? error}\n      → ${hint}\n`);
+    process.stdout.write(shareable(`FAIL  ${label}: ${error?.message ?? error}\n      → ${hint}\n`));
     return false;
   }
 }
@@ -43,6 +50,22 @@ await check('runtime image', async () => {
   await execFileAsync(config.dockerPath, ['image', 'inspect', config.image], { timeout: 20_000 });
   return config.image.slice(0, 19);
 }, 'Run setup again to rebuild the image.');
+
+// The image must be built from exactly the pinned webmcp-runtime release: its source label
+// equals that release's image-source digest. This is also what host access loads.
+await check('shared runtime release', async () => {
+  if (!config) throw new Error('no config');
+  const { artifactId } = await readRuntimeLock();
+  const releaseDir = path.join(hostRuntimeRoot(), 'releases', artifactId);
+  const at = (relative) => import(pathToFileURL(path.join(releaseDir, relative)).href);
+  const { verifyRelease } = await at('adapter/deploy/deploy-host-runtime.js');
+  const { manifest } = await verifyRelease(releaseDir, { expectedArtifactId: artifactId, entrypoint: 'native/host/start.js' });
+  const { aggregateSourceDigest, NATIVE_RUNTIME_PAYLOAD } = await at('native/deploy/runtime-payload.js');
+  const expected = aggregateSourceDigest(manifest.files.filter((file) => NATIVE_RUNTIME_PAYLOAD.includes(file.path)));
+  const { stdout } = await execFileAsync(config.dockerPath, ['image', 'inspect', '--format', '{{index .Config.Labels "com.webmcp.native.source-sha256"}}', config.image], { timeout: 20_000 });
+  if (stdout.trim() !== expected) throw new Error('the runtime image was not built from the pinned release');
+  return `${artifactId.slice(0, 12)} (image source ${expected.slice(0, 12)})`;
+}, 'Run the installer again to install the pinned runtime release and rebuild the image.');
 
 const extension = JSON.parse(await readFile(path.join(projectRoot, 'extension/manifest.json'), 'utf8'));
 const digest = createHash('sha256').update(Buffer.from(extension.key, 'base64')).digest('hex').slice(0, 32);

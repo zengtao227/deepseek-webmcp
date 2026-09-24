@@ -3,7 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const HOST_NAME = 'com.deepseek.webmcp.native';
-export const IMAGE_TAG = 'deepseek-webmcp-p2:dev';
+// Build, uninstall and cleanup all use this one tag. A rehearsal on a machine that also has
+// a live install sets its own tag, because moving a tag can delete the image it named.
+export const IMAGE_TAG = process.env.DEEPSEEK_WEBMCP_IMAGE_TAG || 'deepseek-webmcp-p2:dev';
 // Created by install.sh in the code folder it cloned; only such a folder is deleted on uninstall.
 export const INSTALL_MARKER = '.deepseek-webmcp-installed';
 

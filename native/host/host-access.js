@@ -1,48 +1,58 @@
 import { readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateNativeRequest } from './docker-dispatch.js';
 import { sanitizeJsonRpcEnvelope } from './firewall.js';
 
 const INSTANCE_ID = 'deepseek';
 const ARTIFACT_ID = /^[0-9a-f]{40}-[0-9a-f]{64}$/;
-const HOST_RUNTIME_ROOT = path.join(os.homedir(), '.local', 'share', 'webmcp', 'host-runtime');
 
-function within(root, candidate) {
-  const relative = path.relative(root, candidate);
-  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+export function hostRuntimeRoot(home = os.homedir()) {
+  return path.join(home, '.local', 'share', 'webmcp', 'host-runtime');
 }
 
 async function moduleAt(releaseRoot, relative) {
   return import(pathToFileURL(path.join(releaseRoot, relative)).href);
 }
 
-// The DeepSeek adapter uses the reviewed, immutable WebMCP command/lease code.
-// Its existing five Docker tools continue through DeepSeek's own runtime.
-async function loadCore({ pinCurrent = false } = {}) {
-  const releasesRoot = await realpath(path.join(HOST_RUNTIME_ROOT, 'releases'));
-  const current = await realpath(path.join(HOST_RUNTIME_ROOT, 'current'));
-  const artifactId = path.basename(current);
-  if (!within(releasesRoot, current) || !ARTIFACT_ID.test(artifactId)) {
-    throw new Error('Installed WebMCP release is not immutable.');
+const ADAPTER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+// The runtime release this adapter version was built against. It ships inside the adapter,
+// so rolling the adapter folder back also rolls the pinned runtime back.
+export async function readRuntimeLock(lockFile = path.join(ADAPTER_ROOT, 'runtime.lock.json')) {
+  const lock = JSON.parse(await readFile(lockFile, 'utf8'));
+  if (!ARTIFACT_ID.test(lock.artifactId ?? '') || !/^[0-9a-f]{64}$/.test(lock.archiveSha256 ?? '')) {
+    throw new Error('runtime.lock.json does not pin a webmcp-runtime artifact.');
   }
-  const verifier = await moduleAt(current, 'adapter/deploy/deploy-host-runtime.js');
-  await verifier.verifyRelease(current, { expectedArtifactId: artifactId, entrypoint: 'native/host/start.js' });
-  const { createInstanceContext } = await moduleAt(current, 'native/deploy/instance-context.js');
-  const context = createInstanceContext({ instanceId: INSTANCE_ID });
-  const releases = await moduleAt(current, 'native/deploy/instance-release.js');
-  const pinned = pinCurrent
-    ? await releases.pinInstanceToCurrentRelease(context)
-    : await releases.verifyPinnedInstanceRelease(context);
-  const root = pinned.releaseRoot ?? path.join(releasesRoot, pinned.artifactId);
+  return lock;
+}
+
+// DeepSeek runs the webmcp-runtime artifact pinned by its installer. It never resolves
+// through the shared `current` pointer, which belongs to the default ChatGPT instance.
+async function loadCore({ home = os.homedir(), lockFile } = {}) {
+  const { artifactId } = await readRuntimeLock(lockFile);
+  const releasesRoot = await realpath(path.join(hostRuntimeRoot(home), 'releases'));
+  const releaseRoot = await realpath(path.join(releasesRoot, artifactId));
+  if (path.dirname(releaseRoot) !== releasesRoot || path.basename(releaseRoot) !== artifactId) {
+    throw new Error('Pinned WebMCP runtime release is not immutable.');
+  }
+  const verifier = await moduleAt(releaseRoot, 'adapter/deploy/deploy-host-runtime.js');
+  await verifier.verifyRelease(releaseRoot, { expectedArtifactId: artifactId, entrypoint: 'native/host/start.js' });
+  const { createInstanceContext } = await moduleAt(releaseRoot, 'native/deploy/instance-context.js');
+  const context = createInstanceContext({ home, instanceId: INSTANCE_ID });
+  const releases = await moduleAt(releaseRoot, 'native/deploy/instance-release.js');
+  const pinned = await releases.verifyPinnedInstanceRelease(context);
+  if (pinned.artifactId !== artifactId || await realpath(pinned.releaseRoot) !== releaseRoot) {
+    throw new Error('DeepSeek runtime pin does not match its install config.');
+  }
   return {
     context,
-    access: await moduleAt(root, 'native/deploy/elevated-access.js'),
-    workspace: await moduleAt(root, 'native/deploy/workspace-config.js'),
-    installer: await moduleAt(root, 'native/deploy/installer.js'),
-    commands: await moduleAt(root, 'native/host/host-command.js'),
-    locks: await moduleAt(root, 'native/deploy/instance-lock.js'),
+    access: await moduleAt(releaseRoot, 'native/deploy/elevated-access.js'),
+    workspace: await moduleAt(releaseRoot, 'native/deploy/workspace-config.js'),
+    approval: await moduleAt(releaseRoot, 'native/deploy/local-approval.js'),
+    commands: await moduleAt(releaseRoot, 'native/host/host-command.js'),
+    locks: await moduleAt(releaseRoot, 'native/deploy/instance-lock.js'),
   };
 }
 
@@ -73,9 +83,9 @@ function denied(id, code = 'HOST_ACCESS_NOT_GRANTED', message = 'Temporary Full 
   return { version: 1, id, ok: false, error: { code, message } };
 }
 
-export async function hostAccessStatus({ configFile }) {
+export async function hostAccessStatus({ configFile, home, lockFile }) {
   let core;
-  try { core = await loadCore(); } catch { return { hostAccessUntil: null, hostAccessState: 'unavailable' }; }
+  try { core = await loadCore({ home, lockFile }); } catch { return { hostAccessUntil: null, hostAccessState: 'unavailable' }; }
   try {
     const state = await leaseState(core, await selectedRoot(configFile));
     return {
@@ -87,10 +97,10 @@ export async function hostAccessStatus({ configFile }) {
   }
 }
 
-export async function grantHostAccess({ configFile, minutes }) {
+export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new Error('Host access duration must be 1–60 minutes.');
   const root = await selectedRoot(configFile);
-  const core = await loadCore({ pinCurrent: true });
+  const core = await loadCore({ home, lockFile });
   return core.locks.withInstanceLifecycleLock(core.context, async () => {
     let existing;
     try {
@@ -102,7 +112,7 @@ export async function grantHostAccess({ configFile, minutes }) {
     if (!['absent', 'expired'].includes(existing.state)) {
       throw new Error('Existing Host Access state must be revoked before a new grant.');
     }
-    await core.installer.requestLocalElevationApproval({
+    await core.approval.requestLocalElevationApproval({
       root: os.homedir(), durationMs: minutes * 60_000, accessLevel: 'full-host', instanceLabel: 'DeepSeek',
     });
     const normalConfig = await core.workspace.persistWorkspaceConfig(core.context.workspaceConfig, {
@@ -122,19 +132,19 @@ export async function grantHostAccess({ configFile, minutes }) {
   });
 }
 
-export async function revokeHostAccess({ configFile }) {
-  const core = await loadCore();
+export async function revokeHostAccess({ configFile, home, lockFile }) {
+  const core = await loadCore({ home, lockFile });
   await core.locks.withInstanceLifecycleLock(core.context, () => core.access.clearElevatedLease(core.context.elevatedLease));
-  return hostAccessStatus({ configFile });
+  return hostAccessStatus({ configFile, home, lockFile });
 }
 
-export async function dispatchHostCommand(request, { configFile }) {
+export async function dispatchHostCommand(request, { configFile, home, lockFile }) {
   validateNativeRequest(request);
   if (request.tool !== 'host_command') return denied(request.id, 'TOOL_NOT_ALLOWED', 'Tool is not a host command.');
   let core;
   let state;
   try {
-    core = await loadCore();
+    core = await loadCore({ home, lockFile });
     state = await leaseState(core, await selectedRoot(configFile));
   } catch {
     return denied(request.id);

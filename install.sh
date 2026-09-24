@@ -2,11 +2,48 @@
 # DeepSeek WebMCP one-line installer for macOS. The README shows the exact command.
 set -euo pipefail
 
-REPO="https://github.com/zengtao227/deepseek-webmcp.git"
+# The installer downloads one pinned, checksum-verified adapter release; the adapter pins
+# the webmcp-runtime release it installs. No Git and no source checkout are needed.
+ADAPTER_URL="${DEEPSEEK_WEBMCP_ADAPTER_URL:-}"
+ADAPTER_SHA256="${DEEPSEEK_WEBMCP_ADAPTER_SHA256:-}"
 DIR="$HOME/deepseek-webmcp"
+REPORT="$HOME/deepseek-webmcp-install-report.txt"
+WORK="$(mktemp -d)"
+FAILED=0
+CHECKS=""
+STEP="preflight"
 
 say() { printf '\n==> %s\n' "$1"; }
-stop() { printf '\n%s\n' "$1"; exit 1; }
+# One line per check; ENV marks a machine or network condition, not a product defect.
+check() { # id PASS|WARN|FAIL [ENV] detail
+  local line="CHECK $*"
+  echo "$line"
+  CHECKS="$CHECKS$line"$'\n'
+  [ "$2" = "FAIL" ] && FAILED=1
+  return 0
+}
+report() {
+  {
+    echo "DeepSeek WebMCP install report $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "failed-step: $STEP"
+    echo "macos: $(sw_vers -productVersion 2>/dev/null) $(uname -m)"
+    echo "node: $(node -v 2>/dev/null || echo missing)"
+    echo "docker: $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unavailable)"
+    printf '%s' "$CHECKS"
+    echo "--- last output ---"
+    tail -n 40 "$WORK/step.log" 2>/dev/null
+  } | sed -e "s|$HOME|~|g" > "$REPORT"
+  # The adapter's secret scanner is used once it is on disk; nothing here should hold a secret.
+  if [ -f "$DIR/gateway/secret-scanner/index.js" ]; then
+    node --input-type=module -e "const { redactSecrets } = await import(process.argv[1]); const fs = await import('node:fs'); fs.writeFileSync(process.argv[2], redactSecrets(fs.readFileSync(process.argv[2], 'utf8')).text);" "$DIR/gateway/secret-scanner/index.js" "$REPORT" 2>/dev/null || true
+  fi
+  printf '\nA report was saved to %s. Send that file to whoever asked you to test.\n' "~/deepseek-webmcp-install-report.txt"
+}
+stop() { trap - ERR; printf '\n%s\n' "$1"; report; rm -rf "$WORK"; exit 1; }
+
+# Any unexpected command failure still produces the report instead of a silent exit.
+set -E
+trap 'stop "Unexpected failure during step: $STEP."' ERR
 
 [ "$(uname)" = "Darwin" ] || stop "DeepSeek WebMCP currently supports macOS only."
 
@@ -14,37 +51,78 @@ stop() { printf '\n%s\n' "$1"; exit 1; }
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true; fi
 
-say "Checking requirements"
-command -v git >/dev/null 2>&1 || { xcode-select --install >/dev/null 2>&1 || true; stop "Git is missing. Finish the Apple developer tools install that just opened, then run this command again."; }
-if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then
-  open "https://nodejs.org/en/download" || true
-  stop "Node.js 22 or newer is required. Install it from nodejs.org (page opened), then run this command again."
-fi
+say "Checking requirements (nothing is changed on this Mac until every check passes)"
+# Docker Desktop supports only the current and two previous macOS releases.
+MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+if [ "$MACOS_MAJOR" -ge 15 ]; then check macos PASS "$(sw_vers -productVersion) $(uname -m)"; else check macos FAIL "$(sw_vers -productVersion) is older than macOS 15 Sequoia, which current Docker Desktop requires. Update macOS in System Settings > General > Software Update, then run this again."; fi
+if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then check node PASS "$(node -v)"; else check node FAIL "Node.js 22 or newer is required: https://nodejs.org/en/download"; fi
 if ! command -v docker >/dev/null 2>&1; then
-  open "https://www.docker.com/products/docker-desktop/" || true
-  stop "Docker Desktop is required. Install it (page opened), start it, then run this command again."
-fi
-if ! docker info >/dev/null 2>&1; then
+  check docker FAIL "Docker Desktop is required: https://www.docker.com/products/docker-desktop/"
+elif ! docker info >/dev/null 2>&1; then
   open -a Docker >/dev/null 2>&1 || true
-  stop "Docker Desktop is not running. It is starting now; wait until it says it is running, then run this command again."
+  check docker FAIL "Docker Desktop is installed but not running. It is starting now; wait until it says it is running, then run this again."
+else
+  check docker PASS "$(docker version --format '{{.Server.Version}}' 2>/dev/null)"
 fi
+[ -n "$ADAPTER_URL" ] && [ -n "$ADAPTER_SHA256" ] || check adapter-pin FAIL "This installer has no pinned release yet."
+
+# Reachability of each service a first install needs. An HTTP answer of any status proves
+# the host is reachable; only a connection or DNS failure counts as blocked.
+reach() { # id url
+  local code
+  code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$2" 2>"$WORK/reach.err")" || code=000
+  if [ "$code" != "000" ]; then check "net:$1" PASS "$(printf '%s' "$2" | cut -d/ -f3) HTTP $code"; else check "net:$1" FAIL ENV "$(printf '%s' "$2" | cut -d/ -f3) unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
+}
+[ -n "$ADAPTER_URL" ] && reach release-download "$ADAPTER_URL"
+reach docker-hub-registry "https://registry-1.docker.io/v2/"
+reach docker-hub-auth "https://auth.docker.io/token"
+reach docker-hub-blobs "https://production.cloudflare.docker.com/"
+reach debian "https://deb.debian.org/debian/dists/bookworm/Release"
+[ "$FAILED" = 0 ] || stop "Some requirements are not met (see the CHECK lines above). Nothing was changed."
 
 UPDATE=0
 if [ -d "$DIR/.git" ]; then
+  stop "$DIR is a Git checkout from an older installer. Uninstall DeepSeek WebMCP from the extension first, or move the folder away, then run this again."
+elif [ -f "$DIR/.deepseek-webmcp-installed" ]; then
   UPDATE=1
-  say "Updating $DIR"
-  git -C "$DIR" pull --ff-only
-else
-  [ -e "$DIR" ] && stop "$DIR already exists and is not a DeepSeek WebMCP download. Move it away and run again."
-  say "Downloading to $DIR"
-  git clone --depth 1 "$REPO" "$DIR"
+elif [ -e "$DIR" ]; then
+  stop "$DIR already exists and is not a DeepSeek WebMCP download. Move it away and run again."
 fi
+
+# Both release archives are fetched here, so there is one download path with one timeout
+# and proxy behaviour. A local file path is accepted for offline rehearsals.
+fetch_to() { # source destination
+  case "$1" in
+    https://*) curl -fsSL -m 300 -o "$2" "$1" > "$WORK/step.log" 2>&1 || stop "Download failed from $(printf '%s' "$1" | cut -d/ -f3) (network). Nothing was changed." ;;
+    *) cp "$1" "$2" ;;
+  esac
+}
+
+STEP="download"
+say "Downloading DeepSeek WebMCP"
+ARCHIVE="$WORK/adapter.tar.gz"
+fetch_to "$ADAPTER_URL" "$ARCHIVE"
+[ "$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)" = "$ADAPTER_SHA256" ] || stop "The download does not match its pinned checksum. Nothing was changed."
+mkdir "$WORK/adapter"
+tar -xzf "$ARCHIVE" -C "$WORK/adapter" --no-same-owner
+# The adapter pins the runtime release it needs; the installer verifies its checksum.
+RUNTIME_URL="${DEEPSEEK_WEBMCP_RUNTIME_ARCHIVE:-$(node -p 'require(process.argv[1]).url ?? ""' "$WORK/adapter/runtime.lock.json")}"
+[ -n "$RUNTIME_URL" ] || stop "This release does not name a runtime download. Nothing was changed."
+fetch_to "$RUNTIME_URL" "$WORK/runtime.tar.gz"
+if [ "$UPDATE" = 1 ]; then rm -rf "$DIR.previous"; mv "$DIR" "$DIR.previous"; fi
+mv "$WORK/adapter" "$DIR"
 # Marks a program folder created by this installer; only such a folder is deleted by Uninstall.
 touch "$DIR/.deepseek-webmcp-installed"
 
-say "Building the local runtime (first time takes a few minutes)"
+STEP="runtime"
+say "Installing the local runtime (first time takes a few minutes)"
 cd "$DIR"
-DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs
+if ! DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs --runtime-archive "$WORK/runtime.tar.gz" 2>&1 | tee "$WORK/step.log"; then
+  cd "$HOME"
+  if [ "$UPDATE" = 1 ]; then rm -rf "$DIR"; mv "$DIR.previous" "$DIR"; fi
+  stop "The local runtime could not be installed.$([ "$UPDATE" = 1 ] && echo ' The previous version was put back.')"
+fi
+rm -rf "$DIR.previous" "$WORK"
 
 say "Last step in the browser"
 if [ "$UPDATE" = 1 ]; then

@@ -86,3 +86,12 @@ Before extraction, `SillySerpent/Dichrome` commit `e927d6a12542dfeb33b275b77cc5b
 ### Browser WebMCP code lineage
 
 At extraction time, the standalone project copied `extension/browser-client.js` and `extension/target-executor.js` unchanged as the proven Browser WebMCP V1 baseline. The standalone project now owns its own copies, tests, task binding, ChatGPT adapter, and release lifecycle; there is no runtime dependency between it and DeepSeek WebMCP.
+
+## Shared webmcp-runtime consumption (2026-09-24)
+
+DeepSeek consumes the provider-neutral `webmcp-runtime` as a pinned release artifact (`runtime.lock.json`: artifact id, archive sha256 and download URL, the URL filled in when the archive is published), not as copied source. `install.sh` downloads both the adapter and the runtime archive; `scripts/build-release.mjs` packs the adapter with `git archive`.
+
+- Installer (`scripts/install-p2-native-host.mjs`): installs the pinned release into the shared release store without touching the default instance's `current`, pins instance `deepseek` to that artifact id, and builds the image with `buildNativeImageFromRelease` (instance image pin, DeepSeek tag, digest-pinned base image, `safe.directory`).
+- Full Host Access (`native/host/host-access.js`): resolves only through the artifact id in the adapter's own `runtime.lock.json` and the `deepseek` instance pin; approval comes from the runtime's `local-approval.js`. There is no dependency on an installed Bridge release or its `installer.js`.
+- Tool calls (`native/host/docker-dispatch.js` + `native/host/runtime-bootstrap.js`): DeepSeek keeps its one-shot, network-less, non-root policy wrapper and starts the image's runtime modules with a mandatory runtime token, the 30 s command cap and DeepSeek's workspace instruction.
+- `native/src/*`, `native/bin/start.js`, `native/Dockerfile` and `gateway/path-policy` in this repository are no longer used by installs; they are deleted after the browser-core migration (plan step D5).

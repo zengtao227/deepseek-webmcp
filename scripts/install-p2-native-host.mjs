@@ -1,38 +1,37 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildWorkspaceControlPlaneMasks } from '../native/host/docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
 import { promisify } from 'node:util';
+import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
 
 const execFileAsync = promisify(execFile);
 const EXTENSION_ID = /^[a-p]{32}$/;
-const IMAGE_ID = /^sha256:[0-9a-f]{64}$/i;
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function usage(message) {
   if (message) process.stderr.write(`${message}\n\n`);
-  process.stderr.write('Usage: npm run setup [-- --workspace <absolute folder>] [--extension-id <id>] [--image <sha256:id>]\n');
+  process.stderr.write('Usage: npm run setup [-- --workspace <absolute folder>] [--extension-id <id>] [--runtime-archive <file>]\n');
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  const options = { extensionId: null, workspace: null, image: null };
+  const options = { extensionId: null, workspace: null, runtimeArchive: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => argv[++index] ?? usage(`Missing value for ${arg}.`);
     if (arg === '--extension-id') options.extensionId = next();
     else if (arg === '--workspace') options.workspace = next();
-    else if (arg === '--image') options.image = next();
+    else if (arg === '--runtime-archive') options.runtimeArchive = path.resolve(next());
     else usage(`Unknown option: ${arg}`);
   }
   if (options.extensionId !== null && !EXTENSION_ID.test(options.extensionId)) usage('Invalid Chrome extension id.');
   if (options.workspace !== null && !path.isAbsolute(options.workspace)) usage('--workspace must be an absolute host path.');
-  if (options.image !== null && !IMAGE_ID.test(options.image)) usage('--image must be a sha256 image id.');
   return options;
 }
 
@@ -58,43 +57,49 @@ async function which(binary) {
   return resolved;
 }
 
-async function sourceDigest() {
-  const files = [
-    'package.json',
-    'gateway/path-policy/index.js',
-    'native/src/server.js',
-    'native/src/stdio.js',
-    'native/src/workspace.js',
-    'native/bin/start.js',
-  ];
-  const hash = createHash('sha256');
-  for (const file of files) {
-    hash.update(file);
-    hash.update('\0');
-    hash.update(await readFile(path.join(projectRoot, file)));
-    hash.update('\0');
+// Installs the pinned runtime release, pins the `deepseek` instance to it and builds the
+// DeepSeek image from it. The shared `current` pointer and the default instance's image
+// pin and tag are never touched.
+async function installRuntime(dockerPath) {
+  const lock = await readRuntimeLock();
+  // install.sh downloads the pinned archive; the checksum below is what makes it trusted.
+  if (!options.runtimeArchive) usage('--runtime-archive <file> is required (install.sh downloads it).');
+  const work = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-runtime-'));
+  try {
+    const archive = options.runtimeArchive;
+    const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
+    if (digest !== lock.archiveSha256) throw new Error('The WebMCP runtime download does not match its pinned checksum.');
+    // The digest is verified, so the archive's own installer can be used to place it.
+    const unpacked = path.join(work, 'unpacked');
+    await mkdir(unpacked);
+    await execFileAsync('tar', ['-xzf', archive, '-C', unpacked, '--no-same-owner']);
+    const { installReleaseArchive } = await import(pathToFileURL(path.join(unpacked, 'adapter/deploy/deploy-host-runtime.js')).href);
+    const release = await installReleaseArchive({
+      archivePath: archive,
+      expectedArchiveSha256: lock.archiveSha256,
+      expectedArtifactId: lock.artifactId,
+      runtimeRoot: hostRuntimeRoot(home),
+      entrypoint: 'native/host/start.js',
+    });
+    const at = (relative) => import(pathToFileURL(path.join(release.releaseDir, relative)).href);
+    const { createInstanceContext } = await at('native/deploy/instance-context.js');
+    const { pinInstanceToRelease } = await at('native/deploy/instance-release.js');
+    const { buildNativeImageFromRelease, DEFAULT_NATIVE_BASE_IMAGE } = await at('native/deploy/build-image.js');
+    const context = createInstanceContext({ home, instanceId: 'deepseek' });
+    const { image } = await buildNativeImageFromRelease({
+      releaseDir: release.releaseDir,
+      expectedArtifactId: lock.artifactId,
+      baseImage: DEFAULT_NATIVE_BASE_IMAGE,
+      outputPin: context.imagePin,
+      tag: IMAGE_TAG,
+      dockerBin: dockerPath,
+    });
+    // Pin only once the image exists: a failed update leaves the previous pin in place.
+    await pinInstanceToRelease(context, lock.artifactId);
+    return { artifactId: lock.artifactId, image };
+  } finally {
+    await rm(work, { recursive: true, force: true });
   }
-  return hash.digest('hex');
-}
-
-async function buildImage(dockerPath) {
-  const digest = await sourceDigest();
-  const tag = IMAGE_TAG;
-  await execFileAsync(dockerPath, [
-    'build',
-    '--build-arg', 'WEBMCP_NODE_IMAGE=node:22-bookworm-slim',
-    '--build-arg', `WEBMCP_SOURCE_SHA256=${digest}`,
-    '-f', path.join(projectRoot, 'native/Dockerfile'),
-    '-t', tag,
-    projectRoot,
-  ], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  const { stdout } = await execFileAsync(dockerPath, ['image', 'inspect', '--format', '{{.Id}}', tag], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024,
-  });
-  const image = stdout.trim();
-  if (!IMAGE_ID.test(image)) throw new Error('Docker returned an invalid local image id.');
-  return image;
 }
 
 function shellQuote(value) {
@@ -129,7 +134,9 @@ const dockerPath = await which('docker').catch(() => {
 await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
-const image = options.image ?? await buildImage(dockerPath);
+await mkdir(stateDir, { recursive: true, mode: 0o700 });
+const runtime = await installRuntime(dockerPath);
+const image = runtime.image;
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);
 if (browserRoots.length === 0) browserRoots.push(path.join(home, 'Library/Application Support/Google/Chrome'));
@@ -166,6 +173,7 @@ process.stdout.write(`${JSON.stringify({
   configPath,
   workspaceRoot,
   image,
+  runtimeArtifactId: runtime.artifactId,
   dockerPath,
   extensionOrigin: `chrome-extension://${extensionId}/`,
 }, null, 2)}\n`);
