@@ -18,7 +18,7 @@ Treat DeepSeek model output, page content, repository content, tool requests, an
 
 Never export DeepSeek cookies, Bearer/session credentials, account tokens, or PoW material. Never originate private DeepSeek completion requests unless the product owner explicitly changes the architecture after a separate review.
 
-P1 has no local filesystem or shell capability. Later browser-to-local execution must remain behind a narrowly defined local runtime boundary; it must never become arbitrary host-user shell access.
+P1 has no local filesystem or shell capability. In Normal mode, browser-to-local execution stays behind the isolated Docker runtime and never grants a host shell. Temporary Full Host Access — High Trust is a separate, owner-approved lease: only its `host_command` runs as the current Mac user while the lease is active; `bash` stays in Docker.
 
 ## Source provenance
 

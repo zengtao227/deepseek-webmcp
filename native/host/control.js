@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, browserProfileRoots, configPath as defaultConfigPath, leasePath, manifestDirFor, stateDir } from './local-paths.js';
+import { grantHostAccess, hostAccessStatus, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -14,6 +15,8 @@ const CONTROL_ARGUMENTS = new Map([
   ['choose-folder', new Set()],
   ['grant-full-access', new Set(['minutes'])],
   ['stop-full-access', new Set()],
+  ['grant-host-access', new Set(['minutes'])],
+  ['stop-host-access', new Set()],
   ['uninstall', new Set()],
 ]);
 const DIALOG_SECONDS = 120;
@@ -39,7 +42,7 @@ export function validateControlRequest(request) {
   const allowed = CONTROL_ARGUMENTS.get(request.control);
   if (!allowed) fail('Unknown control request.', 'CONTROL_NOT_ALLOWED');
   exactObject(request.arguments, allowed, 'arguments');
-  if (request.control === 'grant-full-access') {
+  if (request.control === 'grant-full-access' || request.control === 'grant-host-access') {
     const { minutes } = request.arguments;
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) fail('minutes must be an integer from 1 to 60.', 'INVALID_DURATION');
   }
@@ -92,7 +95,11 @@ async function writeJsonAtomic(file, value) {
 
 async function status({ home, configFile, now }) {
   const config = await readConfig(configFile);
-  return { folder: config.workspaceRoot, fullAccessUntil: await readFullAccessLease({ home, now }) };
+  return {
+    folder: config.workspaceRoot,
+    fullAccessUntil: await readFullAccessLease({ home, now }),
+    ...(await hostAccessStatus({ configFile })),
+  };
 }
 
 async function chooseFolder({ home, configFile, now, exec }) {
@@ -171,6 +178,8 @@ export async function handleControlRequest(request, {
     'choose-folder': () => chooseFolder(context),
     'grant-full-access': () => grantFullAccess(context, request.arguments),
     'stop-full-access': () => stopFullAccess(context),
+    'grant-host-access': async () => ({ ...await status(context), ...await grantHostAccess({ configFile, minutes: request.arguments.minutes }) }),
+    'stop-host-access': async () => ({ ...await status(context), ...await revokeHostAccess({ configFile }) }),
     uninstall: () => uninstall(context),
   };
   const result = await handlers[request.control]();

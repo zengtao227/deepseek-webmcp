@@ -79,7 +79,7 @@ export function buildFormatCorrection() {
 export function buildWorkInstructions({ pageAttached = false } = {}) {
   return [
     '---',
-    'You can use owner-approved tools through DeepSeek WebMCP for the task above. Browser tools act only on the one browser tab I explicitly attached; coding tools run in the isolated local workspace.',
+    'You can use owner-approved tools through DeepSeek WebMCP for the task above. Browser tools act only on the one browser tab I explicitly attached. Coding tools, including bash, run in the isolated Docker workspace. host_command is separate: it runs as the Mac user only during a locally approved Temporary Full Host Access — High Trust lease.',
     ...toolContractLines('To call a tool, reply with exactly one fenced text block and nothing else, then wait for the result:'),
     ...(pageAttached
       ? ['A browser page is already attached for this task; do not ask me to attach one. Requests about "the current page" or "the work page" mean that attached page.']

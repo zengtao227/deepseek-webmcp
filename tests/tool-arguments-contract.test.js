@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { TOOL_ARGUMENTS, TOOL_NAMES } from '../extension/native-client.js';
 import { buildNativeToolResult } from '../extension/core/agent-controller.js';
 import { createNativeMcpServer } from '../native/src/server.js';
+import { validateNativeRequest } from '../native/host/docker-dispatch.js';
 
 // The extension cannot import native code, so its model-facing argument shapes are
 // checked against the runtime's own inputSchema to prevent drift.
@@ -12,6 +13,7 @@ test('extension argument shapes match the native runtime inputSchema exactly', a
   const schemas = new Map(listed.result.tools.map((tool) => [tool.name, tool.inputSchema]));
   assert.deepEqual(Object.keys(TOOL_ARGUMENTS), [...TOOL_NAMES]);
   for (const name of TOOL_NAMES) {
+    if (name === 'host_command') continue; // Host-only tool is deliberately absent from Docker's tools/list.
     const schema = schemas.get(name);
     assert.ok(schema, `runtime exposes ${name}`);
     const shape = TOOL_ARGUMENTS[name];
@@ -22,6 +24,11 @@ test('extension argument shapes match the native runtime inputSchema exactly', a
       `${name} properties`,
     );
   }
+  assert.deepEqual(
+    Object.keys(TOOL_ARGUMENTS.host_command.optional).sort(),
+    ['action', 'command', 'workingDirectory', 'timeout', 'sessionId', 'stdoutOffset', 'stderrOffset'].sort(),
+  );
+  assert.equal(validateNativeRequest({ version: 1, id: 'host_1', tool: 'host_command', arguments: { command: 'printf ok' } }).tool, 'host_command');
 });
 
 test('native tool results restate every tool argument shape, including the edits array', () => {

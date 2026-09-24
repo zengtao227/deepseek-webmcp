@@ -50,6 +50,8 @@
     #tools { margin: 0 12px 8px; }
     #settings { margin: 0 12px 8px; }
     #settings .row { margin: 4px 0; }
+    .host-access-heading { margin-top: 16px; }
+    .host-access-description { margin: 2px 0 6px; }
     #folder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; opacity: .8; }
     #full-active { color: #b35900; font-weight: 600; }
     #uninstall { color: #a40e26; background: none; border: none; padding: 0; }
@@ -113,6 +115,14 @@
         <button id="grant" type="button">Allow…</button>
       </div>
       <div id="full-on" class="row" hidden><span id="full-active"></span><button id="full-stop" type="button">Stop</button></div>
+      <div class="label host-access-heading">Temporary Full Host Access — High Trust</div>
+      <p class="host-access-description">Runs host_command as your Mac user, including access to files, Docker, network and credentials. bash stays in Docker. Maximum 60 minutes.</p>
+      <div id="host-off" class="row">
+        <select id="host-minutes"><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="60">1 hour</option></select>
+        <button id="host-grant" type="button">Authorize on Mac…</button>
+      </div>
+      <div id="host-on" class="row" hidden><span id="host-active"></span><button id="host-stop" type="button">Revoke</button></div>
+      <p id="host-unverified" hidden>Host access status is unverified. Commands are blocked.</p>
       <div class="row"><span style="flex:1"></span><button id="uninstall" type="button">Uninstall…</button></div>
       <p id="settings-message"></p>
       <button id="copy-install" type="button" hidden>Copy install command</button>

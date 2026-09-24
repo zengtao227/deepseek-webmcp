@@ -1,5 +1,5 @@
 const HOST_NAME = 'com.deepseek.webmcp.native';
-export const TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'write', 'edit', 'bash']);
+export const TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'write', 'edit', 'bash', 'host_command']);
 const ALLOWED_TOOLS = new Set(TOOL_NAMES);
 
 // Model-facing argument shapes. DeepSeek Web has no tools/list channel, so these are
@@ -18,6 +18,18 @@ export const TOOL_ARGUMENTS = Object.freeze({
   bash: {
     required: { workspaceId: '<id>', command: '<bash command>' },
     optional: { workingDirectory: 'relative directory', timeout: 'seconds, max 30' },
+  },
+  host_command: {
+    required: {},
+    optional: {
+      action: 'run, start, read or cancel; defaults to run',
+      command: 'Mac shell command for run/start; max 16384 bytes',
+      workingDirectory: 'absolute Mac directory',
+      timeout: 'seconds, max 300',
+      sessionId: 'id returned by start for read/cancel',
+      stdoutOffset: 'output offset for read',
+      stderrOffset: 'output offset for read',
+    },
   },
 });
 
@@ -49,7 +61,9 @@ export async function callNativeTool(call) {
   const bound = new Promise((_, rejectBound) => {
     timer = setTimeout(
       () => rejectBound(new NativeClientError('The local WebMCP runtime did not answer in time.', 'NATIVE_CALL_TIMED_OUT')),
-      TOOL_CALL_TIMEOUT_MS,
+      call.name === 'host_command' && (!call.arguments?.action || call.arguments.action === 'run')
+        ? 315_000
+        : TOOL_CALL_TIMEOUT_MS,
     );
   });
 
@@ -77,7 +91,7 @@ export async function callNativeTool(call) {
   return response;
 }
 
-const CONTROLS = new Set(['status', 'choose-folder', 'grant-full-access', 'stop-full-access', 'uninstall']);
+const CONTROLS = new Set(['status', 'choose-folder', 'grant-full-access', 'stop-full-access', 'grant-host-access', 'stop-host-access', 'uninstall']);
 
 // Owner settings from the popup; never reachable from page content or model output.
 export async function callNativeControl(control, args = {}) {

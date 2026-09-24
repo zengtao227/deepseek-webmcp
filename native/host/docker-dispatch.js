@@ -9,7 +9,7 @@ import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
 import { browserProfileRoots, fullAccessMaskCandidates, leasePath, manifestDirFor } from './local-paths.js';
 
 const execFileAsync = promisify(execFile);
-const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'write', 'edit', 'bash']);
+const ALLOWED_TOOLS = new Set(['open_workspace', 'read', 'write', 'edit', 'bash', 'host_command']);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const TOOL_ARGUMENTS = new Map([
   ['open_workspace', new Set(['path'])],
@@ -17,6 +17,7 @@ const TOOL_ARGUMENTS = new Map([
   ['write', new Set(['workspaceId', 'path', 'content'])],
   ['edit', new Set(['workspaceId', 'path', 'edits'])],
   ['bash', new Set(['workspaceId', 'command', 'workingDirectory', 'timeout'])],
+  ['host_command', new Set(['action', 'command', 'workingDirectory', 'timeout', 'sessionId', 'stdoutOffset', 'stderrOffset'])],
 ]);
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
 const IMAGE_PATTERN = /^sha256:[0-9a-f]{64}$/i;
@@ -276,6 +277,7 @@ function mapContainerResponse(request, response) {
 
 export async function dispatchNativeRequest(request, config, options = {}) {
   validateNativeRequest(request);
+  if (request.tool === 'host_command') fail('Host commands require the separate trusted host dispatcher.', 'TOOL_NOT_ALLOWED');
   return runContainer(request, config, options);
 }
 

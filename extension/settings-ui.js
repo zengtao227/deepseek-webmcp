@@ -8,6 +8,8 @@ const $ = (selector) => document.querySelector(selector);
 const INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/zengtao227/deepseek-webmcp/main/install.sh | bash';
 
 let fullAccessUntil = null;
+let hostAccessUntil = null;
+let hostAccessState = 'unavailable';
 let localMissing = false;
 
 const control = (name, args) => chrome.runtime.sendMessage({ type: 'settings.control', control: name, arguments: args });
@@ -26,6 +28,17 @@ function renderFullAccess() {
   }
 }
 
+function renderHostAccess() {
+  const active = hostAccessState === 'active' && hostAccessUntil !== null && hostAccessUntil > Date.now();
+  $('#host-off').hidden = active;
+  $('#host-on').hidden = !active;
+  $('#host-unverified').hidden = !['unavailable', 'unverified', 'config_changed', 'invalid'].includes(hostAccessState);
+  if (active) {
+    const seconds = Math.max(0, Math.round((hostAccessUntil - Date.now()) / 1000));
+    $('#host-active').textContent = `HIGH TRUST ACTIVE — ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} left`;
+  }
+}
+
 function applySettings(response) {
   localMissing = response?.error?.code === 'LOCAL_PROGRAM_MISSING';
   $('#copy-install').hidden = !localMissing;
@@ -37,7 +50,10 @@ function applySettings(response) {
   $('#folder').textContent = response.result.folder;
   $('#folder').title = response.result.folder;
   fullAccessUntil = response.result.fullAccessUntil;
+  hostAccessUntil = response.result.hostAccessUntil;
+  hostAccessState = response.result.hostAccessState;
   renderFullAccess();
+  renderHostAccess();
 }
 
 export async function initSettings() {
@@ -59,6 +75,19 @@ export async function initSettings() {
   $('#full-stop').addEventListener('click', async () => {
     applySettings(await control('stop-full-access'));
     showMessage('Back to the folder.');
+  });
+
+  $('#host-grant').addEventListener('click', async () => {
+    showMessage('Confirm High Trust access in the Mac dialog…');
+    const response = await control('grant-host-access', { minutes: Number($('#host-minutes').value) });
+    applySettings(await control('status'));
+    showMessage(response?.ok ? 'Temporary Full Host Access — High Trust is active.' : (response?.error?.message ?? 'Host access grant failed.'));
+  });
+
+  $('#host-stop').addEventListener('click', async () => {
+    const response = await control('stop-host-access');
+    applySettings(await control('status'));
+    showMessage(response?.ok ? 'Full Host Access revoked.' : (response?.error?.message ?? 'Host access revoke failed.'));
   });
 
   $('#copy-install').addEventListener('click', () => {
@@ -83,4 +112,5 @@ export async function initSettings() {
 
   applySettings(await control('status'));
   setInterval(renderFullAccess, 1000);
+  setInterval(renderHostAccess, 1000);
 }
