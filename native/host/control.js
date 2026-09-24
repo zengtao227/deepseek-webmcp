@@ -20,8 +20,6 @@ const CONTROL_ARGUMENTS = new Map([
   ['uninstall', new Set()],
 ]);
 const DIALOG_SECONDS = 120;
-const EXPECTED_REPOSITORY = /github\.com[:/]zengtao227\/deepseek-webmcp(\.git)?$/;
-
 function fail(message, code) {
   throw new NativeHostError(message, code);
 }
@@ -132,14 +130,11 @@ async function stopFullAccess({ home, configFile, now }) {
   return { changed: true, ...(await status({ home, configFile, now })) };
 }
 
-async function isInstalledCodeFolder(folder, exec) {
-  if (!(await stat(path.join(folder, INSTALL_MARKER)).then(() => true, () => false))) return false;
-  try {
-    const { stdout } = await exec('/usr/bin/git', ['-C', folder, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', timeout: 10_000 });
-    return EXPECTED_REPOSITORY.test(stdout.trim());
-  } catch {
-    return false;
-  }
+// install.sh unpacks a release archive and marks the folder; a developer checkout is a Git
+// repository. Only the former is ever deleted.
+export async function isInstalledCodeFolder(folder) {
+  const exists = (name) => stat(path.join(folder, name)).then(() => true, () => false);
+  return (await exists(INSTALL_MARKER)) && !(await exists('.git'));
 }
 
 async function uninstall({ home, configFile, exec, notify }) {
@@ -158,7 +153,7 @@ async function uninstall({ home, configFile, exec, notify }) {
   await rm(stateDir(home), { recursive: true, force: true });
   // Only a folder created by install.sh from this repository is deleted; a developer
   // checkout (no marker) is left alone.
-  const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT, exec);
+  const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT);
   if (removeCode) await rm(HOST_CODE_ROOT, { recursive: true, force: true });
   notify('DeepSeek WebMCP was uninstalled.\n\nIf it is still listed in another browser, remove it there on the extensions page.');
   return { uninstalled: true, removedProgramFolder: removeCode };

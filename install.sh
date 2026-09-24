@@ -41,8 +41,8 @@ report() {
 }
 stop() { trap - ERR; printf '\n%s\n' "$1"; report; rm -rf "$WORK"; exit 1; }
 
-# Any unexpected command failure still produces the report instead of a silent exit.
-set -E
+# Any unexpected top-level failure still produces the report instead of a silent exit.
+# No errtrace (-E): the trap must not fire inside the $(curl ...) probes below.
 trap 'stop "Unexpected failure during step: $STEP."' ERR
 
 [ "$(uname)" = "Darwin" ] || stop "DeepSeek WebMCP currently supports macOS only."
@@ -73,7 +73,7 @@ reach() { # id url
   code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$2" 2>"$WORK/reach.err")" || code=000
   if [ "$code" != "000" ]; then check "net:$1" PASS "$(printf '%s' "$2" | cut -d/ -f3) HTTP $code"; else check "net:$1" FAIL ENV "$(printf '%s' "$2" | cut -d/ -f3) unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
 }
-[ -n "$ADAPTER_URL" ] && reach release-download "$ADAPTER_URL"
+case "$ADAPTER_URL" in https://*) reach release-download "$ADAPTER_URL" ;; esac
 reach docker-hub-registry "https://registry-1.docker.io/v2/"
 reach docker-hub-auth "https://auth.docker.io/token"
 reach docker-hub-blobs "https://production.cloudflare.docker.com/"

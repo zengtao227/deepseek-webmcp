@@ -345,3 +345,14 @@ test('an aborted call is answered even when Docker cleanup hangs', async () => {
   );
   assert.equal(cleanupStarted, true);
 });
+
+test('only an installed release folder counts as the program folder uninstall may delete', async () => {
+  const { mkdir } = await import('node:fs/promises');
+  const { isInstalledCodeFolder } = await import('../native/host/control.js');
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-program-'));
+  assert.equal(await isInstalledCodeFolder(folder), false);
+  await writeFile(path.join(folder, '.deepseek-webmcp-installed'), '');
+  assert.equal(await isInstalledCodeFolder(folder), true);
+  await mkdir(path.join(folder, '.git'));
+  assert.equal(await isInstalledCodeFolder(folder), false, 'a Git checkout is a developer folder and is kept');
+});
