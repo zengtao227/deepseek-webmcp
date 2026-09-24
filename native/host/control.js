@@ -130,11 +130,16 @@ async function stopFullAccess({ home, configFile, now }) {
   return { changed: true, ...(await status({ home, configFile, now })) };
 }
 
-// install.sh unpacks a release archive and marks the folder; a developer checkout is a Git
-// repository. Only the former is ever deleted.
+// install.sh unpacks a DeepSeek WebMCP release archive and marks the folder; a developer
+// checkout is a Git repository. Only the former is ever deleted.
 export async function isInstalledCodeFolder(folder) {
   const exists = (name) => stat(path.join(folder, name)).then(() => true, () => false);
-  return (await exists(INSTALL_MARKER)) && !(await exists('.git'));
+  if (!(await exists(INSTALL_MARKER)) || (await exists('.git'))) return false;
+  try {
+    return JSON.parse(await readFile(path.join(folder, 'package.json'), 'utf8')).name === 'deepseek-webmcp';
+  } catch {
+    return false;
+  }
 }
 
 async function uninstall({ home, configFile, exec, notify }) {

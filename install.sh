@@ -10,6 +10,7 @@ DIR="$HOME/deepseek-webmcp"
 REPORT="$HOME/deepseek-webmcp-install-report.txt"
 WORK="$(mktemp -d)"
 FAILED=0
+MOVED=0
 CHECKS=""
 STEP="preflight"
 
@@ -39,7 +40,15 @@ report() {
   fi
   printf '\nA report was saved to %s. Send that file to whoever asked you to test.\n' "~/deepseek-webmcp-install-report.txt"
 }
-stop() { trap - ERR; printf '\n%s\n' "$1"; report; rm -rf "$WORK"; exit 1; }
+# Puts the previous install back, but only if this run moved it aside.
+restore_previous() {
+  [ "$MOVED" = 1 ] || return 0
+  rm -rf "$DIR"; mv "$DIR.previous" "$DIR"; MOVED=0
+  echo "The previous version was put back."
+}
+stop() { trap - ERR; printf '\n%s\n' "$1"; cd "$HOME"; restore_previous; report; rm -rf "$WORK"; exit 1; }
+# Host part of a URL for messages, without any user:password@ prefix.
+host_of() { printf '%s' "$1" | cut -d/ -f3 | sed 's/.*@//'; }
 
 # Any unexpected top-level failure still produces the report instead of a silent exit.
 # No errtrace (-E): the trap must not fire inside the $(curl ...) probes below.
@@ -71,7 +80,7 @@ fi
 reach() { # id url
   local code
   code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$2" 2>"$WORK/reach.err")" || code=000
-  if [ "$code" != "000" ]; then check "net:$1" PASS "$(printf '%s' "$2" | cut -d/ -f3) HTTP $code"; else check "net:$1" FAIL ENV "$(printf '%s' "$2" | cut -d/ -f3) unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
+  if [ "$code" != "000" ]; then check "net:$1" PASS "$(host_of "$2") HTTP $code"; else check "net:$1" FAIL ENV "$(host_of "$2") unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
 }
 case "$ADAPTER_URL" in https://*) reach release-download "$ADAPTER_URL" ;; esac
 reach docker-hub-registry "https://registry-1.docker.io/v2/"
@@ -93,7 +102,7 @@ fi
 # and proxy behaviour. A local file path is accepted for offline rehearsals.
 fetch_to() { # source destination
   case "$1" in
-    https://*) curl -fsSL -m 300 -o "$2" "$1" > "$WORK/step.log" 2>&1 || stop "Download failed from $(printf '%s' "$1" | cut -d/ -f3) (network). Nothing was changed." ;;
+    https://*) curl -fsSL -m 300 -o "$2" "$1" > "$WORK/step.log" 2>&1 || stop "Download failed from $(host_of "$1") (network). Nothing was changed." ;;
     *) cp "$1" "$2" ;;
   esac
 }
@@ -109,7 +118,7 @@ tar -xzf "$ARCHIVE" -C "$WORK/adapter" --no-same-owner
 RUNTIME_URL="${DEEPSEEK_WEBMCP_RUNTIME_ARCHIVE:-$(node -p 'require(process.argv[1]).url ?? ""' "$WORK/adapter/runtime.lock.json")}"
 [ -n "$RUNTIME_URL" ] || stop "This release does not name a runtime download. Nothing was changed."
 fetch_to "$RUNTIME_URL" "$WORK/runtime.tar.gz"
-if [ "$UPDATE" = 1 ]; then rm -rf "$DIR.previous"; mv "$DIR" "$DIR.previous"; fi
+if [ "$UPDATE" = 1 ]; then rm -rf "$DIR.previous"; mv "$DIR" "$DIR.previous"; MOVED=1; fi
 mv "$WORK/adapter" "$DIR"
 # Marks a program folder created by this installer; only such a folder is deleted by Uninstall.
 touch "$DIR/.deepseek-webmcp-installed"
@@ -118,9 +127,7 @@ STEP="runtime"
 say "Installing the local runtime (first time takes a few minutes)"
 cd "$DIR"
 if ! DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs --runtime-archive "$WORK/runtime.tar.gz" 2>&1 | tee "$WORK/step.log"; then
-  cd "$HOME"
-  if [ "$UPDATE" = 1 ]; then rm -rf "$DIR"; mv "$DIR.previous" "$DIR"; fi
-  stop "The local runtime could not be installed.$([ "$UPDATE" = 1 ] && echo ' The previous version was put back.')"
+  stop "The local runtime could not be installed."
 fi
 rm -rf "$DIR.previous" "$WORK"
 

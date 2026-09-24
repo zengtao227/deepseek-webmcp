@@ -94,9 +94,9 @@ async function installRuntime(dockerPath) {
       tag: IMAGE_TAG,
       dockerBin: dockerPath,
     });
-    // Pin only once the image exists: a failed update leaves the previous pin in place.
-    await pinInstanceToRelease(context, lock.artifactId);
-    return { artifactId: lock.artifactId, image };
+    // The caller pins only after every other install write succeeded, so a failed update
+    // leaves the previous pin matching the previous adapter's runtime.lock.json.
+    return { artifactId: lock.artifactId, image, pin: () => pinInstanceToRelease(context, lock.artifactId) };
   } finally {
     await rm(work, { recursive: true, force: true });
   }
@@ -163,6 +163,8 @@ for (const manifestPath of manifestPaths) {
     allowed_origins: [`chrome-extension://${extensionId}/`],
   }, null, 2)}\n`);
 }
+
+await runtime.pin();
 
 process.stdout.write(`${JSON.stringify({
   installed: true,

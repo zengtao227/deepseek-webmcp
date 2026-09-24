@@ -352,6 +352,8 @@ test('only an installed release folder counts as the program folder uninstall ma
   const folder = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-program-'));
   assert.equal(await isInstalledCodeFolder(folder), false);
   await writeFile(path.join(folder, '.deepseek-webmcp-installed'), '');
+  assert.equal(await isInstalledCodeFolder(folder), false, 'a marker alone does not identify the program');
+  await writeFile(path.join(folder, 'package.json'), JSON.stringify({ name: 'deepseek-webmcp' }));
   assert.equal(await isInstalledCodeFolder(folder), true);
   await mkdir(path.join(folder, '.git'));
   assert.equal(await isInstalledCodeFolder(folder), false, 'a Git checkout is a developer folder and is kept');
