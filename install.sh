@@ -1,5 +1,6 @@
 #!/bin/bash
-# DeepSeek WebMCP one-line installer for macOS. The README shows the exact command.
+# DeepSeek WebMCP installer for macOS, and for Windows inside WSL (run by the WebMCP Setup).
+# Usage: install.sh [--workspace <folder>]   (the WebMCP Setup passes the folder it asked for)
 set -euo pipefail
 
 # The installer downloads one pinned, checksum-verified adapter release; the adapter pins
@@ -13,6 +14,8 @@ FAILED=0
 MOVED=0
 CHECKS=""
 STEP="preflight"
+WORKSPACE_ARG=""
+if [ "${1:-}" = "--workspace" ] && [ -n "${2:-}" ]; then WORKSPACE_ARG="$2"; fi
 
 say() { printf '\n==> %s\n' "$1"; }
 # One line per check; ENV marks a machine or network condition, not a product defect.
@@ -54,22 +57,34 @@ host_of() { printf '%s' "$1" | cut -d/ -f3 | sed 's/.*@//'; }
 # No errtrace (-E): the trap must not fire inside the $(curl ...) probes below.
 trap 'stop "Unexpected failure during step: $STEP."' ERR
 
-[ "$(uname)" = "Darwin" ] || stop "DeepSeek WebMCP currently supports macOS only."
+case "$(uname)" in
+  Darwin) KIND=macos ;;
+  Linux) if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then KIND=wsl; else stop "DeepSeek WebMCP runs on macOS, or on Windows inside WSL."; fi ;;
+  *) stop "DeepSeek WebMCP runs on macOS, or on Windows inside WSL." ;;
+esac
 
 # Non-interactive shells do not load Homebrew or nvm, where Node.js usually lives.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true; fi
 
-say "Checking requirements (nothing is changed on this Mac until every check passes)"
-# Docker Desktop supports only the current and two previous macOS releases.
-MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
-if [ "$MACOS_MAJOR" -ge 15 ]; then check macos PASS "$(sw_vers -productVersion) $(uname -m)"; else check macos FAIL "$(sw_vers -productVersion) is older than macOS 15 Sequoia, which current Docker Desktop requires. Update macOS in System Settings > General > Software Update, then run this again."; fi
+say "Checking requirements (nothing is changed on this computer until every check passes)"
+if [ "$KIND" = macos ]; then
+  # Docker Desktop supports only the current and two previous macOS releases.
+  MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
+  if [ "$MACOS_MAJOR" -ge 15 ]; then check macos PASS "$(sw_vers -productVersion) $(uname -m)"; else check macos FAIL "$(sw_vers -productVersion) is older than macOS 15 Sequoia, which current Docker Desktop requires. Update macOS in System Settings > General > Software Update, then run this again."; fi
+else
+  check wsl PASS "${WSL_DISTRO_NAME:-WSL} $(uname -m)"
+fi
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then check node PASS "$(node -v)"; else check node FAIL "Node.js 22 or newer is required: https://nodejs.org/en/download"; fi
 if ! command -v docker >/dev/null 2>&1; then
   check docker FAIL "Docker Desktop is required: https://www.docker.com/products/docker-desktop/"
 elif ! docker info >/dev/null 2>&1; then
-  open -a Docker >/dev/null 2>&1 || true
-  check docker FAIL "Docker Desktop is installed but not running. It is starting now; wait until it says it is running, then run this again."
+  if [ "$KIND" = macos ]; then
+    open -a Docker >/dev/null 2>&1 || true
+    check docker FAIL "Docker Desktop is installed but not running. It is starting now; wait until it says it is running, then run this again."
+  else
+    check docker FAIL "Docker is not reachable from WSL. Start Docker Desktop on Windows and turn on WSL integration for this Linux distribution (Settings > Resources > WSL integration), then run this again."
+  fi
 else
   check docker PASS "$(docker version --format '{{.Server.Version}}' 2>/dev/null)"
 fi
@@ -129,10 +144,13 @@ touch "$DIR/.deepseek-webmcp-installed"
 STEP="runtime"
 say "Installing the local runtime (first time takes a few minutes)"
 cd "$DIR"
-if ! DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs --runtime-archive "$WORK/runtime.tar.gz" 2>&1 | tee "$WORK/step.log"; then
+if ! DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs --runtime-archive "$WORK/runtime.tar.gz" ${WORKSPACE_ARG:+--workspace "$WORKSPACE_ARG"} 2>&1 | tee "$WORK/step.log"; then
   stop "The local runtime could not be installed."
 fi
 rm -rf "$DIR.previous" "$WORK"
+
+# Under WSL the Windows setup registers Chrome and Edge and shows the browser steps.
+[ "$KIND" = wsl ] && exit 0
 
 say "Last step in the browser"
 if [ "$UPDATE" = 1 ]; then

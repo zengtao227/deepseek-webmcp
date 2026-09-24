@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildWorkspaceControlPlaneMasks } from '../native/host/docker-dispatch.js';
-import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
+import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, hostKind, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
+import { assertWindowsWorkspace } from '../native/host/control.js';
 import { promisify } from 'node:util';
 import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
 
@@ -107,7 +108,8 @@ function shellQuote(value) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-if (process.platform !== 'darwin') throw new Error('DeepSeek WebMCP setup currently supports macOS with Google Chrome only.');
+const kind = hostKind();
+if (kind === 'unsupported') throw new Error('DeepSeek WebMCP runs on macOS, or on Windows inside WSL.');
 
 const home = os.homedir();
 const stateDir = defaultStateDir(home);
@@ -120,6 +122,8 @@ async function chooseWorkspace() {
   try {
     return JSON.parse(await readFile(configPath, 'utf8')).workspaceRoot;
   } catch {}
+  // Under WSL the Windows setup chooses the folder in a Windows dialog and passes it in.
+  if (kind === 'wsl') usage('--workspace <folder> is required under WSL.');
   process.stdout.write('Choose the folder DeepSeek WebMCP may read and change (you can change it later in the extension).\n');
   const { stdout } = await execFileAsync('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change")'], { encoding: 'utf8' })
     .catch(() => usage('No folder chosen.'));
@@ -128,6 +132,7 @@ async function chooseWorkspace() {
 
 const requestedWorkspace = await chooseWorkspace();
 const workspaceRoot = await realpath(requestedWorkspace).catch(() => usage(`Workspace directory not found: ${requestedWorkspace}`));
+if (kind === 'wsl') await assertWindowsWorkspace(workspaceRoot);
 const dockerPath = await which('docker').catch(() => {
   throw new Error('Docker was not found. Install Docker Desktop for Mac first: https://www.docker.com/products/docker-desktop/');
 });
@@ -139,7 +144,8 @@ const runtime = await installRuntime(dockerPath);
 const image = runtime.image;
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);
-if (browserRoots.length === 0) browserRoots.push(path.join(home, 'Library/Application Support/Google/Chrome'));
+// Under WSL the browsers are registered on the Windows side (windows/register.ps1).
+if (kind === 'macos' && browserRoots.length === 0) browserRoots.push(path.join(home, 'Library/Application Support/Google/Chrome'));
 const manifestPaths = browserRoots.map((root) => path.join(manifestDirFor(root), `${HOST_NAME}.json`));
 const hostScript = path.join(projectRoot, 'native/host/chrome-host.js');
 
@@ -177,7 +183,9 @@ process.stdout.write(`${JSON.stringify({
   image,
   runtimeArtifactId: runtime.artifactId,
   dockerPath,
+  extensionId,
   extensionOrigin: `chrome-extension://${extensionId}/`,
+  ...(kind === 'wsl' ? { wslDistro: process.env.WSL_DISTRO_NAME ?? null } : {}),
 }, null, 2)}\n`);
 // install.sh prints its own last steps.
 if (process.env.DEEPSEEK_WEBMCP_INSTALLER !== '1') process.stdout.write([

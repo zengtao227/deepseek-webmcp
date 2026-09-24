@@ -35,9 +35,26 @@ export function leasePath(home = os.homedir()) {
   return path.join(stateDir(home), 'full-access.json');
 }
 
-export function browserProfileRoots(home = os.homedir()) {
+// DeepSeek WebMCP runs directly on macOS, and on Windows inside WSL (the browser stays on
+// Windows and reaches the host through a small relay). Nothing else is a supported host.
+export function hostKind({ platform = process.platform, env = process.env, release = os.release() } = {}) {
+  if (platform === 'darwin') return 'macos';
+  if (platform === 'linux' && (env.WSL_DISTRO_NAME || /microsoft/i.test(release))) return 'wsl';
+  return 'unsupported';
+}
+
+// Browser registrations live on the Mac itself; under WSL they live on the Windows side.
+export function browserProfileRoots(home = os.homedir(), kind = hostKind()) {
+  if (kind !== 'macos') return [];
   return CHROMIUM_PROFILE_ROOTS.map((root) => path.join(home, 'Library/Application Support', root));
 }
+
+// Windows side of a WSL install: registry entries for Chrome and Edge and the relay folder.
+export const WINDOWS_REGISTRY_KEYS = Object.freeze([
+  `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`,
+  `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`,
+]);
+export const WINDOWS_APP_FOLDER = 'WebMCP\\DeepSeek';
 
 export function manifestDirFor(profileRoot) {
   return path.join(profileRoot, 'NativeMessagingHosts');

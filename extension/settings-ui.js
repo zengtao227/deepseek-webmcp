@@ -52,6 +52,9 @@ function applySettings(response) {
   fullAccessUntil = response.result.fullAccessUntil;
   hostAccessUntil = response.result.hostAccessUntil;
   hostAccessState = response.result.hostAccessState;
+  // Hosts without these capabilities (Windows for now) hide them; older hosts omit the field.
+  $('#full-access-section').hidden = response.result.capabilities?.fullAccess === false;
+  $('#host-access-section').hidden = response.result.capabilities?.hostAccess === false;
   renderFullAccess();
   renderHostAccess();
 }
@@ -59,7 +62,7 @@ function applySettings(response) {
 export async function initSettings() {
   // macOS dialogs take focus; the background finishes the request and the panel shows the result.
   $('#choose').addEventListener('click', async () => {
-    showMessage('Choose a folder in the macOS dialog…');
+    showMessage('Choose a folder in the dialog…');
     const response = await control('choose-folder');
     applySettings(response);
     if (response?.ok) showMessage(response.result.changed ? 'Folder changed.' : '');
@@ -104,7 +107,7 @@ export async function initSettings() {
       chrome.management.uninstallSelf({ showConfirmDialog: true }).catch(() => showMessage('The extension was not removed.'));
       return;
     }
-    showMessage('Confirm in the macOS dialog…');
+    showMessage('Confirm in the dialog…');
     const response = await control('uninstall');
     if (response?.ok && response.result.uninstalled) showMessage('Uninstalled. The extension removes itself now.');
     else showMessage(response?.ok ? 'Not uninstalled.' : (response?.error?.message ?? 'Uninstall failed.'));

@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
-import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, browserProfileRoots, configPath as defaultConfigPath, leasePath, manifestDirFor, stateDir } from './local-paths.js';
+import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
+import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsUserProfile } from './windows-dialogs.js';
 import { grantHostAccess, hostAccessStatus, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -73,6 +74,7 @@ function showDetachedMessage(message) {
 }
 
 async function confirm(message, button, options) {
+  if (options.kind === 'wsl') return confirmOnWindows(message, { exec: options.exec, timeoutMs: (DIALOG_SECONDS + 10) * 1000 });
   const answer = await runAppleScript(
     `display dialog ${appleScriptString(message)} with title "DeepSeek WebMCP" buttons {"Cancel", ${appleScriptString(button)}} default button "Cancel" cancel button "Cancel" with icon caution giving up after ${DIALOG_SECONDS}`,
     options,
@@ -91,43 +93,71 @@ async function writeJsonAtomic(file, value) {
   await rename(temporary, file);
 }
 
-async function status({ home, configFile, now }) {
+async function status({ home, configFile, now, kind }) {
   const config = await readConfig(configFile);
   return {
     folder: config.workspaceRoot,
+    // Full access and Host access exist only on macOS for now. On Windows they are future
+    // work, and Host access must then mean the real Windows host, not WSL.
+    capabilities: { fullAccess: kind === 'macos', hostAccess: kind === 'macos' },
     fullAccessUntil: await readFullAccessLease({ home, now }),
     ...(await hostAccessStatus({ configFile })),
   };
 }
 
-async function chooseFolder({ home, configFile, now, exec }) {
-  const config = await readConfig(configFile);
-  const picked = await runAppleScript(
+async function pickFolder({ config, exec, kind }) {
+  if (kind === 'wsl') {
+    const picked = await chooseFolderOnWindows(await toWindowsPath(config.workspaceRoot, { exec }).catch(() => ''), { exec, timeoutMs: (DIALOG_SECONDS + 10) * 1000 });
+    return picked === null ? null : toWslPath(picked, { exec });
+  }
+  return runAppleScript(
     `POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change" default location (POSIX file ${appleScriptString(config.workspaceRoot)}))`,
     { exec },
   );
-  if (picked === null) return { changed: false, ...(await status({ home, configFile, now })) };
+}
+
+// On Windows the user folder holds AppData (browser profiles and cookies): only folders
+// that do not contain it may become the workspace.
+export async function assertWindowsWorkspace(folder, { exec, profile } = {}) {
+  const reported = profile ?? await windowsUserProfile({ exec });
+  const userProfile = await realpath(reported).catch(() => path.resolve(reported));
+  const relative = path.relative(folder, path.join(userProfile, 'AppData'));
+  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+    fail('Choose a project folder, not your whole Windows user folder.', 'INVALID_FOLDER');
+  }
+}
+
+async function chooseFolder({ home, configFile, now, exec, kind }) {
+  const config = await readConfig(configFile);
+  const picked = await pickFolder({ config, exec, kind });
+  if (picked === null) return { changed: false, ...(await status({ home, configFile, now, kind })) };
   const folder = await realpath(picked).catch(() => fail('The chosen folder cannot be resolved.', 'INVALID_FOLDER'));
   if (!(await stat(folder)).isDirectory()) fail('Please choose a folder.', 'INVALID_FOLDER');
   if (folder === await realpath(home)) fail('For the whole home folder use Full access instead.', 'INVALID_FOLDER');
+  if (kind === 'wsl') await assertWindowsWorkspace(folder, { exec });
   await buildWorkspaceControlPlaneMasks(folder, { configPath: configFile, dockerPath: config.dockerPath, home });
   await writeJsonAtomic(configFile, { ...config, workspaceRoot: folder });
-  return { changed: true, ...(await status({ home, configFile, now })) };
+  return { changed: true, ...(await status({ home, configFile, now, kind })) };
 }
 
-async function grantFullAccess({ home, configFile, now, exec }, { minutes }) {
+function assertMacOnly(kind, what) {
+  if (kind !== 'macos') fail(`${what} is not available on Windows yet.`, 'NOT_AVAILABLE_ON_WINDOWS');
+}
+
+async function grantFullAccess({ home, configFile, now, exec, kind }, { minutes }) {
+  assertMacOnly(kind, 'Full access');
   const allowed = await confirm(
     `Allow DeepSeek to read and change everything in your home folder for ${minutes} minutes?\n\nDeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek. Network stays off.`,
     'Allow',
-    { exec },
+    { exec, kind },
   );
   if (allowed) await writeJsonAtomic(leasePath(home), { expiresAt: now + minutes * 60_000 });
-  return { changed: allowed, ...(await status({ home, configFile, now })) };
+  return { changed: allowed, ...(await status({ home, configFile, now, kind })) };
 }
 
-async function stopFullAccess({ home, configFile, now }) {
+async function stopFullAccess({ home, configFile, now, kind }) {
   await rm(leasePath(home), { force: true });
-  return { changed: true, ...(await status({ home, configFile, now })) };
+  return { changed: true, ...(await status({ home, configFile, now, kind })) };
 }
 
 // install.sh unpacks a DeepSeek WebMCP release archive and marks the folder; a developer
@@ -142,13 +172,16 @@ export async function isInstalledCodeFolder(folder) {
   }
 }
 
-async function uninstall({ home, configFile, exec, notify }) {
+async function uninstall({ home, configFile, exec, notify, kind }) {
   const allowed = await confirm(
     'Uninstall DeepSeek WebMCP?\n\nThis removes the local runtime, its settings, the Docker image, the browser registrations and the DeepSeek WebMCP program folder. Your project folders are not touched.',
     'Uninstall',
-    { exec },
+    { exec, kind },
   );
   if (!allowed) return { uninstalled: false };
+  if (kind === 'wsl') {
+    await removeWindowsRegistration({ registryKeys: WINDOWS_REGISTRY_KEYS, appFolder: WINDOWS_APP_FOLDER, exec });
+  }
   let dockerPath = 'docker';
   try { dockerPath = (await readConfig(configFile)).dockerPath; } catch {}
   for (const root of browserProfileRoots(home)) {
@@ -169,16 +202,20 @@ export async function handleControlRequest(request, {
   configFile = defaultConfigPath(home),
   now = Date.now(),
   exec = execFileAsync,
-  notify = showDetachedMessage,
+  kind = hostKind(),
+  notify = kind === 'wsl' ? notifyOnWindows : showDetachedMessage,
 } = {}) {
   validateControlRequest(request);
-  const context = { home, configFile, now, exec, notify };
+  const context = { home, configFile, now, exec, notify, kind };
   const handlers = {
     status: () => status(context),
     'choose-folder': () => chooseFolder(context),
     'grant-full-access': () => grantFullAccess(context, request.arguments),
     'stop-full-access': () => stopFullAccess(context),
-    'grant-host-access': async () => ({ ...await status(context), ...await grantHostAccess({ configFile, minutes: request.arguments.minutes }) }),
+    'grant-host-access': async () => {
+      assertMacOnly(kind, 'Host access');
+      return { ...await status(context), ...await grantHostAccess({ configFile, minutes: request.arguments.minutes }) };
+    },
     'stop-host-access': async () => ({ ...await status(context), ...await revokeHostAccess({ configFile }) }),
     uninstall: () => uninstall(context),
   };

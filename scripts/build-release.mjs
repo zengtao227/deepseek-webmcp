@@ -22,6 +22,8 @@ export const ADAPTER_PAYLOAD = Object.freeze([
   'scripts/install-p2-native-host.mjs',
   'scripts/doctor.mjs',
   'scripts/uninstall.mjs',
+  // Windows side of a WSL install: the relay source and the Chrome/Edge registration.
+  'windows',
 ]);
 
 async function main() {
