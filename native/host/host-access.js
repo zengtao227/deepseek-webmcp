@@ -26,7 +26,14 @@ export async function removeDeepSeekInstance(home = os.homedir()) {
   const current = await readlink(path.join(hostRuntimeRoot(home), 'current')).catch(() => null);
   if (current !== null && path.basename(current) === artifactId) return { releaseRemoved: false };
   for (const instance of await readdir(path.join(dataRoot, 'instances')).catch(() => [])) {
-    const pin = await readFile(path.join(dataRoot, 'instances', instance, 'host-release.json'), 'utf8').then(JSON.parse, () => null);
+    let pin;
+    try {
+      pin = JSON.parse(await readFile(path.join(dataRoot, 'instances', instance, 'host-release.json'), 'utf8'));
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      // An unreadable pin might pin this release: keep it.
+      return { releaseRemoved: false };
+    }
     if (pin?.artifactId === artifactId) return { releaseRemoved: false };
   }
   await rm(path.join(releases, artifactId), { recursive: true, force: true });

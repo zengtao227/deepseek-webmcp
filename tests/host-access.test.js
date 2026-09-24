@@ -146,3 +146,14 @@ test('uninstall keeps DeepSeek\'s release while another instance pins it or curr
     }
   }
 });
+
+test('an unreadable pin of another instance keeps DeepSeek\'s release', async () => {
+  const home = await uninstallFixture({ otherPins: { prism: OTHER } });
+  try {
+    await writeFile(path.join(home, '.local/share/webmcp/instances/prism/host-release.json'), '{broken');
+    assert.deepEqual(await removeDeepSeekInstance(home), { releaseRemoved: false });
+    assert.deepEqual((await readdir(path.join(hostRuntimeRoot(home), 'releases'))).sort(), [PINNED, OTHER].sort());
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

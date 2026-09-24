@@ -19,9 +19,13 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 - **Personal/small-circle tool.** It is not published on the Chrome Web Store.
 - Provided under the MIT License, without warranty.
 
-## Install (macOS)
+## Install
 
-Requirements: macOS 15 Sequoia or newer (Docker Desktop's minimum), Google Chrome or Comet (or another Chromium browser), [Docker Desktop](https://www.docker.com/products/docker-desktop/) running, Node.js 22+. Git is not needed.
+The easiest way on **macOS and Windows** is **WebMCP Setup** ([webmcp-setup releases](https://github.com/zengtao227/webmcp-setup/releases/latest)): double-click it, choose DeepSeek, choose a folder. On Windows it installs WSL, Docker Desktop and a private Node.js, runs DeepSeek WebMCP inside WSL, and registers it with Chrome and Edge. On Windows, **Full access** and **Temporary Full Host Access** are not available yet.
+
+### macOS by hand
+
+Requirements: macOS 15 Sequoia or newer (Docker Desktop's minimum), Google Chrome, Microsoft Edge or Comet (or another Chromium browser), [Docker Desktop](https://www.docker.com/products/docker-desktop/) running, Node.js 22+. Git is not needed.
 
 1. Paste this into Terminal:
    ```bash

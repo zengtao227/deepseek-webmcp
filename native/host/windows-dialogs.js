@@ -60,11 +60,16 @@ export async function toWindowsPath(wslPath, { exec = execFileAsync } = {}) {
   return (await exec('wslpath', ['-w', wslPath], { encoding: 'utf8' })).stdout.trim();
 }
 
-// The Windows user folder, as a WSL path. Its AppData holds browser profiles and cookies,
-// so it is never offered to the model as a workspace.
-export async function windowsUserProfile({ exec = execFileAsync } = {}) {
-  const profile = (await runPowerShell('$env:USERPROFILE', { exec })).trim();
-  return toWslPath(profile, { exec });
+// Windows folders a workspace may never be, contain, or sit inside (the same rule the
+// WebMCP Setup applies): the user folder itself, AppData, Windows, ProgramData and the
+// program folders. Returned as WSL paths.
+export async function windowsProtectedFolders({ exec = execFileAsync } = {}) {
+  const lines = (await runPowerShell(
+    "$env:USERPROFILE; $env:APPDATA; $env:LOCALAPPDATA; $env:SystemRoot; $env:ProgramData; $env:ProgramFiles; ${env:ProgramFiles(x86)}",
+    { exec },
+  )).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const [profile, ...others] = await Promise.all(lines.map((line) => toWslPath(line, { exec })));
+  return { profile, others };
 }
 
 // Removes the Windows side of an install: browser registrations and the relay folder.

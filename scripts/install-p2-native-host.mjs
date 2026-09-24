@@ -183,9 +183,7 @@ process.stdout.write(`${JSON.stringify({
   image,
   runtimeArtifactId: runtime.artifactId,
   dockerPath,
-  extensionId,
   extensionOrigin: `chrome-extension://${extensionId}/`,
-  ...(kind === 'wsl' ? { wslDistro: process.env.WSL_DISTRO_NAME ?? null } : {}),
 }, null, 2)}\n`);
 // install.sh prints its own last steps.
 if (process.env.DEEPSEEK_WEBMCP_INSTALLER !== '1') process.stdout.write([

@@ -15,20 +15,29 @@ async function withWsl(run) {
     const home = path.join(root, 'home');
     const winProfile = path.join(root, 'mnt-c-users-me');
     const project = path.join(winProfile, 'Projects', 'app');
-    await mkdir(path.join(winProfile, 'AppData'), { recursive: true });
+    const windowsDir = path.join(root, 'mnt-c-windows');
+    await mkdir(path.join(winProfile, 'AppData', 'Roaming'), { recursive: true });
+    await mkdir(path.join(winProfile, 'AppData', 'Local'), { recursive: true });
+    await mkdir(windowsDir, { recursive: true });
     await mkdir(project, { recursive: true });
     await mkdir(path.join(home, '.deepseek-webmcp'), { recursive: true });
     const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
     await writeFile(configFile, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/bin/docker' }));
     const calls = [];
     let pick = 'C:\\Users\\me\\Projects\\app';
-    const toWsl = { 'C:\\Users\\me': winProfile, 'C:\\Users\\me\\Projects\\app': project };
+    const toWsl = {
+      'C:\\Users\\me': winProfile,
+      'C:\\Users\\me\\AppData\\Roaming': path.join(winProfile, 'AppData', 'Roaming'),
+      'C:\\Users\\me\\AppData\\Local': path.join(winProfile, 'AppData', 'Local'),
+      'C:\\Windows': windowsDir,
+      'C:\\Users\\me\\Projects\\app': project,
+    };
     const exec = async (command, args) => {
       calls.push([command, ...args]);
       if (command === 'powershell.exe') {
         const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
         if (script.includes('FolderBrowserDialog')) return { stdout: `${pick}\r\n` };
-        if (script.trim() === '$env:USERPROFILE') return { stdout: 'C:\\Users\\me\r\n' };
+        if (script.startsWith('$env:USERPROFILE;')) return { stdout: 'C:\\Users\\me\r\nC:\\Users\\me\\AppData\\Roaming\r\nC:\\Users\\me\\AppData\\Local\r\nC:\\Windows\r\n' };
         if (script.includes('MessageBox')) return { stdout: 'OK\r\n' };
         return { stdout: '' };
       }
@@ -65,8 +74,10 @@ test('on Windows the folder is chosen in a Windows dialog, and the whole user fo
     const chosen = await control('choose-folder');
     assert.equal(chosen.result.changed, true);
     assert.equal(JSON.parse(await readFile(configFile, 'utf8')).workspaceRoot, project);
-    setPick('C:\\Users\\me');
-    await assert.rejects(control('choose-folder'), { code: 'INVALID_FOLDER' });
+    for (const refused of ['C:\\Users\\me', 'C:\\Windows']) {
+      setPick(refused);
+      await assert.rejects(control('choose-folder'), { code: 'INVALID_FOLDER' }, refused);
+    }
     assert.equal(JSON.parse(await readFile(configFile, 'utf8')).workspaceRoot, project);
   });
 });

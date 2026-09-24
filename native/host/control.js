@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
-import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsUserProfile } from './windows-dialogs.js';
+import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsProtectedFolders } from './windows-dialogs.js';
 import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -116,14 +116,22 @@ async function pickFolder({ config, exec, kind }) {
   );
 }
 
-// On Windows the user folder holds AppData (browser profiles and cookies): only folders
-// that do not contain it may become the workspace.
-export async function assertWindowsWorkspace(folder, { exec, profile } = {}) {
-  const reported = profile ?? await windowsUserProfile({ exec });
-  const userProfile = await realpath(reported).catch(() => path.resolve(reported));
-  const relative = path.relative(folder, path.join(userProfile, 'AppData'));
-  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
-    fail('Choose a project folder, not your whole Windows user folder.', 'INVALID_FOLDER');
+// Same rule as the WebMCP Setup: not a drive root, not the user folder or anything that
+// contains it, and nothing that contains or sits inside AppData, Windows, ProgramData or
+// the program folders.
+export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
+  const within = (root, candidate) => {
+    const relative = path.relative(root, candidate);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  };
+  const refuse = () => fail('Choose a project folder, not a system folder or your whole Windows user folder.', 'INVALID_FOLDER');
+  if (/^\/mnt\/[a-z]\/?$/i.test(folder)) refuse();
+  const { profile, others } = protectedFolders ?? await windowsProtectedFolders({ exec });
+  const real = async (candidate) => realpath(candidate).catch(() => path.resolve(candidate));
+  if (within(folder, await real(profile))) refuse();
+  for (const other of others) {
+    const resolved = await real(other);
+    if (within(folder, resolved) || within(resolved, folder)) refuse();
   }
 }
 
