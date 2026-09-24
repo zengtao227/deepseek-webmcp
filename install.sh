@@ -76,17 +76,20 @@ fi
 [ -n "$ADAPTER_URL" ] && [ -n "$ADAPTER_SHA256" ] || check adapter-pin FAIL "This installer has no pinned release yet."
 
 # Reachability of each service a first install needs. An HTTP answer of any status proves
-# the host is reachable; only a connection or DNS failure counts as blocked.
-reach() { # id url
+# the host is reachable; only a connection or DNS failure counts as blocked. The release
+# download is required (it follows redirects to the host that serves the file). Docker Hub
+# and Debian are probed from this Mac only: Docker Desktop may use its own proxy or
+# registry mirror, so for them the image build is the real test and a probe only warns.
+reach() { # id url FAIL|WARN [curl option]
   local code
-  code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$2" 2>"$WORK/reach.err")" || code=000
-  if [ "$code" != "000" ]; then check "net:$1" PASS "$(host_of "$2") HTTP $code"; else check "net:$1" FAIL ENV "$(host_of "$2") unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
+  code="$(curl -sS -o /dev/null -m 15 -r 0-0 ${4:-} -w '%{http_code}' "$2" 2>"$WORK/reach.err")" || code=000
+  if [ "$code" != "000" ]; then check "net:$1" PASS "$(host_of "$2") HTTP $code"; else check "net:$1" "$3" ENV "$(host_of "$2") unreachable: $(tr '\n' ' ' < "$WORK/reach.err" | cut -c1-120)"; fi
 }
-case "$ADAPTER_URL" in https://*) reach release-download "$ADAPTER_URL" ;; esac
-reach docker-hub-registry "https://registry-1.docker.io/v2/"
-reach docker-hub-auth "https://auth.docker.io/token"
-reach docker-hub-blobs "https://production.cloudflare.docker.com/"
-reach debian "https://deb.debian.org/debian/dists/bookworm/Release"
+case "$ADAPTER_URL" in https://*) reach release-download "$ADAPTER_URL" FAIL -L ;; esac
+reach docker-hub-registry "https://registry-1.docker.io/v2/" WARN
+reach docker-hub-auth "https://auth.docker.io/token" WARN
+reach docker-hub-blobs "https://production.cloudflare.docker.com/" WARN
+reach debian "https://deb.debian.org/debian/dists/bookworm/Release" WARN
 [ "$FAILED" = 0 ] || stop "Some requirements are not met (see the CHECK lines above). Nothing was changed."
 
 UPDATE=0

@@ -21,13 +21,13 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 
 ## Install (macOS)
 
-Requirements: macOS, Google Chrome or Comet (or another Chromium browser), [Docker Desktop](https://www.docker.com/products/docker-desktop/) running, Node.js 22+.
+Requirements: macOS 15 Sequoia or newer (Docker Desktop's minimum), Google Chrome or Comet (or another Chromium browser), [Docker Desktop](https://www.docker.com/products/docker-desktop/) running, Node.js 22+. Git is not needed.
 
 1. Paste this into Terminal:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/zengtao227/deepseek-webmcp/main/install.sh | bash
+   cd ~ && curl -fsSLO https://github.com/zengtao227/deepseek-webmcp/releases/latest/download/install.sh && bash install.sh
    ```
-   It checks the requirements, downloads to `~/deepseek-webmcp`, builds the local runtime and asks once which folder DeepSeek may work in.
+   It checks the requirements before changing anything, downloads the pinned, checksum-verified release to `~/deepseek-webmcp`, builds the local runtime and asks once which folder DeepSeek may work in. If something fails it saves `~/deepseek-webmcp-install-report.txt`; send that file to whoever asked you to test.
 2. In the browser extensions page that opens, turn on **Developer mode** and drag the `extension` folder (shown in Finder) onto the page.
 
 To update, run the same command again, then click the extension's reload icon and reopen DeepSeek tabs.

@@ -5,7 +5,7 @@ const $ = (selector) => document.querySelector(selector);
 
 // A browser extension cannot install the local program itself; the shortest way back is the
 // same one-line command the README shows.
-const INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/zengtao227/deepseek-webmcp/main/install.sh | bash';
+const INSTALL_COMMAND = 'cd ~ && curl -fsSLO https://github.com/zengtao227/deepseek-webmcp/releases/latest/download/install.sh && bash install.sh';
 
 let fullAccessUntil = null;
 let hostAccessUntil = null;

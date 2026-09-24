@@ -81,7 +81,7 @@ Known exposure the owner accepted by choosing opt-in full access: everything unm
 
 ## 7. Install/uninstall scripts
 
-- `install.sh` (one line from README): preflight → clone or update `~/deepseek-webmcp` → `npm run setup` → folder dialog if no previous choice → open Chrome extensions page and Finder.
+- `install.sh` (one line from README): preflight → download the pinned release archives into `~/deepseek-webmcp` (superseded 2026-09-24: no Git clone; see migration-manifest.md) → `npm run setup` → folder dialog if no previous choice → open Chrome extensions page and Finder.
 - `npm run setup` keeps the last folder; `npm run doctor` stays for troubleshooting.
 - Uninstall deletes the code folder only if it is the path recorded at install and is a git checkout of `zengtao227/deepseek-webmcp`; it never deletes the workspace folder or the home directory.
 
