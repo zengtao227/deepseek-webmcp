@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { dispatchHostCommand, grantHostAccess, hostAccessStatus, hostRuntimeRoot } from '../native/host/host-access.js';
+import { dispatchHostCommand, grantHostAccess, hostAccessStatus, hostRuntimeRoot, removeDeepSeekInstance } from '../native/host/host-access.js';
 
 const PINNED = `${'a'.repeat(40)}-${'b'.repeat(64)}`;
 const OTHER = `${'c'.repeat(40)}-${'d'.repeat(64)}`;
@@ -103,4 +103,46 @@ test('host access fails closed without a pinned artifact or with a mismatched in
     assert.equal((await hostAccessStatus({ configFile, home, lockFile })).hostAccessState, 'unavailable');
     await assert.rejects(grantHostAccess({ configFile, minutes: 1, home, lockFile }), /does not match/);
   }, { pinArtifact: OTHER });
+});
+
+async function uninstallFixture({ otherPins = {}, currentTo = null } = {}) {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-uninstall-'));
+  const data = path.join(home, '.local/share/webmcp');
+  for (const id of [PINNED, OTHER]) await mkdir(path.join(hostRuntimeRoot(home), 'releases', id), { recursive: true });
+  if (currentTo) await symlink(path.join('releases', currentTo), path.join(hostRuntimeRoot(home), 'current'));
+  for (const [instance, artifactId] of Object.entries({ deepseek: PINNED, ...otherPins })) {
+    await mkdir(path.join(data, 'instances', instance), { recursive: true });
+    await writeFile(path.join(data, 'instances', instance, 'host-release.json'), JSON.stringify({ version: 1, artifactId }));
+  }
+  await mkdir(path.join(home, '.config/webmcp/instances/deepseek'), { recursive: true });
+  await mkdir(path.join(home, '.config/webmcp/instances/prism'), { recursive: true });
+  return home;
+}
+
+test('uninstall removes DeepSeek\'s own instance state and its now-unpinned release, nothing else', async () => {
+  const home = await uninstallFixture({ otherPins: { prism: OTHER }, currentTo: OTHER });
+  try {
+    assert.deepEqual(await removeDeepSeekInstance(home), { releaseRemoved: true });
+    await assert.rejects(lstat(path.join(home, '.local/share/webmcp/instances/deepseek')), { code: 'ENOENT' });
+    await assert.rejects(lstat(path.join(home, '.config/webmcp/instances/deepseek')), { code: 'ENOENT' });
+    assert.deepEqual(await readdir(path.join(hostRuntimeRoot(home), 'releases')), [OTHER]);
+    await lstat(path.join(home, '.local/share/webmcp/instances/prism/host-release.json'));
+    await lstat(path.join(home, '.config/webmcp/instances/prism'));
+    await lstat(path.join(hostRuntimeRoot(home), 'current'));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test('uninstall keeps DeepSeek\'s release while another instance pins it or current points at it', async () => {
+  for (const setup of [{ otherPins: { prism: PINNED } }, { currentTo: PINNED }]) {
+    const home = await uninstallFixture(setup);
+    try {
+      assert.deepEqual(await removeDeepSeekInstance(home), { releaseRemoved: false });
+      assert.deepEqual((await readdir(path.join(hostRuntimeRoot(home), 'releases'))).sort(), [PINNED, OTHER].sort());
+      await assert.rejects(lstat(path.join(home, '.local/share/webmcp/instances/deepseek')), { code: 'ENOENT' });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
 });

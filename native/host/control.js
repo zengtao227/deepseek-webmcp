@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsUserProfile } from './windows-dialogs.js';
-import { grantHostAccess, hostAccessStatus, revokeHostAccess } from './host-access.js';
+import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -189,6 +189,7 @@ async function uninstall({ home, configFile, exec, notify, kind }) {
   }
   try { await exec(dockerPath, ['image', 'rm', IMAGE_TAG], { encoding: 'utf8', timeout: 60_000 }); } catch {}
   await rm(stateDir(home), { recursive: true, force: true });
+  await removeDeepSeekInstance(home);
   // Only a folder created by install.sh from this repository is deleted; a developer
   // checkout (no marker) is left alone.
   const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT);
