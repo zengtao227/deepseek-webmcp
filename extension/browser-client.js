@@ -1,4 +1,4 @@
-export const BROWSER_TOOL_NAMES = Object.freeze(['inspect_page', 'inspect_form', 'fill', 'select', 'click', 'scroll']);
+export const BROWSER_TOOL_NAMES = Object.freeze(['inspect_page', 'inspect_form', 'fill', 'select', 'click', 'scroll', 'keyboard']);
 
 export const BROWSER_TOOL_ARGUMENTS = Object.freeze({
   inspect_page: { required: {}, optional: {} },
@@ -9,6 +9,10 @@ export const BROWSER_TOOL_ARGUMENTS = Object.freeze({
   scroll: {
     required: { deltaY: '<pixels; positive scrolls down, negative up; at most 3000>' },
     optional: { deltaX: '<pixels; positive scrolls right, negative left; at most 3000>', ref: '<element-ref of an element inside the area to scroll>' },
+  },
+  keyboard: {
+    required: { ref: '<editable element-ref>', actions: '<1-64 keyboard actions>' },
+    optional: {},
   },
 });
 
@@ -29,7 +33,30 @@ export class BrowserClientError extends Error {
 function exactKeys(value, expected) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value).sort();
-  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+  const wanted = [...expected].sort();
+  return keys.length === wanted.length && keys.every((key, index) => key === wanted[index]);
+}
+
+const KEYBOARD_MODIFIERS = new Set(['Alt', 'Control', 'Meta', 'Shift']);
+
+function validKeyboardAction(action) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return false;
+  if (action.type === 'text') {
+    return exactKeys(action, ['type', 'text'])
+      && typeof action.text === 'string'
+      && action.text.length <= 16_384;
+  }
+  if (action.type !== 'key') return false;
+  const allowed = ['type', 'key', 'modifiers', 'repeat'];
+  if (!Object.keys(action).every((key) => allowed.includes(key))) return false;
+  if (typeof action.key !== 'string' || action.key.length === 0 || action.key.length > 64) return false;
+  if (action.modifiers !== undefined) {
+    if (!Array.isArray(action.modifiers) || action.modifiers.length > 4) return false;
+    if (new Set(action.modifiers).size !== action.modifiers.length) return false;
+    if (!action.modifiers.every((modifier) => KEYBOARD_MODIFIERS.has(modifier))) return false;
+  }
+  if (action.repeat !== undefined && (!Number.isInteger(action.repeat) || action.repeat < 1 || action.repeat > 100)) return false;
+  return true;
 }
 
 export function validateBrowserToolArguments(name, args) {
@@ -47,6 +74,18 @@ export function validateBrowserToolArguments(name, args) {
       && (args.deltaX === undefined || Number.isFinite(args.deltaX))
       && (args.ref === undefined || (typeof args.ref === 'string' && args.ref.length > 0 && args.ref.length <= 64));
     return valid ? null : { code: 'INVALID_ARGUMENTS', message: 'scroll requires deltaY (number) and accepts optional deltaX (number) and ref (string).' };
+  }
+  if (name === 'keyboard') {
+    const valid = exactKeys(args, ['ref', 'actions'])
+      && typeof args.ref === 'string'
+      && args.ref.length > 0
+      && args.ref.length <= 64
+      && Array.isArray(args.actions)
+      && args.actions.length >= 1
+      && args.actions.length <= 64
+      && args.actions.every(validKeyboardAction)
+      && args.actions.reduce((total, action) => total + (action.type === 'text' ? action.text.length : 0), 0) <= 16_384;
+    return valid ? null : { code: 'INVALID_ARGUMENTS', message: 'keyboard requires ref and 1-64 bounded key/text actions.' };
   }
   if (name === 'click') {
     if (!exactKeys(args, ['ref']) || typeof args.ref !== 'string' || args.ref.length === 0 || args.ref.length > 64) {

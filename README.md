@@ -100,7 +100,7 @@ Browser WebMCP V1 reuses the same DeepSeek planner/continuation loop but dispatc
 ```text
 normal DeepSeek Web
   → existing WebMCP one-call loop
-  → inspect_page / inspect_form / fill / select / click / scroll
+  → inspect_page / inspect_form / fill / select / click / scroll / keyboard
   → owner-attached real browser tab
   → semantic DOM
 ```

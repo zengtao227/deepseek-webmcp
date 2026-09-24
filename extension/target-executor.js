@@ -508,6 +508,377 @@
     });
   }
 
+  function textKeyboardTarget(element) {
+    const tag = String(element.tagName ?? '').toLowerCase();
+    const type = String(element.type ?? '').toLowerCase();
+    const contentEditable = element.getAttribute?.('contenteditable') === 'true'
+      || element.getAttribute?.('role') === 'textbox' && element.isContentEditable === true;
+    if (contentEditable) return { kind: 'contenteditable' };
+    if (tag === 'textarea') return { kind: 'text-control' };
+    if (tag !== 'input' || ['hidden', 'file', 'checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'range', 'color'].includes(type)) return null;
+    return { kind: 'text-control' };
+  }
+
+  function textControlState(element) {
+    const value = String(element.value ?? '');
+    let start = value.length;
+    let end = value.length;
+    let direction = 'none';
+    try {
+      if (Number.isInteger(element.selectionStart)) start = Math.max(0, Math.min(value.length, element.selectionStart));
+      if (Number.isInteger(element.selectionEnd)) end = Math.max(start, Math.min(value.length, element.selectionEnd));
+      if (['forward', 'backward', 'none'].includes(element.selectionDirection)) direction = element.selectionDirection;
+    } catch {
+      // Some input types expose a value but no native selection API. They still support whole-value text insertion.
+    }
+    return { value, start, end, direction };
+  }
+
+  function setTextControlSelection(element, start, end = start, direction = 'none') {
+    const valueLength = String(element.value ?? '').length;
+    const boundedStart = Math.max(0, Math.min(valueLength, start));
+    const boundedEnd = Math.max(boundedStart, Math.min(valueLength, end));
+    try {
+      if (typeof element.setSelectionRange === 'function') {
+        element.setSelectionRange(boundedStart, boundedEnd, direction);
+      } else {
+        element.selectionStart = boundedStart;
+        element.selectionEnd = boundedEnd;
+        element.selectionDirection = direction;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function codePointLeft(value, position) {
+    if (position <= 0) return 0;
+    const code = value.charCodeAt(position - 1);
+    if (position >= 2 && code >= 0xDC00 && code <= 0xDFFF) {
+      const high = value.charCodeAt(position - 2);
+      if (high >= 0xD800 && high <= 0xDBFF) return position - 2;
+    }
+    return position - 1;
+  }
+
+  function codePointRight(value, position) {
+    if (position >= value.length) return value.length;
+    const code = value.charCodeAt(position);
+    if (position + 1 < value.length && code >= 0xD800 && code <= 0xDBFF) {
+      const low = value.charCodeAt(position + 1);
+      if (low >= 0xDC00 && low <= 0xDFFF) return position + 2;
+    }
+    return position + 1;
+  }
+
+  function wordLeft(value, position) {
+    let cursor = position;
+    while (cursor > 0 && /\s/u.test(value[cursor - 1])) cursor -= 1;
+    while (cursor > 0 && !/\s/u.test(value[cursor - 1])) cursor -= 1;
+    return cursor;
+  }
+
+  function wordRight(value, position) {
+    let cursor = position;
+    while (cursor < value.length && /\s/u.test(value[cursor])) cursor += 1;
+    while (cursor < value.length && !/\s/u.test(value[cursor])) cursor += 1;
+    return cursor;
+  }
+
+  function lineStart(value, position) {
+    const newline = value.lastIndexOf('\n', Math.max(0, position - 1));
+    return newline < 0 ? 0 : newline + 1;
+  }
+
+  function lineEnd(value, position) {
+    const newline = value.indexOf('\n', position);
+    return newline < 0 ? value.length : newline;
+  }
+
+  function verticalPosition(value, position, direction) {
+    const start = lineStart(value, position);
+    const column = position - start;
+    if (direction < 0) {
+      if (start === 0) return 0;
+      const previousEnd = start - 1;
+      const previousStart = lineStart(value, previousEnd);
+      return Math.min(previousStart + column, previousEnd);
+    }
+    const end = lineEnd(value, position);
+    if (end >= value.length) return value.length;
+    const nextStart = end + 1;
+    const nextEnd = lineEnd(value, nextStart);
+    return Math.min(nextStart + column, nextEnd);
+  }
+
+  function selectionFocus(state) {
+    if (state.start === state.end) return state.end;
+    return state.direction === 'backward' ? state.start : state.end;
+  }
+
+  function selectionAnchor(state) {
+    if (state.start === state.end) return state.start;
+    return state.direction === 'backward' ? state.end : state.start;
+  }
+
+  function moveTextSelection(element, target, extend) {
+    const state = textControlState(element);
+    if (!extend) {
+      setTextControlSelection(element, target, target, 'none');
+      return;
+    }
+    const anchor = selectionAnchor(state);
+    const start = Math.min(anchor, target);
+    const end = Math.max(anchor, target);
+    setTextControlSelection(element, start, end, target < anchor ? 'backward' : 'forward');
+  }
+
+  function beforeInputAllowed(element, inputType, data = null) {
+    try {
+      const event = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType, data });
+      return element.dispatchEvent(event) !== false && event.defaultPrevented !== true;
+    } catch {
+      return true;
+    }
+  }
+
+  function dispatchKeyboardInput(element, inputType, data = null) {
+    try {
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType, data }));
+    } catch {
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function replaceTextSelection(element, text, inputType = 'insertText') {
+    const state = textControlState(element);
+    if (!beforeInputAllowed(element, inputType, text)) return false;
+    const next = `${state.value.slice(0, state.start)}${text}${state.value.slice(state.end)}`;
+    setNativeValue(element, next);
+    const caret = state.start + text.length;
+    setTextControlSelection(element, caret, caret, 'none');
+    dispatchKeyboardInput(element, inputType, text);
+    return true;
+  }
+
+  function deleteTextSelection(element, direction, modifiers) {
+    const state = textControlState(element);
+    let start = state.start;
+    let end = state.end;
+    if (start === end) {
+      if (direction === 'backward') {
+        if (modifiers.has('Meta')) start = lineStart(state.value, start);
+        else if (modifiers.has('Alt') || modifiers.has('Control')) start = wordLeft(state.value, start);
+        else start = codePointLeft(state.value, start);
+      } else {
+        if (modifiers.has('Meta')) end = lineEnd(state.value, end);
+        else if (modifiers.has('Alt') || modifiers.has('Control')) end = wordRight(state.value, end);
+        else end = codePointRight(state.value, end);
+      }
+    }
+    if (start === end) return true;
+    if (!beforeInputAllowed(element, direction === 'backward' ? 'deleteContentBackward' : 'deleteContentForward')) return false;
+    const next = `${state.value.slice(0, start)}${state.value.slice(end)}`;
+    setNativeValue(element, next);
+    setTextControlSelection(element, start, start, 'none');
+    dispatchKeyboardInput(element, direction === 'backward' ? 'deleteContentBackward' : 'deleteContentForward');
+    return true;
+  }
+
+  function contentSelection(element) {
+    const selection = globalThis.getSelection?.();
+    if (!selection || typeof document.createRange !== 'function') return null;
+    const anchor = selection.anchorNode;
+    const focus = selection.focusNode;
+    const inside = (node) => node === element || element.contains?.(node) === true;
+    if (!anchor || !focus || !inside(anchor) || !inside(focus)) {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    return selection;
+  }
+
+  function selectAllContent(element) {
+    const selection = contentSelection(element);
+    if (!selection) return false;
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  function modifyContentSelection(element, alter, direction, granularity) {
+    const selection = contentSelection(element);
+    if (!selection || typeof selection.modify !== 'function') return false;
+    try {
+      selection.modify(alter, direction, granularity);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function execContentEdit(element, command, inputType, data = null) {
+    if (!beforeInputAllowed(element, inputType, data)) return false;
+    try {
+      const changed = document.execCommand?.(command, false, data) === true;
+      if (changed) dispatchKeyboardInput(element, inputType, data);
+      return changed;
+    } catch {
+      return false;
+    }
+  }
+
+  function normalizeKey(key) {
+    if (key === 'Space' || key === 'Spacebar') return ' ';
+    if (key === 'Del') return 'Delete';
+    if (key === 'Left') return 'ArrowLeft';
+    if (key === 'Right') return 'ArrowRight';
+    if (key === 'Up') return 'ArrowUp';
+    if (key === 'Down') return 'ArrowDown';
+    return key;
+  }
+
+  function textControlKey(element, action) {
+    const key = normalizeKey(action.key);
+    const modifiers = new Set(action.modifiers ?? []);
+    const shift = modifiers.has('Shift');
+    const state = textControlState(element);
+
+    if ((modifiers.has('Meta') || modifiers.has('Control')) && key.toLowerCase() === 'a' && !modifiers.has('Alt')) {
+      setTextControlSelection(element, 0, state.value.length, 'forward');
+      return true;
+    }
+    if (key === 'Backspace') return deleteTextSelection(element, 'backward', modifiers);
+    if (key === 'Delete') return deleteTextSelection(element, 'forward', modifiers);
+    if (key === 'Enter' || key === 'NumpadEnter' || key === 'Tab') return 'commit';
+
+    const focus = selectionFocus(state);
+    let target = null;
+    if (key === 'ArrowLeft') {
+      if (!shift && state.start !== state.end && !modifiers.has('Alt') && !modifiers.has('Control') && !modifiers.has('Meta')) target = state.start;
+      else if (modifiers.has('Meta')) target = lineStart(state.value, focus);
+      else if (modifiers.has('Alt') || modifiers.has('Control')) target = wordLeft(state.value, focus);
+      else target = codePointLeft(state.value, focus);
+    } else if (key === 'ArrowRight') {
+      if (!shift && state.start !== state.end && !modifiers.has('Alt') && !modifiers.has('Control') && !modifiers.has('Meta')) target = state.end;
+      else if (modifiers.has('Meta')) target = lineEnd(state.value, focus);
+      else if (modifiers.has('Alt') || modifiers.has('Control')) target = wordRight(state.value, focus);
+      else target = codePointRight(state.value, focus);
+    } else if (key === 'ArrowUp') {
+      target = verticalPosition(state.value, focus, -1);
+    } else if (key === 'ArrowDown') {
+      target = verticalPosition(state.value, focus, 1);
+    } else if (key === 'Home') {
+      target = lineStart(state.value, focus);
+    } else if (key === 'End') {
+      target = lineEnd(state.value, focus);
+    }
+    if (target !== null) {
+      moveTextSelection(element, target, shift);
+      return true;
+    }
+
+    if (!modifiers.has('Meta') && !modifiers.has('Control') && !modifiers.has('Alt') && Array.from(key).length === 1) {
+      return replaceTextSelection(element, key, 'insertText');
+    }
+    return false;
+  }
+
+  function contentEditableKey(element, action) {
+    const key = normalizeKey(action.key);
+    const modifiers = new Set(action.modifiers ?? []);
+    const shift = modifiers.has('Shift');
+    if ((modifiers.has('Meta') || modifiers.has('Control')) && key.toLowerCase() === 'a' && !modifiers.has('Alt')) {
+      return selectAllContent(element);
+    }
+    if (key === 'Enter' || key === 'NumpadEnter' || key === 'Tab') return 'commit';
+    if (key === 'Backspace' || key === 'Delete') {
+      const selection = contentSelection(element);
+      if (!selection) return false;
+      if (selection.isCollapsed) {
+        const direction = key === 'Backspace' ? 'backward' : 'forward';
+        const granularity = modifiers.has('Meta') ? 'lineboundary' : (modifiers.has('Alt') || modifiers.has('Control') ? 'word' : 'character');
+        if (!modifyContentSelection(element, 'extend', direction, granularity)) return false;
+      }
+      return execContentEdit(element, 'delete', key === 'Backspace' ? 'deleteContentBackward' : 'deleteContentForward');
+    }
+    const directions = {
+      ArrowLeft: ['backward', modifiers.has('Alt') || modifiers.has('Control') ? 'word' : (modifiers.has('Meta') ? 'lineboundary' : 'character')],
+      ArrowRight: ['forward', modifiers.has('Alt') || modifiers.has('Control') ? 'word' : (modifiers.has('Meta') ? 'lineboundary' : 'character')],
+      ArrowUp: ['backward', 'line'],
+      ArrowDown: ['forward', 'line'],
+      Home: ['backward', 'lineboundary'],
+      End: ['forward', 'lineboundary'],
+    };
+    if (directions[key]) return modifyContentSelection(element, shift ? 'extend' : 'move', ...directions[key]);
+    if (!modifiers.has('Meta') && !modifiers.has('Control') && !modifiers.has('Alt') && Array.from(key).length === 1) {
+      return execContentEdit(element, 'insertText', 'insertText', key);
+    }
+    return false;
+  }
+
+  function keyboard(args) {
+    const found = lookup(args.ref);
+    if (found.error) return found.error;
+    const element = found.element;
+    const target = textKeyboardTarget(element);
+    if (!target) return error('UNSUPPORTED_CONTROL', 'keyboard requires a visible text-editable input, textarea, or contenteditable textbox.');
+    if (element.readOnly === true || element.getAttribute?.('aria-readonly') === 'true') {
+      return error('READ_ONLY', 'The referenced field is read-only.');
+    }
+    element.focus?.();
+
+    let executed = 0;
+    for (const action of args.actions) {
+      if (action.type === 'text') {
+        const ok = target.kind === 'contenteditable'
+          ? execContentEdit(element, 'insertText', 'insertText', action.text)
+          : replaceTextSelection(element, action.text, 'insertText');
+        if (!ok) return error('KEYBOARD_ACTION_FAILED', 'The editable control rejected a keyboard text action.', { index: executed });
+        executed += 1;
+        continue;
+      }
+      const repeats = action.repeat ?? 1;
+      for (let repeat = 0; repeat < repeats; repeat += 1) {
+        const result = target.kind === 'contenteditable' ? contentEditableKey(element, action) : textControlKey(element, action);
+        if (result === 'commit') {
+          return error(
+            'CONFIRMATION_REQUIRED',
+            'This keyboard action can submit, send, or move focus. Browser WebMCP does not execute it automatically.',
+            { ref: args.ref, key: normalizeKey(action.key) },
+          );
+        }
+        if (result !== true) {
+          return error('KEY_NOT_SUPPORTED', 'This key or shortcut is not enabled by the current Browser Keyboard policy.', {
+            ref: args.ref,
+            key: normalizeKey(action.key),
+            modifiers: action.modifiers ?? [],
+          });
+        }
+      }
+      executed += 1;
+    }
+
+    const type = String(element.type ?? '').toLowerCase();
+    const value = type === 'password'
+      ? REDACTED
+      : target.kind === 'contenteditable'
+        ? cleanText(element.innerText ?? element.textContent, 2000)
+        : cleanText(element.value, 2000);
+    const result = { ref: args.ref, actionsExecuted: executed, value };
+    if (target.kind === 'text-control') {
+      const state = textControlState(element);
+      result.selection = { start: state.start, end: state.end, direction: state.direction };
+    }
+    return success(result);
+  }
+
   function selectOption(args) {
     const found = lookup(args.ref);
     if (found.error) return found.error;
@@ -776,6 +1147,28 @@
         && (args.ref === undefined || typeof args.ref === 'string');
       if (!valid) return error('INVALID_ARGUMENTS', 'scroll requires deltaY (number) and accepts optional deltaX (number) and ref (string).');
       return scroll(args);
+    }
+    if (tool === 'keyboard') {
+      if (!exactArgs(args, ['ref', 'actions']) || typeof args.ref !== 'string' || !Array.isArray(args.actions) || args.actions.length < 1 || args.actions.length > 64) {
+        return error('INVALID_ARGUMENTS', 'keyboard requires ref and 1-64 bounded key/text actions.');
+      }
+      const valid = args.actions.every((action) => {
+        if (!action || typeof action !== 'object' || Array.isArray(action)) return false;
+        if (action.type === 'text') return exactArgs(action, ['type', 'text']) && typeof action.text === 'string' && action.text.length <= 16_384;
+        if (action.type !== 'key') return false;
+        const keys = Object.keys(action);
+        if (!keys.every((key) => ['type', 'key', 'modifiers', 'repeat'].includes(key))) return false;
+        if (typeof action.key !== 'string' || action.key.length < 1 || action.key.length > 64) return false;
+        if (action.modifiers !== undefined) {
+          if (!Array.isArray(action.modifiers) || action.modifiers.length > 4 || new Set(action.modifiers).size !== action.modifiers.length) return false;
+          if (!action.modifiers.every((modifier) => ['Alt', 'Control', 'Meta', 'Shift'].includes(modifier))) return false;
+        }
+        return action.repeat === undefined || (Number.isInteger(action.repeat) && action.repeat >= 1 && action.repeat <= 100);
+      });
+      if (!valid || args.actions.reduce((total, action) => total + (action.type === 'text' ? action.text.length : 0), 0) > 16_384) {
+        return error('INVALID_ARGUMENTS', 'keyboard requires ref and 1-64 bounded key/text actions.');
+      }
+      return keyboard(args);
     }
     return error('TOOL_NOT_ALLOWED', 'Unknown browser tool.');
   }

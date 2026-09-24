@@ -6,8 +6,8 @@ import {
   validateBrowserToolArguments,
 } from '../extension/browser-client.js';
 
-test('Browser WebMCP exposes exactly the six bounded browser tools', () => {
-  assert.deepEqual(BROWSER_TOOL_NAMES, ['inspect_page', 'inspect_form', 'fill', 'select', 'click', 'scroll']);
+test('Browser WebMCP exposes exactly the seven bounded browser tools', () => {
+  assert.deepEqual(BROWSER_TOOL_NAMES, ['inspect_page', 'inspect_form', 'fill', 'select', 'click', 'scroll', 'keyboard']);
 });
 
 test('browser tool arguments never let the model choose a tab, URL, selector, XPath, or arbitrary extra field', () => {
@@ -25,6 +25,12 @@ test('browser tool arguments never let the model choose a tab, URL, selector, XP
     ['scroll', { deltaY: 100, ref: '' }],
     ['scroll', { deltaY: 100, ref: 'e'.repeat(65) }],
     ['scroll', ['deltaY']],
+    ['keyboard', { ref: 'e1', actions: [] }],
+    ['keyboard', { ref: 'e1', actions: [{ type: 'key', key: 'Backspace', modifiers: ['Meta', 'Meta'] }] }],
+    ['keyboard', { ref: 'e1', actions: [{ type: 'key', key: '', repeat: 1 }] }],
+    ['keyboard', { ref: 'e1', actions: [{ type: 'key', key: 'Backspace', repeat: 101 }] }],
+    ['keyboard', { ref: 'e1', actions: [{ type: 'text', text: 'x', selector: '#field' }] }],
+    ['keyboard', { ref: '', actions: [{ type: 'key', key: 'Backspace' }] }],
   ];
   for (const [name, args] of forbidden) {
     assert.equal(validateBrowserToolArguments(name, args)?.code, 'INVALID_ARGUMENTS', name);
@@ -37,4 +43,12 @@ test('browser tool arguments never let the model choose a tab, URL, selector, XP
   assert.equal(validateBrowserToolArguments('click', { ref: 'e3' }), null);
   assert.equal(validateBrowserToolArguments('scroll', { deltaY: 700 }), null);
   assert.equal(validateBrowserToolArguments('scroll', { deltaY: -700, deltaX: 30, ref: 'e4' }), null);
+  assert.equal(validateBrowserToolArguments('keyboard', {
+    ref: 'e5',
+    actions: [
+      { type: 'key', key: 'a', modifiers: ['Meta'] },
+      { type: 'key', key: 'Backspace', repeat: 2 },
+      { type: 'text', text: 'replacement' },
+    ],
+  }), null);
 });

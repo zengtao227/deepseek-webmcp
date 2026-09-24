@@ -10,8 +10,8 @@ import { readFile } from 'node:fs/promises';
 // These files are the same code in both projects, so that merging them later is a move, not a
 // reconciliation. Changing one deliberately means changing both projects and these pins together.
 const PINNED = {
-  'browser-client.js': 'f233da5741e8542511287838a69fd80ee2eef7dbd48ce7aa3d029d80621d3446',
-  'target-executor.js': '8aae89730c030f5d9b11cb9b3832741446d041e6a9e15950607c9949d9a370d3',
+  'browser-client.js': '10719d4bc5dbd1b93b1bd118dc62ff27df24919d1fdb494a7743dd13c900c19e',
+  'target-executor.js': '9814d6e396377f729894992849c937a3220b2fd6e9a3b96b35039d2329309c4a',
 };
 // target-binding.js differs only in the one origin it must never attach (the provider's own site).
 const BINDING_NORMALIZED = '53f5cdda29dfcfb7e6ff96f915056e0dad20eac4c93c07c348f27ae1b19758f5';
