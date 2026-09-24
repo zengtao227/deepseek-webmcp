@@ -93,21 +93,41 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
   }
 
   const found = [];
-  const controlPlane = new Set([
+  const requiredControlPlane = new Set([
     hostCodeRoot,
     path.dirname(configPath),
     path.join(home, '.docker'),
     ...browserProfileRoots(home).map(manifestDirFor),
   ]);
+  const controlPlane = new Set([
+    ...requiredControlPlane,
+    ...fullAccessMaskCandidates({ home: canonicalHome, hostCodeRoot, nodePath }),
+  ]);
   for (const target of controlPlane) {
     const lexical = path.resolve(target);
     const resolved = await realpath(target).catch(() => null);
-    if (!contains(canonicalRoot, lexical) && (!resolved || !contains(canonicalRoot, resolved))) continue;
-    if (!resolved) {
-      fail('A protected DeepSeek WebMCP path inside the selected workspace cannot be resolved.', 'CONTROL_PLANE_PATH_UNAVAILABLE');
+    let candidate = resolved;
+    if (!candidate) {
+      let ancestor = path.dirname(lexical);
+      while (true) {
+        try {
+          candidate = path.join(await realpath(ancestor), path.relative(ancestor, lexical));
+          break;
+        } catch (error) {
+          if (error?.code !== 'ENOENT' || ancestor === path.dirname(ancestor)) throw error;
+          ancestor = path.dirname(ancestor);
+        }
+      }
     }
-    if (resolved === canonicalRoot) {
-      fail('The selected workspace must not be the DeepSeek WebMCP control-plane root.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+    if (contains(candidate, canonicalRoot)) {
+      fail('The selected workspace must not be inside a protected host path.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+    }
+    if (!contains(canonicalRoot, candidate)) continue;
+    if (!resolved) {
+      if (requiredControlPlane.has(target)) {
+        fail('A protected DeepSeek WebMCP path inside the selected workspace cannot be resolved.', 'CONTROL_PLANE_PATH_UNAVAILABLE');
+      }
+      continue;
     }
     const info = await lstat(resolved);
     if (!info.isDirectory() && !info.isFile()) {
@@ -136,8 +156,14 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
 async function buildFullAccessMasks(canonicalHome, home) {
   const found = [];
   for (const candidate of fullAccessMaskCandidates({ home, hostCodeRoot: HOST_CODE_ROOT, nodePath: process.execPath })) {
-    const resolved = await realpath(candidate).catch(() => null);
-    if (!resolved || resolved === canonicalHome || !contains(canonicalHome, resolved)) continue;
+    let resolved;
+    try {
+      resolved = await realpath(candidate);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      continue;
+    }
+    if (resolved === canonicalHome || !contains(canonicalHome, resolved)) continue;
     const info = await lstat(resolved);
     found.push({ type: info.isDirectory() ? 'directory' : 'file', relative: path.relative(canonicalHome, resolved) });
   }
@@ -248,21 +274,9 @@ function mapContainerResponse(request, response) {
   return { version: 1, id: request.id, ok: true, result: result?.structuredContent ?? result };
 }
 
-// macOS privacy protection (TCC) can stop Docker from even opening some home paths,
-// e.g. ~/Library/Cookies. Docker then refuses to mount a mask there, which also proves
-// the container cannot read that path, so only that mask is dropped and the call retried.
 export async function dispatchNativeRequest(request, config, options = {}) {
   validateNativeRequest(request);
-  let current = config;
-  for (;;) {
-    try {
-      return await runContainer(request, current, options);
-    } catch (error) {
-      const blocked = error?.unmountableMask;
-      if (!blocked || !current.masks?.some((mask) => mask.destination === blocked)) throw error;
-      current = { ...current, masks: current.masks.filter((mask) => mask.destination !== blocked) };
-    }
-  }
+  return runContainer(request, config, options);
 }
 
 function runContainer(request, config, {
@@ -319,10 +333,7 @@ function runContainer(request, config, {
         const raw = Buffer.concat(stderr).toString('utf8').slice(0, 4096);
         let message = 'Isolated runtime failed.';
         try { message = sanitizeLogText(raw || message); } catch {}
-        const error = new NativeHostError(message, 'RUNTIME_FAILED');
-        const blocked = raw.match(/error mounting "[^"]*" to rootfs at "(\/workspace\/[^"]+)"[\s\S]*?operation not permitted/i);
-        if (blocked) error.unmountableMask = blocked[1];
-        finish(reject, error);
+        finish(reject, new NativeHostError(message, 'RUNTIME_FAILED'));
         return;
       }
       const line = Buffer.concat(stdout).toString('utf8').trim();

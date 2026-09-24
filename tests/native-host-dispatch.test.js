@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildDockerInvocation, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
+import { buildDockerInvocation, buildWorkspaceControlPlaneMasks, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
+import { fullAccessMaskCandidates } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 
@@ -74,9 +75,13 @@ test('same local config derives the same stable runtime token across one-shot ho
   assert.match(first.runtimeToken, /^[0-9a-f]{64}$/);
 });
 
-test('a parent workspace containing DeepSeek WebMCP stays usable with the checkout masked', async () => {
+test('a parent workspace containing DeepSeek WebMCP stays usable with the checkout masked', async (t) => {
   const hostCodeRoot = path.resolve(import.meta.dirname, '..');
   const workspaceRoot = await realpath(path.dirname(hostCodeRoot));
+  if (workspaceRoot === await realpath(os.homedir())) {
+    t.skip('The installed checkout sits directly under Home, which is deliberately not a normal workspace.');
+    return;
+  }
   const stateDir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-state-'));
   const configPath = path.join(stateDir, 'config.json');
   await writeFile(configPath, JSON.stringify({ workspaceRoot, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
@@ -94,6 +99,38 @@ test('a parent workspace containing DeepSeek WebMCP stays usable with the checko
     random: () => 'r',
   }).args.filter((_, index, args) => args[index - 1] === '--mount');
   assert.ok(mounts.some((mount) => mount.includes(`dst=/workspace/${path.basename(hostCodeRoot)}`)));
+});
+
+test('a normal workspace masks existing cross-provider state and rejects roots inside it', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-cross-provider-'));
+  try {
+    const root = path.join(home, '.config');
+    const webmcp = path.join(root, 'webmcp');
+    const tunnel = path.join(root, 'tunnel-client');
+    const gh = path.join(root, 'gh');
+    await mkdir(webmcp, { recursive: true });
+    const initial = await buildWorkspaceControlPlaneMasks(await realpath(root), {
+      home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+    });
+    assert.deepEqual(initial.map((item) => item.destination), ['/workspace/webmcp']);
+    await mkdir(tunnel);
+    await mkdir(gh);
+    await assert.rejects(
+      buildWorkspaceControlPlaneMasks(await realpath(webmcp), {
+        home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+      }),
+      { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' },
+      'a workspace inside another provider control root must be refused',
+    );
+    const masks = await buildWorkspaceControlPlaneMasks(await realpath(root), {
+      home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+    });
+    assert.deepEqual(masks.map((item) => item.destination), [
+      '/workspace/gh', '/workspace/tunnel-client', '/workspace/webmcp',
+    ]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test('host still refuses exact control-plane roots, host executables, filesystem root and normal home access', async () => {
@@ -114,15 +151,21 @@ test('host still refuses exact control-plane roots, host executables, filesystem
 });
 
 test('Full access mounts the home folder with control-plane and credential paths hidden, only while the lease is valid', async () => {
-  const { mkdir } = await import('node:fs/promises');
   const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-home-'));
   const project = path.join(home, 'projects', 'app');
   await mkdir(project, { recursive: true });
-  await mkdir(path.join(home, '.ssh'));
   await mkdir(path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts'), { recursive: true });
-  await mkdir(path.join(home, '.deepseek-webmcp'));
   await mkdir(path.join(home, 'Notes, 2026'));
-  await writeFile(path.join(home, '.zshrc'), 'export SECRET=1\n');
+  const files = new Set(['.netrc', '.git-credentials', '.npmrc', '.zshrc', '.zprofile', '.zshenv', '.zsh_history', '.bashrc', '.bash_profile', '.bash_history', '.profile']);
+  for (const candidate of fullAccessMaskCandidates({ home, hostCodeRoot: path.resolve(import.meta.dirname, '..'), nodePath: process.execPath })) {
+    if (!candidate.startsWith(`${home}${path.sep}`)) continue;
+    if (files.has(path.basename(candidate))) {
+      await mkdir(path.dirname(candidate), { recursive: true });
+      await writeFile(candidate, 'protected\n');
+    } else {
+      await mkdir(candidate, { recursive: true });
+    }
+  }
   const configPath = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
   await writeFile(configPath, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
 
@@ -140,10 +183,20 @@ test('Full access mounts the home folder with control-plane and credential paths
     .filter((_, index, args) => args[index - 1] === '--mount');
   assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.ssh,readonly,tmpfs-mode=000'));
   assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.deepseek-webmcp,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/Application Support/Comet,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.config/webmcp,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.local/share/webmcp,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.prism-webmcp,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.chatgpt-embedded-panel,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/LaunchAgents,readonly,tmpfs-mode=000'));
+  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/Application Support/tunnel-client,readonly,tmpfs-mode=000'));
   assert.ok(mounts.includes('type=bind,src=/dev/null,dst=/workspace/.zshrc,readonly'));
   assert.equal(mounts.some((mount) => mount.includes('Comet/NativeMessagingHosts')), false);
   assert.equal(mounts.some((mount) => mount.includes('Notes, 2026')), false);
+
+  await rm(path.join(home, '.zprofile'));
+  const withoutOptional = await loadNativeHostConfig(configPath, { home, now: 1000 });
+  assert.equal(withoutOptional.fullAccessUntil, 5000);
+  assert.equal(withoutOptional.masks.some((mask) => mask.destination === '/workspace/.zprofile'), false);
 
   const expired = await loadNativeHostConfig(configPath, { home, now: 6000 });
   assert.equal(expired.fullAccessUntil, null);
@@ -194,7 +247,7 @@ test('Full access and folder changes happen only after the macOS dialog is confi
   await assert.rejects(control('choose-folder', {}, home), { code: 'INVALID_FOLDER' });
 });
 
-test('a mask Docker cannot open because of macOS privacy protection is dropped and the call retried; other failures are not', async () => {
+test('a mask Docker cannot mount fails closed without retrying with weaker protection', async () => {
   const { dispatchNativeRequest } = await import('../native/host/docker-dispatch.js');
   const { EventEmitter } = await import('node:events');
   const attempts = [];
@@ -212,10 +265,6 @@ test('a mask Docker cannot open because of macOS privacy protection is dropped a
           child.emit('close', 125);
           return;
         }
-        if (mounts.includes('/workspace/.ssh')) {
-          child.stdout.emit('data', Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 'p2_call', result: { structuredContent: { result: 'ok' } } })));
-          child.emit('close', 0);
-        }
       }),
     };
     return child;
@@ -224,21 +273,12 @@ test('a mask Docker cannot open because of macOS privacy protection is dropped a
     dockerPath: '/usr/local/bin/docker', canonicalRoot: '/Users/a', image: IMAGE, runtimeToken: 'b'.repeat(64),
     masks: [{ type: 'directory', destination: '/workspace/.ssh' }, { type: 'directory', destination: '/workspace/Library/Cookies' }],
   };
-  const response = await dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), config, { spawnImpl });
-  assert.equal(response.ok, true);
-  assert.equal(attempts.length, 2);
-  assert.ok(attempts[1].some((mount) => mount.includes('/workspace/.ssh')));
-
-  const noSshConfig = { ...config, masks: [{ type: 'directory', destination: '/workspace/Library/Cookies' }, { type: 'directory', destination: '/workspace/.aws' }] };
-  attempts.length = 0;
-  await assert.rejects(dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), { ...noSshConfig, masks: [{ type: 'directory', destination: '/workspace/.aws' }] }, {
-    spawnImpl: (command, args) => {
-      const child = spawnImpl(command, args);
-      child.stdin = { end: () => setImmediate(() => { child.stderr.emit('data', Buffer.from('some other docker failure')); child.emit('close', 125); }) };
-      return child;
-    },
-  }), { code: 'RUNTIME_FAILED' });
+  await assert.rejects(
+    dispatchNativeRequest(request('read', { workspaceId: 'ws_x', path: 'x' }), config, { spawnImpl }),
+    { code: 'RUNTIME_FAILED' },
+  );
   assert.equal(attempts.length, 1);
+  assert.ok(attempts[0].some((mount) => mount.includes('/workspace/.ssh')));
 });
 
 test('uninstall removes local state only after confirmation and announces itself in a macOS message', async () => {
