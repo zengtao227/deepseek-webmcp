@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -144,6 +144,8 @@ const dockerPath = await which('docker').catch(() => {
 await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
+// A failed fresh install removes this folder again if it is still empty (see below).
+const stateDirExisted = await stat(stateDir).then(() => true, () => false);
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
 const runtime = await installRuntime(dockerPath);
 const launcherPath = path.join(stateDir, 'p2-native-host');
@@ -199,6 +201,7 @@ try {
   await install.rollback().catch((rollbackError) => {
     process.stderr.write(`Restoring the previous install also failed: ${rollbackError.message}\n`);
   });
+  if (!stateDirExisted) await rmdir(stateDir).catch(() => {});
   throw error;
 }
 await install.commit();

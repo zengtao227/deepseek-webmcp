@@ -139,7 +139,7 @@ test('if the previous image cannot be guarded, nothing is written and the instal
   });
 });
 
-test('rollback runs every step even when one fails, then reports the first failure', async () => {
+test('rollback runs every file step even when re-tagging fails, keeps the guard tag, and reports the failure', async () => {
   await withFiles(async (files) => {
     const calls = [];
     let retagFails = false;
@@ -152,9 +152,10 @@ test('rollback runs every step even when one fails, then reports the first failu
     await writeNewInstall(files);
     retagFails = true;
     await assert.rejects(install.rollback(), /re-tag failed/);
-    // The files were still put back and the guard tag still dropped.
+    // The files were still put back; the guard tag stays, because it is now the previous
+    // image's only tag and dropping it could let Docker delete that image.
     assert.equal(await readFile(files.config, 'utf8'), '{"image":"old"}\n');
     await assert.rejects(stat(files.manifest), { code: 'ENOENT' });
-    assert.equal(calls.at(-1), `image rm ${guardTagFor(TAG)}`);
+    assert.ok(!calls.includes(`image rm ${guardTagFor(TAG)}`), calls.join('\n'));
   });
 });

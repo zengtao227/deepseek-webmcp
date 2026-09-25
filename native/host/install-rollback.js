@@ -54,8 +54,14 @@ export async function beginInstall({ files, previousImage = null, imageTag, dock
         });
       }
       if (guarded) {
-        await attempt(() => exec(dockerPath, ['tag', previousImage, imageTag], { encoding: 'utf8' }));
-        await attempt(() => exec(dockerPath, ['image', 'rm', guardTag], { encoding: 'utf8' }));
+        // The guard tag is dropped only once the previous image carries the tag again;
+        // otherwise it is the image's last tag and keeps it from being deleted.
+        let retagged = false;
+        await attempt(async () => {
+          await exec(dockerPath, ['tag', previousImage, imageTag], { encoding: 'utf8' });
+          retagged = true;
+        });
+        if (retagged) await attempt(() => exec(dockerPath, ['image', 'rm', guardTag], { encoding: 'utf8' }));
       }
       if (firstError) throw firstError;
     },

@@ -56,7 +56,7 @@ remove_created() {
   [ "$CREATED" = 1 ] || return 0
   rm -rf "$DIR"; CREATED=0
 }
-stop() { trap - ERR; printf '\n%s\n' "$1"; cd "$HOME"; restore_previous; report; remove_created; rm -rf "$WORK"; exit 1; }
+stop() { trap - ERR; printf '\n%s\n' "$1"; cd "$HOME"; restore_previous; report || true; remove_created; rm -rf "$WORK"; exit 1; }
 # Host part of a URL for messages, without any user:password@ prefix.
 host_of() { printf '%s' "$1" | cut -d/ -f3 | sed 's/.*@//'; }
 
