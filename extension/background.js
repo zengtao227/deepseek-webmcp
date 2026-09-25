@@ -635,14 +635,16 @@ function boundedDiagnostics(value) {
 
 // Regenerate and Share press DeepSeek's own controls in the bound provider page; nothing is
 // re-implemented here. A missing control is reported to the panel instead of failing silently.
-async function runAssistantAction(action) {
-  if (!ASSISTANT_ACTIONS.has(action)) {
-    return { ok: false, error: { code: 'INVALID_ACTION', message: 'Unknown assistant action.' } };
-  }
+// Regenerate / Share and the mode switches press a DeepSeek control in the bound provider page: the
+// assistant must be active and idle and its page healthy, and an unreachable page pauses it.
+// `refuse(session)` rejects a request before the page is probed.
+async function relayToProvider(message, { refuse = () => null, fallbackMessage, fallbackCode }) {
   let session = await assistantSession();
   if (!session || session.state !== 'active') {
     return { ok: false, error: { code: 'ASSISTANT_NOT_ACTIVE', message: 'Restore or open the assistant first.' } };
   }
+  const refusal = refuse(session);
+  if (refusal) return { ok: false, error: refusal };
   if (session.presentation.generating) {
     return { ok: false, error: { code: 'GENERATION_IN_PROGRESS', message: 'DeepSeek is still generating.' } };
   }
@@ -655,22 +657,35 @@ async function runAssistantAction(action) {
 
   let result;
   try {
-    result = await chrome.tabs.sendMessage(session.providerTabId, { type: 'assistant.action', action });
+    result = await chrome.tabs.sendMessage(session.providerTabId, message);
   } catch {
     session = await pauseAssistant(session, 'PROVIDER_NOT_READY', 'DeepSeek provider is unavailable.');
     return { ok: false, session, error: { code: 'PROVIDER_NOT_READY', message: session.presentation.notice } };
   }
   if (result?.ok !== true) {
-    const message = String(result?.message ?? 'DeepSeek control could not be used.').slice(0, 500);
-    session = (await patchAssistantSession(session, withNotice(message))) ?? session;
+    const notice = String(result?.message ?? fallbackMessage).slice(0, 500);
+    session = (await patchAssistantSession(session, withNotice(notice))) ?? session;
     const diagnostics = boundedDiagnostics(result?.diagnostics);
     return {
       ok: false,
       session,
-      error: { code: result?.code ?? 'ACTION_FAILED', message },
+      error: { code: result?.code ?? fallbackCode, message: notice },
       ...(diagnostics ? { diagnostics } : {}),
     };
   }
+  return { ok: true, session };
+}
+
+async function runAssistantAction(action) {
+  if (!ASSISTANT_ACTIONS.has(action)) {
+    return { ok: false, error: { code: 'INVALID_ACTION', message: 'Unknown assistant action.' } };
+  }
+  const relayed = await relayToProvider({ type: 'assistant.action', action }, {
+    fallbackMessage: 'DeepSeek control could not be used.',
+    fallbackCode: 'ACTION_FAILED',
+  });
+  if (!relayed.ok) return relayed;
+  let { session } = relayed;
 
   if (action === 'share') {
     // DeepSeek's share flow may ask for a choice or create a link; the owner finishes it there.
@@ -696,37 +711,17 @@ async function runAssistantAction(action) {
 
 // C6: the panel's mode switches press DeepSeek's own toggle in the bound provider page, like
 // Regenerate does. Only a toggle that page reported is relayed; its next report shows the result.
-async function runModeToggle(label) {
-  let session = await assistantSession();
-  if (!session || session.state !== 'active') {
-    return { ok: false, error: { code: 'ASSISTANT_NOT_ACTIVE', message: 'Restore or open the assistant first.' } };
-  }
-  const known = session.presentation.model?.toggles ?? [];
-  if (typeof label !== 'string' || !known.some((toggle) => toggle.label === label)) {
-    return { ok: false, error: { code: 'INVALID_MODE', message: 'Unknown DeepSeek mode.' } };
-  }
-  if (session.presentation.generating) {
-    return { ok: false, error: { code: 'GENERATION_IN_PROGRESS', message: 'DeepSeek is still generating.' } };
-  }
-
-  const health = await providerHealth(session);
-  if (!health.ok) {
-    session = await pauseAssistant(session, health.code, health.message);
-    return { ok: false, session, error: { code: health.code, message: health.message } };
-  }
-
-  let result;
-  try {
-    result = await chrome.tabs.sendMessage(session.providerTabId, { type: 'deepseek.mode-toggle', label });
-  } catch {
-    result = null;
-  }
-  if (result?.ok !== true) {
-    const message = String(result?.message ?? 'DeepSeek mode could not be switched.').slice(0, 500);
-    session = (await patchAssistantSession(session, withNotice(message))) ?? session;
-    return { ok: false, session, error: { code: result?.code ?? 'MODE_TOGGLE_FAILED', message } };
-  }
-  return { ok: true, session };
+function runModeToggle(label) {
+  return relayToProvider({ type: 'deepseek.mode-toggle', label }, {
+    // Only a toggle the provider page reported; checked before the page is probed.
+    refuse: (session) => {
+      const known = session.presentation.model?.toggles ?? [];
+      if (typeof label === 'string' && known.some((toggle) => toggle.label === label)) return null;
+      return { code: 'INVALID_MODE', message: 'Unknown DeepSeek mode.' };
+    },
+    fallbackMessage: 'DeepSeek mode could not be switched.',
+    fallbackCode: 'MODE_TOGGLE_FAILED',
+  });
 }
 
 // deepseek-model.js: the provider page's model and mode, shown in the panel's model line. Only the
