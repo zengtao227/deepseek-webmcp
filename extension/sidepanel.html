@@ -64,11 +64,22 @@
     textarea { width: 100%; min-height: 72px; max-height: 220px; resize: vertical; font: inherit; padding: 8px; }
     #send { width: 100%; margin-top: 7px; padding: 8px; font-weight: 650; }
     #empty { opacity: .68; padding: 24px 8px; text-align: center; }
+    #model { font-size: 11px; opacity: 0.85; margin: 4px 0; }
+    #model code { font-size: 11px; }
+    #model-source { opacity: 0.7; }
   </style>
 </head>
 <body>
   <div id="shell">
     <header>
+      <div class="row">
+        <select id="provider" title="Provider"><option value="chatgpt">ChatGPT</option><option value="deepseek">DeepSeek</option></select>
+      </div>
+      <div id="model" hidden>
+        <div>Actual model: <code id="model-actual"></code></div>
+        <div id="model-mode" hidden>Mode: <code id="model-mode-value"></code></div>
+        <div id="model-source"></div>
+      </div>
       <div class="row">
         <div class="grow">
           <div id="state">Assistant not started</div>
@@ -107,8 +118,6 @@
 
     <details id="settings">
       <summary>Settings</summary>
-      <div class="label">Provider</div>
-      <div class="row"><select id="provider"><option value="deepseek">DeepSeek</option><option value="chatgpt">ChatGPT</option></select></div>
       <div class="label">Folder DeepSeek may read and change</div>
       <div class="row"><span id="folder">…</span><button id="choose" type="button">Change…</button></div>
       <div id="full-access-section">

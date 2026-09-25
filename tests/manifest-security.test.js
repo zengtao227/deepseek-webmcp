@@ -23,12 +23,16 @@ test('page tools use http(s) host access, but no browsing, cookie, network or de
   assert.equal(JSON.stringify(manifest).includes('debugger'), false);
 });
 
-// Web Provider Mode: one ISOLATED content script per provider page, nothing in the page's MAIN world.
-test('providers are observed only from ISOLATED content scripts (no MAIN-world page hook)', () => {
+// Web Provider Mode: ISOLATED content scripts per provider page. The only MAIN-world script is the
+// ChatGPT Embedded Panel's model probe (copied unchanged) on chatgpt.com; DeepSeek pages get none.
+test('providers are observed from ISOLATED content scripts; only the ChatGPT model probe runs in MAIN', () => {
   assert.deepEqual(manifest.content_scripts.map(({ matches, js, world }) => ({ matches, js, world })), [
     { matches: ['https://chat.deepseek.com/*'], js: ['content.js'], world: 'ISOLATED' },
+    { matches: ['https://chat.deepseek.com/*'], js: ['deepseek-model.js'], world: 'ISOLATED' },
     { matches: ['https://chatgpt.com/*'], js: ['embedded-chatgpt.js'], world: 'ISOLATED' },
+    { matches: ['https://chatgpt.com/*'], js: ['model-probe.js'], world: 'MAIN' },
     { matches: ['https://chatgpt.com/*'], js: ['content-chatgpt.js'], world: 'ISOLATED' },
   ]);
-  assert.equal(JSON.stringify(manifest).includes('"MAIN"'), false);
+  const main = manifest.content_scripts.filter((script) => script.world === 'MAIN');
+  assert.deepEqual(main.map((script) => script.matches), [['https://chatgpt.com/*']]);
 });

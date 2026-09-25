@@ -60,7 +60,7 @@ a{color:var(--accent)}
 
 <div class="wrap">
   <header style="display:grid;gap:10px">
-    <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.105</code></span><span>更新于 2026-09-25</span></p>
+    <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.106</code></span><span>更新于 2026-09-25</span></p>
     <h1>ChatGPT Web Provider 开发计划</h1>
     <p class="lede">目标：在 Side Panel 里直接用 ChatGPT 网页当 Provider，调用本地 WebMCP。ChatGPT 这部分完全照搬已经做好的 ChatGPT Embedded Panel，DeepSeek 保持不变。每一步都按本页对照、验收、审查，状态也记在本页。</p>
   </header>
@@ -134,11 +134,14 @@ a{color:var(--accent)}
         <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B6</td><td>工具 click 造成的跳转或新标签，由任务接管</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B7</td><td>和任务无关的跨域跳转会暂停任务，而不是悄悄换目标</td><td><span class="pill todo">未验证</span></td><td></td></tr>
-        <tr><td class="id">C1</td><td>显示实际模型 / Effort / Requested / Mismatch</td><td><span class="pill miss">缺失</span></td><td>等决策 D1</td></tr>
+        <tr><td class="id">C1</td><td>ChatGPT：显示实际使用的模型 / Effort / Mismatch</td><td><span class="pill warn">待你验收</span></td><td>0.5.106：原面板的 model-probe、model-status 和顶部显示原样移植；按你的要求去掉了 Requested 一行</td></tr>
+        <tr><td class="id">C3</td><td>DeepSeek：在同一个顶部位置显示模型和模式</td><td><span class="pill warn">待你验收</span></td><td>0.5.106：新增 deepseek-model.js，从 DeepSeek 页面读取输入框旁边的模式按钮（例如 DeepThink / Search）是否开启；不拦截网络</td></tr>
+        <tr><td class="id">C4</td><td>切换 Provider 后，不显示上一个 Provider 的旧模型信息</td><td><span class="pill warn">待你验收</span></td><td>两个 Provider 各自一个页面，切换时整页换掉；DeepSeek 页只显示 DeepSeek 会话里的值</td></tr>
+        <tr><td class="id">C5</td><td>DeepSeek 继续显示 Provider 窗口是否可见</td><td><span class="pill ok">未改动</span></td><td>DeepSeek 原有功能</td></tr>
         <tr><td class="id">C2</td><td>工具调用的显示方式</td><td><span class="pill todo">模式差异</span></td><td>原面板用 ChatGPT 自带的 “Called tool”（MCP 模式）；Web Provider 模式下，工具调用是聊天里的文字，自动折叠成一行</td></tr>
         <tr><td class="id">D1</td><td>本地文件工具：open_workspace / read / write / edit / bash</td><td><span class="pill warn">部分</span></td><td>独立窗口模式你已跑通；面板模式未验证</td></tr>
         <tr><td class="id">D2</td><td>High Trust host_command（在 WebMCP App 里授权）</td><td><span class="pill todo">未验证</span></td><td>ChatGPT 模式下还没测过</td></tr>
-        <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill miss">未达到</span></td><td>现在 DeepSeek 的选择器还在 Settings 里，是临时做法；第 5b 步收敛</td></tr>
+        <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill warn">待你验收</span></td><td>0.5.106：两个页面顶部是同一个控件（panel-header.js），已从 Settings 里移除</td></tr>
         <tr><td class="id">U2</td><td>Side Panel 里不再有 Folder / Full Access / High Trust，这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有这些设置；第 5b 步收敛</td></tr>
       </tbody>
     </table></div>
@@ -150,9 +153,12 @@ a{color:var(--accent)}
       <thead><tr><th>文件</th><th>来源</th><th>改动及理由</th></tr></thead>
       <tbody>
         <tr><td><code>frame-policy.js</code></td><td>原面板，原样复制</td><td>只在后面追加了面板 frame 的身份识别函数，复制的规则本身一字未改</td></tr>
-        <tr><td><code>embedded-chatgpt.js</code></td><td>原面板，原样复制</td><td>无改动</td></tr>
-        <tr><td><code>sidepanel-chatgpt.html</code></td><td>原面板 <code>sidepanel.html</code></td><td>加 Provider 下拉框；删掉模型信息那几行（D1）；脚本名改为 <code>sidepanel-chatgpt.js</code></td></tr>
-        <tr><td><code>sidepanel-chatgpt.js</code></td><td>原面板 <code>sidepanel.js</code></td><td>消息名改成本扩展的；删掉模型显示（D1）；加 Provider 切换；加 “Work 状态变化”的转发</td></tr>
+        <tr><td><code>embedded-chatgpt.js</code>、<code>model-probe.js</code>、<code>model-status.js</code></td><td>原面板，原样复制</td><td>无改动；对应的原测试也一并复制，只改了 import 路径</td></tr>
+        <tr><td><code>panel-header.js</code></td><td>新增（U1）</td><td>两个面板页共用的 Provider 选择器和页面切换</td></tr>
+        <tr><td><code>deepseek-model.js</code></td><td>新增（C3）</td><td>DeepSeek 的模型/模式读取 Adapter；DeepSeek 原有的 content.js 不动</td></tr>
+        <tr><td><code>sidepanel-chatgpt.html</code></td><td>原面板 <code>sidepanel.html</code></td><td>标题；顶部加 Provider 选择器；去掉 Requested 一行（你的要求）；脚本名改为 <code>sidepanel-chatgpt.js</code></td></tr>
+        <tr><td><code>sidepanel-chatgpt.js</code></td><td>原面板 <code>sidepanel.js</code></td><td>消息名改成本扩展的；Provider 选择器；去掉 Requested 两行；加 Work 状态变化的转发</td></tr>
+        <tr><td><code>sidepanel.html</code> / <code>sidepanel.js</code>（DeepSeek）</td><td>DeepSeek 原页面</td><td>顶部加同一个 Provider 选择器和模型行；其余不变</td></tr>
         <tr><td><code>content-chatgpt.js</code></td><td>DeepSeek <code>content.js</code></td><td>只替换页面操作层（ChatGPT 的输入框、发送/停止、回答区域）；加一句 ChatGPT 专用说明，告诉模型工具由扩展执行</td></tr>
         <tr><td><code>background.js</code></td><td>DeepSeek</td><td>加 Provider 表；识别面板里的 ChatGPT frame；面板 ChatGPT 默认开启 Work；备用窗口（复制自原面板）；面板模式视为已附加当前页面</td></tr>
         <tr><td><code>manifest.json</code></td><td>DeepSeek</td><td>加 chatgpt.com 的两个脚本、嵌入规则所需权限、原面板的 CSP；改名和版本号（POC）</td></tr>
@@ -163,7 +169,7 @@ a{color:var(--accent)}
   <section>
     <h2>步骤</h2>
     <div class="steps">
-      <div class="card now"><div class="head"><h3>第 0 步 · 冻结基线</h3><span class="pill warn">等你同意</span></div>
+      <div class="card"><div class="head"><h3>第 0 步 · 冻结基线</h3><span class="pill ok">完成 14f8fab</span></div>
         <dl><dt>做什么</dt><dd>把分支当前的改动原样提交一次，只在本地分支，不合并、不推送。之后每一步都是一个单独、可以审查的改动。顺便加上“照搬一致性检查”脚本。</dd>
         <dt>验收</dt><dd>基线提交存在，<code>npm run check</code> 通过，一致性检查通过。</dd>
         <dt>审查</dt><dd>对照差异清单检查提交内容；确认不包含 <code>node_modules</code> 软链。</dd></dl></div>
@@ -178,10 +184,10 @@ a{color:var(--accent)}
         <dt>验收</dt><dd>顶部显示左边页面的标题；让 ChatGPT 读左边页面，它能返回页面内容。</dd>
         <dt>审查</dt><dd>这次改动只有 <code>background.js</code> 里的一行判断。</dd></dl></div>
 
-      <div class="card"><div class="head"><h3>第 3 步 · 模型信息（C1）</h3><span class="pill todo">等决策 D1</span></div>
-        <dl><dt>做什么</dt><dd>如果你同意：原样移植原面板的 <code>model-probe.js</code>、<code>model-status.js</code> 和顶部的模型显示，同时把仓库安全规则改为“只禁止在 DeepSeek 页面注入”。</dd>
-        <dt>验收</dt><dd>顶部显示实际模型、Effort，不一致时标出 Mismatch。</dd>
-        <dt>审查</dt><dd>照搬一致性检查；安全规则的改动单独列出，交给第 7 步重点审。</dd></dl></div>
+      <div class="card now"><div class="head"><h3>第 3 步 · 顶部状态区：Provider 选择器 + 模型信息（U1、C1、C3、C4）</h3><span class="pill warn">0.5.106 待你验收</span></div>
+        <dl><dt>做什么</dt><dd>ChatGPT：原样移植原面板的 model-probe.js、model-status.js 和顶部模型显示（按你的要求去掉 Requested）。DeepSeek：新增 deepseek-model.js，只读取 DeepSeek 页面的模式按钮，显示在同一位置。两个页面顶部使用同一个 Provider 选择器（panel-header.js），并从 Settings 中移除。</dd>
+        <dt>验收</dt><dd>ChatGPT 页：发一条消息后，顶部显示 Actual model 和 Effort。DeepSeek 页：顶部显示 DeepSeek 和当前开启的模式，切换 DeepThink / Search 后跟着变。两边切换 Provider 时不出现上一个 Provider 的值。两个页面顶部都能看到 Provider 选择器。</dd>
+        <dt>审查</dt><dd>照搬一致性检查：embedded-chatgpt.js、frame-policy.js、model-probe.js、model-status.js 与原文件完全相同；面板页只有差异清单里登记的改动。安全测试收窄为只允许 chatgpt.com 上的这一个 MAIN-world 脚本，DeepSeek 页面仍然不允许。自动测试 317/317 通过。</dd></dl></div>
 
       <div class="card"><div class="head"><h3>第 4 步 · 面板生命周期（A4–A6、B3–B7）</h3><span class="pill todo">未开始</span></div>
         <dl><dt>做什么</dt><dd>你逐项实测；哪一项失败，就只修那一项，每项单独提交。</dd>
@@ -220,8 +226,8 @@ a{color:var(--accent)}
     <div class="tbl"><table>
       <thead><tr><th>编号</th><th>问题</th><th>我的建议</th></tr></thead>
       <tbody>
-        <tr><td class="id">D0</td><td>第 0 步：是否允许在本地分支提交基线？（仓库规定：你不说就不提交）</td><td>同意。之后每一步都能单独审查、单独回退</td></tr>
-        <tr><td class="id">D1</td><td>模型信息：要不要移植原面板在 ChatGPT 页面主环境里的网络探测？</td><td>同意移植，并把安全规则收窄为只禁止 DeepSeek 页面</td></tr>
+        <tr><td class="id">D0</td><td>第 0 步：是否允许在本地分支提交基线？</td><td><span class="pill ok">已批准</span> 基线提交 <code>14f8fab</code></td></tr>
+        <tr><td class="id">D1</td><td>模型信息：要不要移植原面板在 ChatGPT 页面主环境里的网络探测？</td><td><span class="pill ok">已决定</span> 必须做，本阶段完成（第 3 步）</td></tr>
         <tr><td class="id">D2</td><td>路线图的两个本地提交（<code>7e2372f</code>、<code>06ea912</code>）要不要推送？</td><td>等第 2 步验收通过后再推送</td></tr>
       </tbody>
     </table></div>

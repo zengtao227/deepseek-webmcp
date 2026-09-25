@@ -30,8 +30,10 @@ test('P2 extension uses one-shot Native Messaging without DeepSeek credential ac
   assert.match(source, /providerWindowId: provider\.providerWindowId, providerTabId: provider\.providerTabId \}/);
 });
 
+// model-probe.js is the ChatGPT Embedded Panel's probe, copied unchanged: it wraps fetch only in
+// chatgpt.com frames inside this extension's panel (manifest: MAIN world, chatgpt.com only).
 test('P2 extension neither hooks nor originates DeepSeek network traffic', async () => {
-  const files = await collect('extension');
+  const files = (await collect('extension')).filter((file) => !file.endsWith('model-probe.js'));
   const source = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n');
   assert.doesNotMatch(source, /window\.fetch|\bfetch\s*\(/);
   assert.doesNotMatch(source, /XMLHttpRequest|EventSource|WebSocket/);

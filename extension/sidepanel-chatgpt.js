@@ -1,8 +1,9 @@
-// ChatGPT in Web Provider Mode: the ChatGPT Embedded Panel's page, copied with only these changes:
-// message names mapped to this extension's worker, the model display (MAIN-world fetch probe)
-// left out, a Provider picker, and the Work-changed relay into the ChatGPT frame.
-const PROVIDER_KEY = 'provider.id';
-if (((await chrome.storage.local.get(PROVIDER_KEY))[PROVIDER_KEY] ?? 'deepseek') !== 'chatgpt') location.replace('sidepanel.html');
+import { INITIAL_MODEL_STATUS, applyModelEvent, modelStatusLines } from './model-status.js';
+import { mountProviderSelect, routeToProviderPage } from './panel-header.js';
+
+// ChatGPT in Web Provider Mode: the ChatGPT Embedded Panel's page. Changes from the original are
+// listed in docs/web-provider-dev-plan.html (message names, Provider selector, Work relay).
+const provider = await routeToProviderPage('sidepanel-chatgpt.html');
 
 const CHATGPT_HOME = 'https://chatgpt.com/';
 const LAST_URL_KEY = 'chatgptEmbeddedPanel.lastUrl';
@@ -19,6 +20,7 @@ let generation = 0;
 let timeoutId = null;
 let peer = null;
 let retried = false;
+let modelStatus = INITIAL_MODEL_STATUS;
 
 function sanitizeChatGptUrl(value) {
   try {
@@ -37,6 +39,17 @@ function setStatus(text = '') {
   status.hidden = !text;
   status.textContent = text;
   status.title = text;
+}
+
+function renderModelStatus() {
+  const lines = modelStatusLines(modelStatus);
+  document.getElementById('model').hidden = !lines;
+  if (!lines) return;
+  document.getElementById('model-actual').textContent = lines.actual;
+  document.getElementById('model-mismatch').hidden = !lines.mismatch;
+  document.getElementById('model-effort').hidden = !lines.effort;
+  document.getElementById('model-effort-value').textContent = lines.effort;
+  document.getElementById('model-source').textContent = lines.source ? `Source: ${lines.source}` : '';
 }
 
 async function runtimeMessage(type) {
@@ -121,6 +134,12 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message?.type === 'chatgpt-embedded-panel:model') {
+    modelStatus = applyModelEvent(modelStatus, message.event);
+    renderModelStatus();
+    return;
+  }
+
   if (message?.type === 'chatgpt-embedded-panel:pong' && message.documentId === peer?.documentId) {
     setStatus('');
   }
@@ -177,12 +196,7 @@ chrome.runtime.onMessage.addListener((message) => {
   return false;
 });
 
-const providerSelect = document.getElementById('provider');
-providerSelect.value = 'chatgpt';
-providerSelect.addEventListener('change', async () => {
-  await chrome.storage.local.set({ [PROVIDER_KEY]: providerSelect.value });
-  location.replace('sidepanel.html');
-});
+mountProviderSelect(document.getElementById('provider'), provider);
 
 void refreshPageState().catch(() => {});
 void loadFrame().catch((error) => {

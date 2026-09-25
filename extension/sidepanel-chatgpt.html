@@ -33,6 +33,11 @@
       <button id="stop" type="button" hidden title="Release the page locked to this task">Stop</button>
     </div>
     <span id="status" hidden></span>
+    <div id="model" hidden>
+      <div>Actual model: <code id="model-actual"></code> <strong id="model-mismatch" hidden>Mismatch</strong></div>
+      <div id="model-effort" hidden>Effort: <code id="model-effort-value"></code></div>
+      <div id="model-source"></div>
+    </div>
   </header>
   <div id="frame-wrap">
     <iframe id="chatgpt-frame" title="ChatGPT" allow="clipboard-write"></iframe>

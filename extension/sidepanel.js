@@ -1,13 +1,23 @@
 import { blocksToPlainText } from './answer-blocks.js';
 import { renderBlocks } from './answer-render.js';
 import { initSettings } from './settings-ui.js';
+import { mountProviderSelect, routeToProviderPage } from './panel-header.js';
 
 const $ = (selector) => document.querySelector(selector);
 
 // ChatGPT has its own panel page (the ChatGPT Embedded Panel's); nothing below runs for it.
-if ((await chrome.storage.local.get('provider.id'))['provider.id'] === 'chatgpt') {
-  location.replace('sidepanel-chatgpt.html');
-  await new Promise(() => {});
+const provider = await routeToProviderPage('sidepanel.html');
+mountProviderSelect($('#provider'), provider);
+
+// DeepSeek's model/mode, read from the DeepSeek page by deepseek-model.js. Only the DeepSeek
+// session's own value is shown here, so another provider's value can never appear.
+function renderModel(model) {
+  $('#model').hidden = !model;
+  if (!model) return;
+  $('#model-actual').textContent = model.model;
+  $('#model-mode').hidden = !model.mode;
+  $('#model-mode-value').textContent = model.mode ?? '';
+  $('#model-source').textContent = 'Source: DeepSeek page';
 }
 
 let lastSessionKey = '';
@@ -174,6 +184,7 @@ function render(response) {
   $('#restore').hidden = session?.state !== 'paused';
 
   if (!session) {
+    renderModel(null);
     $('#state').textContent = 'Assistant not started';
     $('#history').replaceChildren();
     lastHistorySignature = '';
@@ -196,6 +207,7 @@ function render(response) {
   providerNote = health?.page?.visibility ? ' · DeepSeek ' + health.page.visibility : '';
 
   const presentation = session.presentation ?? {};
+  renderModel(presentation.model ?? null);
   renderHistory(presentation.history);
 
   const reasoning = typeof presentation.reasoning === 'string' ? presentation.reasoning : '';

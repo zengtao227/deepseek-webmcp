@@ -692,6 +692,15 @@ async function runAssistantAction(action) {
   return { ok: true, session };
 }
 
+// deepseek-model.js: the provider page's model and mode, shown in the panel's model line. Only the
+// bound provider tab's report is kept (patchActiveProviderPresentation checks that).
+async function recordProviderModel(tabId, model) {
+  const name = typeof model?.model === 'string' ? model.model.slice(0, 40) : '';
+  if (!name) return;
+  const mode = typeof model.mode === 'string' ? model.mode.slice(0, 120) : null;
+  await patchActiveProviderPresentation(tabId, (presentation) => ({ ...presentation, model: { model: name, mode } }));
+}
+
 async function recordAssistantSnapshot(tabId, snapshot) {
   const rawAnswer = boundedPresentationText(snapshot?.answer);
   const answer = /webmcp_tool_call|｜\s*DSML\s*｜/i.test(rawAnswer) ? '' : rawAnswer;
@@ -1067,6 +1076,11 @@ function handleMessage(message, sender) {
     if (!provider || typeof message.conversationPath !== 'string' || !provider.conversationPath.test(message.conversationPath)) return undefined;
     // The user may already have switched chats; the result belongs to the path it was typed into.
     return recordContinuation(context.tabId, `${provider.origin}${message.conversationPath}`, message.result).then(() => ({ ok: true }));
+  }
+  if (message.type === 'model.status') {
+    const context = senderContext(sender, message);
+    if (!context) return undefined;
+    return recordProviderModel(context.tabId, message.model).then(() => ({ ok: true }));
   }
   if (message.type === 'assistant.snapshot') {
     const context = senderContext(sender, message);

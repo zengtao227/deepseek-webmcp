@@ -99,6 +99,7 @@ DeepSeek consumes the provider-neutral `webmcp-runtime` as a pinned release arti
 ## ChatGPT Web Adapter (Web Provider Mode, 2026-09-25)
 
 - `extension/content-chatgpt.js`: adapted from this repository's `extension/content.js` (worker protocol, completion detection, answer structuring and folding kept); the page layer (composer, send/stop, answer turn) replaced with selectors and ProseMirror write logic from `chatgpt-embedded-panel-dev` `7ae86f7:embedded-chatgpt.js`, extended for the textarea / `li[data-message-role]` ChatGPT UI seen live on 2026-09-25.
-- `extension/frame-policy.js`, `extension/embedded-chatgpt.js`: copied unchanged from `chatgpt-embedded-panel` (`frame-policy.js` gains the panel-frame sender check below the copied rule).
-- `extension/sidepanel-chatgpt.html` / `.js`: copied from `chatgpt-embedded-panel` `sidepanel.html` / `sidepanel.js`; only message names mapped to this worker, the model display (MAIN-world fetch probe, not allowed here) removed, a Provider picker and the Work-changed relay added.
+- `extension/frame-policy.js`, `extension/embedded-chatgpt.js`, `extension/model-probe.js`, `extension/model-status.js` (and `tests/model-probe.test.js`, `tests/model-status.test.js`, import paths only): copied unchanged from `chatgpt-embedded-panel` (`frame-policy.js` gains the panel-frame sender check below the copied rule). `scripts/check-panel-copy.mjs` verifies this.
+- `extension/sidepanel-chatgpt.html` / `.js`: copied from `chatgpt-embedded-panel` `sidepanel.html` / `sidepanel.js`; changes are listed in `docs/web-provider-dev-plan.html` (message names, Provider selector, Requested line removed on the owner's request, Work-changed relay).
 - `openCompanionWindow` in `extension/background.js`: copied from `chatgpt-embedded-panel` `service-worker.js`; the companion ChatGPT tab also gets Work.
+- `extension/deepseek-model.js`, `extension/panel-header.js`: new (DeepSeek model/mode adapter; shared Provider selector).

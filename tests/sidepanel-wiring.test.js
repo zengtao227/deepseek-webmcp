@@ -15,3 +15,17 @@ test('extension pages may frame chatgpt.com, as in the ChatGPT Embedded Panel', 
   const manifest = JSON.parse(await page('manifest.json'));
   assert.equal(manifest.content_security_policy?.extension_pages, "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com;");
 });
+
+// Unified Side Panel U1: both pages show the same Provider selector at the top, not in Settings.
+test('both Side Panel pages carry the same Provider selector in their header', async () => {
+  const selector = '<select id="provider" title="Provider"><option value="chatgpt">ChatGPT</option><option value="deepseek">DeepSeek</option></select>';
+  for (const name of ['sidepanel.html', 'sidepanel-chatgpt.html']) {
+    const html = await page(name);
+    const header = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
+    assert.ok(header.includes(selector), `${name} header has the Provider selector`);
+    assert.equal(html.split('id="provider"').length - 1, 1, `${name} has exactly one Provider selector`);
+    assert.ok(header.includes('id="model"'), `${name} header has the model line`);
+  }
+  const chatgpt = await page('sidepanel-chatgpt.html');
+  assert.equal(chatgpt.includes('model-requested'), false, 'ChatGPT shows the model actually used, not the requested one');
+});
