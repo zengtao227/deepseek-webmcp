@@ -8,7 +8,8 @@
 
   const COMPOSER_SELECTOR = 'textarea[placeholder]';
   const SEND_SELECTOR = 'div[role="button"].ds-button--primary.ds-button--circle';
-  const BUTTON_SELECTOR = '[role="button"], button, .ds-button';
+  // Live 2026-09-25: DeepThink / Search are DIV.ds-toggle-button with no role.
+  const BUTTON_SELECTOR = '[role="button"], button, .ds-button, .ds-toggle-button';
   const MAX_LEVELS = 6;
   const POLL_MS = 1000;
   // Live 2026-09-25: a report sent before this window was bound to the panel was dropped and, being

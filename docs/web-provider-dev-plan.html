@@ -150,7 +150,7 @@ a{color:var(--accent)}
         <tr><td class="id">B6</td><td>工具 click 造成的跳转或新标签，由任务接管</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B7</td><td>和任务无关的跨域跳转会暂停任务，而不是悄悄换目标</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">C1</td><td>ChatGPT：显示实际使用的模型 / Effort</td><td><span class="pill ok">你已测</span></td><td>0.5.106 显示了 gpt-5-6。Requested 按你的要求去掉；Mismatch 是拿来和 Requested 比的，0.5.107 一并去掉</td></tr>
-        <tr><td class="id">C3</td><td>DeepSeek：在顶部一行显示实际使用的模型</td><td><span class="pill warn">待你验收</span></td><td>0.5.108 修了一个确定的 bug：第一次读到的值在窗口绑定前发出就被丢掉，之后不再重发；现在每 10 秒重发一次，而且认不出模式按钮时至少显示 DeepSeek。模式和模型版本仍需要你的 DeepSeek 截图才能对准</td></tr>
+        <tr><td class="id">C3</td><td>DeepSeek：在顶部一行显示实际使用的模型</td><td><span class="pill warn">待你验收</span></td><td>0.5.108 修了一个确定的 bug：第一次读到的值在窗口绑定前发出就被丢掉，之后不再重发；现在每 10 秒重发一次，而且认不出模式按钮时至少显示 DeepSeek。真实 DeepSeek 页面的模式开关是没有 role 的 DIV.ds-toggle-button，旧读取器只找 .ds-button，所以只显示 DeepSeek；已把 .ds-toggle-button 加入选择器，并在真实页面上跑修复后的读取器：读出“智能搜索”，打开深度思考后读出“深度思考 · 智能搜索”。面板顶部的实际显示仍待你验收；模型版本页面上没有显示</td></tr>
         <tr><td class="id">C4</td><td>切换 Provider 后，不显示上一个 Provider 的旧模型信息</td><td><span class="pill ok">结构保证</span></td><td>两个 Provider 各用一个页面，切换时整页换掉，不需要单独测</td></tr>
         <tr><td class="id">C6</td><td>在 Side Panel 里切换 DeepSeek 的模式（不用去 DeepSeek 窗口）</td><td><span class="pill todo">新需求</span></td><td>等 C3 拿到真实页面结构后再做</td></tr>
         <tr><td class="id">C5</td><td>DeepSeek 继续显示 Provider 窗口是否可见</td><td><span class="pill ok">未改动</span></td><td>DeepSeek 原有功能</td></tr>
