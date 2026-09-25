@@ -10,6 +10,7 @@ import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, hostKind, instal
 import { assertWindowsWorkspace } from '../native/host/control.js';
 import { promisify } from 'node:util';
 import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
+import { beginInstall } from '../native/host/install-rollback.js';
 
 const execFileAsync = promisify(execFile);
 const EXTENSION_ID = /^[a-p]{32}$/;
@@ -87,17 +88,21 @@ async function installRuntime(dockerPath) {
     const { pinInstanceToRelease } = await at('native/deploy/instance-release.js');
     const { buildNativeImageFromRelease, DEFAULT_NATIVE_BASE_IMAGE } = await at('native/deploy/build-image.js');
     const context = createInstanceContext({ home, instanceId: 'deepseek' });
-    const { image } = await buildNativeImageFromRelease({
-      releaseDir: release.releaseDir,
-      expectedArtifactId: lock.artifactId,
-      baseImage: DEFAULT_NATIVE_BASE_IMAGE,
-      outputPin: context.imagePin,
-      tag: IMAGE_TAG,
-      dockerBin: dockerPath,
-    });
-    // The caller pins only after every other install write succeeded, so a failed update
-    // leaves the previous pin matching the previous adapter's runtime.lock.json.
-    return { artifactId: lock.artifactId, image, pin: () => pinInstanceToRelease(context, lock.artifactId) };
+    // Only the shared release store has been written so far. The build writes the image pin
+    // and moves the image tag; the caller runs it inside its rollback (install-rollback.js).
+    return {
+      artifactId: lock.artifactId,
+      instanceFiles: [context.imagePin, context.hostReleasePin],
+      build: async () => (await buildNativeImageFromRelease({
+        releaseDir: release.releaseDir,
+        expectedArtifactId: lock.artifactId,
+        baseImage: DEFAULT_NATIVE_BASE_IMAGE,
+        outputPin: context.imagePin,
+        tag: IMAGE_TAG,
+        dockerBin: dockerPath,
+      })).image,
+      pin: () => pinInstanceToRelease(context, lock.artifactId),
+    };
   } finally {
     await rm(work, { recursive: true, force: true });
   }
@@ -141,7 +146,6 @@ const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
 await mkdir(stateDir, { recursive: true, mode: 0o700 });
 const runtime = await installRuntime(dockerPath);
-const image = runtime.image;
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);
 // Under WSL the browsers are registered on the Windows side (windows/register.ps1).
@@ -149,28 +153,55 @@ if (kind === 'macos' && browserRoots.length === 0) browserRoots.push(path.join(h
 const manifestPaths = browserRoots.map((root) => path.join(manifestDirFor(root), `${HOST_NAME}.json`));
 const hostScript = path.join(projectRoot, 'native/host/chrome-host.js');
 
-await mkdir(stateDir, { recursive: true, mode: 0o700 });
-await writeFile(configPath, `${JSON.stringify({ workspaceRoot, image, dockerPath }, null, 2)}\n`, { mode: 0o600 });
-await chmod(configPath, 0o600);
-await writeFile(launcherPath, [
-  '#!/bin/sh',
-  `export DEEPSEEK_WEBMCP_CONFIG=${shellQuote(configPath)}`,
-  `exec ${shellQuote(process.execPath)} ${shellQuote(hostScript)}`,
-  '',
-].join('\n'), { mode: 0o755 });
-await chmod(launcherPath, 0o755);
-for (const manifestPath of manifestPaths) {
-  await mkdir(path.dirname(manifestPath), { recursive: true });
-  await writeFile(manifestPath, `${JSON.stringify({
-    name: HOST_NAME,
-    description: 'DeepSeek WebMCP isolated local runtime',
-    path: launcherPath,
-    type: 'stdio',
-    allowed_origins: [`chrome-extension://${extensionId}/`],
-  }, null, 2)}\n`);
+// From here on every write is undone if a later step fails, so an update that fails leaves
+// the previous install working and a fresh install that fails leaves no instance files.
+let previousImage = null;
+try {
+  previousImage = JSON.parse(await readFile(configPath, 'utf8')).image ?? null;
+} catch {}
+const install = await beginInstall({
+  files: [configPath, launcherPath, ...manifestPaths, ...runtime.instanceFiles],
+  previousImage,
+  imageTag: IMAGE_TAG,
+  dockerPath,
+  exec: execFileAsync,
+});
+async function writeInstall() {
+  const builtImage = await runtime.build();
+  await writeFile(configPath, `${JSON.stringify({ workspaceRoot, image: builtImage, dockerPath }, null, 2)}\n`, { mode: 0o600 });
+  await chmod(configPath, 0o600);
+  await writeFile(launcherPath, [
+    '#!/bin/sh',
+    `export DEEPSEEK_WEBMCP_CONFIG=${shellQuote(configPath)}`,
+    `exec ${shellQuote(process.execPath)} ${shellQuote(hostScript)}`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  await chmod(launcherPath, 0o755);
+  for (const manifestPath of manifestPaths) {
+    await mkdir(path.dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, `${JSON.stringify({
+      name: HOST_NAME,
+      description: 'DeepSeek WebMCP isolated local runtime',
+      path: launcherPath,
+      type: 'stdio',
+      allowed_origins: [`chrome-extension://${extensionId}/`],
+    }, null, 2)}\n`);
+  }
+
+  await runtime.pin();
+  return builtImage;
 }
 
-await runtime.pin();
+let image;
+try {
+  image = await writeInstall();
+} catch (error) {
+  await install.rollback().catch((rollbackError) => {
+    process.stderr.write(`Restoring the previous install also failed: ${rollbackError.message}\n`);
+  });
+  throw error;
+}
+await install.commit();
 
 process.stdout.write(`${JSON.stringify({
   installed: true,

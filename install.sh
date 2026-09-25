@@ -12,6 +12,7 @@ REPORT="$HOME/deepseek-webmcp-install-report.txt"
 WORK="$(mktemp -d)"
 FAILED=0
 MOVED=0
+CREATED=0
 CHECKS=""
 STEP="preflight"
 WORKSPACE_ARG=""
@@ -49,7 +50,13 @@ restore_previous() {
   rm -rf "$DIR"; mv "$DIR.previous" "$DIR"; MOVED=0
   echo "The previous version was put back."
 }
-stop() { trap - ERR; printf '\n%s\n' "$1"; cd "$HOME"; restore_previous; report; rm -rf "$WORK"; exit 1; }
+# A fresh install that fails removes the program folder it created, after the report (which
+# uses that folder's secret scanner) is written.
+remove_created() {
+  [ "$CREATED" = 1 ] || return 0
+  rm -rf "$DIR"; CREATED=0
+}
+stop() { trap - ERR; printf '\n%s\n' "$1"; cd "$HOME"; restore_previous; report; remove_created; rm -rf "$WORK"; exit 1; }
 # Host part of a URL for messages, without any user:password@ prefix.
 host_of() { printf '%s' "$1" | cut -d/ -f3 | sed 's/.*@//'; }
 
@@ -138,6 +145,7 @@ RUNTIME_URL="${DEEPSEEK_WEBMCP_RUNTIME_ARCHIVE:-$(node -p 'require(process.argv[
 fetch_to "$RUNTIME_URL" "$WORK/runtime.tar.gz"
 if [ "$UPDATE" = 1 ]; then rm -rf "$DIR.previous"; mv "$DIR" "$DIR.previous"; MOVED=1; fi
 mv "$WORK/adapter" "$DIR"
+[ "$UPDATE" = 1 ] || CREATED=1
 # Marks a program folder created by this installer; only such a folder is deleted by Uninstall.
 touch "$DIR/.deepseek-webmcp-installed"
 
@@ -148,6 +156,7 @@ if ! DEEPSEEK_WEBMCP_INSTALLER=1 node scripts/install-p2-native-host.mjs --runti
   stop "The local runtime could not be installed."
 fi
 rm -rf "$DIR.previous" "$WORK"
+CREATED=0
 
 # Under WSL the Windows setup registers Chrome and Edge and shows the browser steps.
 [ "$KIND" = wsl ] && exit 0
