@@ -284,9 +284,11 @@ test('sponsored cards under ChatGPT replies are marked hidden; the reply itself 
   };
   const message = Object.assign(node('', [node('The title is Ad')]), { isMessage: true });
   const reply = node('', [message]);
+  // A reply that is itself the block (no wrapper) and holds a leaf that reads exactly "Ad".
+  const bareReply = Object.assign(node('', [node('Ad')]), { matches: (selector) => selector === '[data-message-author-role]' });
   const card = node('', [node('', [node('ki-checker.ch'), node('Ad')]), node('KI-Sichtbarkeit prüfen')]);
   const actions = node('', [node('Copy')]);
-  const content = node('', [reply, actions, card]);
+  const content = node('', [reply, bareReply, actions, card]);
   const turn = { querySelector: (selector) => (selector === '[data-conversation-screenshot-content]' ? content : null) };
   let fold;
   let css = '';
@@ -312,6 +314,7 @@ test('sponsored cards under ChatGPT replies are marked hidden; the reply itself 
   fold();
   assert.equal(card.hasAttribute('data-webmcp-ad'), true);
   assert.equal(reply.hasAttribute('data-webmcp-ad'), false, 'a reply that mentions "Ad" stays');
+  assert.equal(bareReply.hasAttribute('data-webmcp-ad'), false, 'a reply block itself is never taken for a card');
   assert.equal(actions.hasAttribute('data-webmcp-ad'), false);
   assert.match(css, /\[data-webmcp-ad\] \{ display: none !important; \}/);
   assert.match(css, /\[data-webmcp-step\]\[data-turn="user"\] button \{ display: none !important; \}/, 'no empty Show more under a folded tool result');

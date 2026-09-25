@@ -269,7 +269,6 @@
     if (readComposer(input) === before && !sameText(before, text)) {
       selectAll(input);
       try { document.execCommand('insertText', false, text); } catch {}
-      await sleep(100);
     }
     return sameText(readComposer(input), text);
   }
@@ -575,7 +574,7 @@
     for (const turn of document.querySelectorAll(`${TURN_SELECTOR}[data-turn="assistant"]`)) {
       const content = turn.querySelector('[data-conversation-screenshot-content]');
       for (const block of content?.children ?? []) {
-        if (block.hasAttribute(AD) || block.querySelector('[data-message-author-role]')) continue;
+        if (block.hasAttribute(AD) || block.matches?.('[data-message-author-role]') || block.querySelector('[data-message-author-role]')) continue;
         const badge = [...block.querySelectorAll('*')].some((element) => element.childElementCount === 0 && AD_BADGE.test((element.textContent ?? '').trim()));
         if (badge) block.setAttribute(AD, '');
       }
