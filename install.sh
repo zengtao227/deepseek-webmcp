@@ -5,8 +5,8 @@ set -euo pipefail
 
 # The installer downloads one pinned, checksum-verified adapter release; the adapter pins
 # the webmcp-runtime release it installs. No Git and no source checkout are needed.
-ADAPTER_URL="${DEEPSEEK_WEBMCP_ADAPTER_URL:-https://github.com/zengtao227/deepseek-webmcp/releases/download/v0.7.0/deepseek-webmcp-99f4bb03f2deecaf45194a188c8f08a7b15745f5.tar.gz}"
-ADAPTER_SHA256="${DEEPSEEK_WEBMCP_ADAPTER_SHA256:-e31f548afd5808cc162d5292741979dd65852b206fe0f7947b0fe7db73445746}"
+ADAPTER_URL="${DEEPSEEK_WEBMCP_ADAPTER_URL:-https://github.com/zengtao227/deepseek-webmcp/releases/download/v0.7.0/deepseek-webmcp-75d007d17193c82dd8799d079d56e04d855c31c1.tar.gz}"
+ADAPTER_SHA256="${DEEPSEEK_WEBMCP_ADAPTER_SHA256:-c0c64c89b48ae55948afce5cfd4d74f864f6c2a3e9adca73b50b53b620bf29e2}"
 DIR="$HOME/deepseek-webmcp"
 REPORT="$HOME/deepseek-webmcp-install-report.txt"
 WORK="$(mktemp -d)"
