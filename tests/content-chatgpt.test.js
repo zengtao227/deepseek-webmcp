@@ -216,3 +216,52 @@ test('tool-call replies and typed tool results are marked so their icon rows hid
   assert.equal(finalTurn.hasAttribute('data-webmcp-step'), false, 'the final answer keeps Copy / Rate');
   assert.match(css, /\[data-webmcp-step\] \[role="group"\]:has\(button\[data-testid="copy-turn-action-button"\]\) \{ display: none !important; \}/);
 });
+
+// A finished reply that holds a complete tool call is reported as soon as ChatGPT stops generating;
+// waiting STABLE_MS (2 s) delayed every tool step. A plain answer still waits for the quiet period.
+async function reportDelay(answerText) {
+  const clock = { now: 1000 };
+  const answer = { textContent: '', querySelector: () => null, querySelectorAll: () => [] };
+  const stop = {};
+  let generating = false;
+  const messages = [];
+  let tick;
+  const document = {
+    body: {}, head: { append() {} },
+    createElement: () => ({ textContent: '' }),
+    querySelector: (selector) => (selector.includes('stop-button') && generating ? stop : null),
+    querySelectorAll: (selector) => (selector.includes('data-message-author-role="assistant"') ? [answer] : []),
+    addEventListener() {},
+  };
+  const window = { addEventListener() {} };
+  window.top = window;
+  vm.runInNewContext(source, {
+    window, document, Date: { now: () => clock.now },
+    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/c/existing', pathname: '/c/existing' },
+    chrome: { runtime: { id: 'test', sendMessage: async (message) => { messages.push(message); return {}; }, onMessage: { addListener() {} } } },
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: () => {},
+    setInterval: (callback) => { tick = callback; },
+    setTimeout,
+  });
+  tick();
+  await new Promise(setImmediate);
+  generating = true;
+  answer.textContent = answerText.slice(0, 10);
+  tick();
+  generating = false;
+  answer.textContent = answerText;
+  const start = clock.now;
+  for (let step = 0; step < 10 && !messages.some((message) => message.type === 'work.completion'); step += 1) {
+    tick();
+    await new Promise(setImmediate);
+    clock.now += 500;
+  }
+  return clock.now - start;
+}
+
+test('a finished reply with a complete tool call is reported at once, not after the 2 s quiet period', async () => {
+  const call = 'text\n<webmcp_tool_call>{"id":"a","name":"inspect_page","arguments":{}}</webmcp_tool_call>';
+  assert.ok(await reportDelay(call) < 1000, 'tool call reported without the quiet period');
+  assert.ok(await reportDelay('The title is Action.') >= 2000, 'a plain answer still waits until it is quiet');
+});

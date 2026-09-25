@@ -17,6 +17,7 @@
   const STABLE_MS = 2000;
   const SEND_ENABLE_WAIT_MS = 3000;
   const PASTE_WAIT_MS = 1000;
+  const COMPLETE_TOOL_CALL = /<webmcp_tool_call>[\s\S]*<\/webmcp_tool_call>/;
   const SEND_CONFIRM_WAIT_MS = 5000;
 
   // Runs in a normal chatgpt.com tab (provider window) or as the ChatGPT frame inside this
@@ -478,12 +479,16 @@
       && (document.querySelectorAll(ANSWER_SELECTOR).length > ownReplyBaseline.count || text !== ownReplyBaseline.text);
     if (!sawGeneration && !resumeCheck && !awaited) return;
     const now = Date.now();
+    // Once ChatGPT stopped generating, a reply holding a complete tool call is final; the quiet
+    // period only delayed every tool step by STABLE_MS. Plain answers and resume checks still wait.
+    const readyCall = (sawGeneration || awaited) && COMPLETE_TOOL_CALL.test(text);
     if (text !== lastText) {
       lastText = text;
       changedAt = now;
+      if (!readyCall) return;
+    } else if (now - changedAt < STABLE_MS && !readyCall) {
       return;
     }
-    if (now - changedAt < STABLE_MS) return;
 
     const resume = !sawGeneration && !awaited;
     sawGeneration = false;
