@@ -525,15 +525,27 @@
     target.setAttribute(FOLD, note);
   }
 
+  // USER_SELECTOR is a list, so the descendant part is added to each of its selectors.
+  const USER_TEXT_SELECTOR = USER_SELECTOR.split(',')
+    .flatMap((user) => ['div', 'span', 'p'].map((tag) => `${user.trim()} ${tag}`))
+    .join(', ');
+
+  // Messages the extension typed are plain text in one element. Unlike DeepSeek, ChatGPT renders
+  // the fenced examples inside tool instructions and results as <pre> (live DOM 2026-09-25), so
+  // the element holds text nodes beside PRE blocks.
+  function isTypedText(element) {
+    const nodes = [...element.childNodes];
+    return nodes.some((node) => node.nodeType === Node.TEXT_NODE)
+      && nodes.every((node) => node.nodeType === Node.TEXT_NODE || node.nodeName === 'PRE');
+  }
+
   let foldScheduled = false;
   function foldMessages() {
     foldScheduled = false;
-    // Messages the extension typed: a single text node inside one element (live DOM:
-    // a visible <span> plus a hidden <div> copy of each user message).
-    for (const element of document.querySelectorAll(`${USER_SELECTOR} div, ${USER_SELECTOR} span, ${USER_SELECTOR} p`)) {
-      if (element.childNodes.length !== 1 || element.firstChild.nodeType !== Node.TEXT_NODE) continue;
+    for (const element of document.querySelectorAll(USER_TEXT_SELECTOR)) {
+      if (!isTypedText(element)) continue;
       if (element.closest(ANSWER_SELECTOR)) continue;
-      const summary = summaryFor(element.firstChild.nodeValue ?? '');
+      const summary = summaryFor(element.textContent ?? '');
       if (summary) setFold(element, summary, element);
     }
     for (const answer of document.querySelectorAll(ANSWER_SELECTOR)) {
