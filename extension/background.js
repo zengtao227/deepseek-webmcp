@@ -28,6 +28,7 @@ const FOLDER_NAME_KEY = 'workspace.folderName';
 const MAX_ANSWER_CHARS = 512 * 1024;
 const MAX_PRESENTATION_CHARS = 128 * 1024;
 const MAX_ASSISTANT_HISTORY = 20;
+const MAX_MODE_TOGGLES = 6;
 const MAX_TOOL_EVENTS = 32;
 const controllers = new Map();
 
@@ -152,6 +153,7 @@ function normalizeAssistantSession(value) {
         ? presentation.tools.slice(-MAX_TOOL_EVENTS)
         : [],
       notice: boundedPresentationText(presentation.notice).slice(0, 500),
+      model: normalizeProviderModel(presentation.model),
     },
   };
 }
@@ -694,11 +696,24 @@ async function runAssistantAction(action) {
 
 // deepseek-model.js: the provider page's model and mode, shown in the panel's model line. Only the
 // bound provider tab's report is kept (patchActiveProviderPresentation checks that).
-async function recordProviderModel(tabId, model) {
+// Also applied when the session is saved: without it the model never reached the panel.
+function normalizeProviderModel(model) {
   const name = typeof model?.model === 'string' ? model.model.slice(0, 40) : '';
-  if (!name) return;
+  if (!name) return null;
   const mode = typeof model.mode === 'string' ? model.mode.slice(0, 120) : null;
-  await patchActiveProviderPresentation(tabId, (presentation) => ({ ...presentation, model: { model: name, mode } }));
+  const toggles = Array.isArray(model.toggles)
+    ? model.toggles
+      .filter((toggle) => typeof toggle?.label === 'string' && toggle.label && typeof toggle.on === 'boolean')
+      .slice(0, MAX_MODE_TOGGLES)
+      .map((toggle) => ({ label: toggle.label.slice(0, 40), on: toggle.on }))
+    : [];
+  return { model: name, mode, toggles };
+}
+
+async function recordProviderModel(tabId, model) {
+  const normalized = normalizeProviderModel(model);
+  if (!normalized) return;
+  await patchActiveProviderPresentation(tabId, (presentation) => ({ ...presentation, model: normalized }));
 }
 
 async function recordAssistantSnapshot(tabId, snapshot) {

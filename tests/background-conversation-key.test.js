@@ -1044,3 +1044,15 @@ test('opening the ChatGPT panel ends the DeepSeek assistant session, so ChatGPT 
   assert.equal(background.nativeCalls.filter((call) => call.tool === 'open_workspace' || call.name === 'open_workspace').length, 1);
   assert.equal(typeof reply.continueWith, 'string');
 });
+
+// C3/C6: deepseek-model.js reports the mode toggles; the saved session must keep them for the panel.
+test('the bound DeepSeek provider\'s mode report survives in the assistant session', async () => {
+  const background = await loadBackground();
+  background.setActive(background.targetTab);
+  assert.equal((await openAssistant(background)).ok, true);
+  const provider = { tab: { id: PROVIDER_TAB_ID, url: A }, frameId: 0, url: A };
+  const toggles = [{ label: '深度思考', on: false }, { label: '智能搜索', on: true }];
+  await background.send({ type: 'model.status', model: { model: 'DeepSeek', mode: '智能搜索', toggles } }, provider);
+  const status = await background.send({ type: 'assistant.status' }, SIDE_PANEL);
+  assert.deepEqual(status.session.presentation.model, { model: 'DeepSeek', mode: '智能搜索', toggles });
+});
