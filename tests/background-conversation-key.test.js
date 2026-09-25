@@ -1026,7 +1026,7 @@ test('open_workspace tells DeepSeek that /workspace is the owner\'s folder itsel
   assert.doesNotMatch(plain.continueWith, /hostFolderName/, 'nothing is invented when the folder name is not known');
 });
 
-// Live 2026-09-25: the Side Panel opens on DeepSeek first, whose assistant session bound DeepSeek as
+// Live 2026-09-25: the Side Panel then opened on DeepSeek first, whose assistant session bound DeepSeek as
 // the only provider; after switching to ChatGPT every ChatGPT tool call was refused NOT_BOUND_PROVIDER.
 test('opening the ChatGPT panel ends the DeepSeek assistant session, so ChatGPT is the one provider', async () => {
   const background = await loadBackground();

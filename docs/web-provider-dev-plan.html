@@ -102,7 +102,7 @@ tr.done td{background:var(--ok-soft)}
       <span class="step">6 本地提交这一步</span><span class="arrow">→</span>
       <span class="step">7 更新本页状态</span>
     </div>
-    <p class="note">“照搬一致性检查”：用脚本把 <code>sidepanel-chatgpt.*</code>、<code>frame-policy.js</code>、<code>embedded-chatgpt.js</code> 和原面板的对应文件逐行比对。除了差异清单里登记过的修改，出现任何其他不同都算失败。上次页面加载错脚本的 bug，就是这一步能拦下来的问题。</p>
+    <p class="note">“照搬一致性检查”：<code>embedded-chatgpt.js</code>、<code>model-probe.js</code>、<code>model-status.js</code> 和 <code>frame-policy.js</code> 里复制的部分，按原面板 <code>6ea9e32</code> 的内容钉了哈希，每次 <code>npm run check</code> 都检查（2026-09-26 起；此前只能手工跑脚本）。<code>sidepanel-chatgpt.*</code> 用 <code>scripts/check-panel-copy.mjs</code> 打印差异，逐条对照差异清单人工审查。上次页面加载错脚本的 bug，就是这一步能拦下来的问题。</p>
   </section>
 
   <section>
@@ -162,7 +162,7 @@ tr.done td{background:var(--ok-soft)}
         <tr><td class="id">D1</td><td>本地文件工具：open_workspace / read / write / edit / bash</td><td><span class="pill warn">部分</span></td><td>独立窗口模式你已跑通；面板模式未验证</td></tr>
         <tr><td class="id">D2</td><td>High Trust host_command（在 WebMCP App 里授权）</td><td><span class="pill todo">未验证</span></td><td>ChatGPT 模式下还没测过</td></tr>
         <tr class="done"><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill ok">你已测</span></td><td>0.5.108 按顶部契约排版；Comet 中你切换过 Provider，下次打开直接进入上次选的那个</td></tr>
-        <tr><td class="id">H1</td><td>顶部按 5 行契约显示，Access 行颜色固定</td><td><span class="pill warn">待你验收</span></td><td>0.5.108；两个页面已用示例状态截图核对过排版</td></tr>
+        <tr><td class="id">H1</td><td>顶部按契约显示（ChatGPT 的 Source 已并入第 3 行），Access 行颜色固定</td><td><span class="pill warn">待你验收</span></td><td>0.5.108；两个页面已用示例状态截图核对过排版</td></tr>
         <tr class="done"><td class="id">E1</td><td>（计划外，你提出）写入输入框要快，不让整段工具说明/结果停在输入框里</td><td><span class="pill ok">你已测</span></td><td>改为一次粘贴写入（dada87b）；你确认输入框里的内容一闪而过</td></tr>
         <tr><td class="id">E2</td><td>（计划外，你提出）工具调用写完就执行，不再固定多等 2 秒</td><td><span class="pill warn">待你验收</span></td><td>8fe282a；只对含完整工具调用的回复生效，普通回答仍等 2 秒</td></tr>
         <tr class="done"><td class="id">E3</td><td>（计划外，你提出）隐藏 ChatGPT 免费版回复下的广告卡片</td><td><span class="pill ok">你已确认</span></td><td>e776142；靠卡片上的 “Ad” 字样识别，ChatGPT 改版可能失效。我在 Comet 的对话里只读试过：3 张广告都能藏住，回答本身不受影响</td></tr>
@@ -191,7 +191,7 @@ tr.done td{background:var(--ok-soft)}
         <tr><td><code>background.js</code></td><td>DeepSeek</td><td>加 Provider 表；识别面板里的 ChatGPT frame；面板 ChatGPT 默认开启 Work；备用窗口（复制自原面板）；面板模式视为已附加当前页面</td></tr>
         <tr><td><code>content-chatgpt.js</code>（2026-09-25/26）</td><td>本分支</td><td>用户消息折叠按 ChatGPT 的结构重写（代码块会渲染成 PRE）；工具步骤轮次隐藏图标行和 Show more；隐藏广告卡片；输入框改为一次粘贴写入；完整工具调用写完即上报。DeepSeek 的 content.js 不受影响</td></tr>
         <tr><td><code>background.js</code>（2026-09-25）</td><td>本分支</td><td>打开 ChatGPT 面板时结束 DeepSeek 助手会话并关掉其 Work，同一时间只有一个 Provider；权限检查本身未改（你选的方案 A）</td></tr>
-        <tr><td><code>sidepanel-chatgpt.html</code>（2026-09-26）</td><td>本分支</td><td>Source 移到 Model 同一行，窄时截断</td></tr>
+        <tr><td><code>sidepanel-chatgpt.html</code>（2026-09-26）</td><td>本分支</td><td>Source 移到 Model 同一行，窄时截断；Access 行后的 Revoke 按钮样式（<code>.access-revoke</code>）</td></tr>
         <tr><td><code>deepseek-model.js</code>（2026-09-25）</td><td>本分支</td><td>选择器加上 DeepSeek 真实的模式开关 <code>.ds-toggle-button</code></td></tr>
         <tr><td><code>manifest.json</code></td><td>DeepSeek</td><td>加 chatgpt.com 的两个脚本、嵌入规则所需权限、原面板的 CSP；改名和版本号（POC）</td></tr>
       </tbody>

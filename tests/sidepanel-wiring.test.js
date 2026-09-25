@@ -40,3 +40,21 @@ test('the DeepSeek model line has mode switches wired to assistant.mode-toggle',
   assert.match(script, /type: 'assistant\.mode-toggle', label/);
   assert.match(script, /setAttribute\('aria-pressed', String\(toggle\.on\)\)/, 'each switch shows its real state');
 });
+
+// Copied verbatim from the ChatGPT Embedded Panel (main 6ea9e32); the plan forbids any change. Pinned so
+// the rule is checked on every run, not only when that project happens to sit beside this one.
+// frame-policy.js is a one-line provenance comment, the copied file, then appended panel-frame helpers,
+// so only the copied part is pinned.
+test('the files copied from the ChatGPT Embedded Panel are unchanged', async () => {
+  const { createHash } = await import('node:crypto');
+  const sha = (text) => createHash('sha256').update(text).digest('hex');
+  const pinned = {
+    'embedded-chatgpt.js': '42961462cf4f7a91947a639f7e47339b40ef581e587e51ecaa6d40b16fb091c2',
+    'model-probe.js': 'e8a93f87988d1703e7c3ee45226a2021f5decc5d8490262931fb7eb3e6f83dca',
+    'model-status.js': '2706e620ecda011be7a89304b8cc4a7093c9c33c08f00e87ca8af24edfc1970e',
+  };
+  for (const [file, hash] of Object.entries(pinned)) assert.equal(sha(await page(file)), hash, `${file} differs from the ChatGPT Embedded Panel`);
+  const framePolicy = await page('frame-policy.js');
+  const copiedStart = framePolicy.indexOf('\n') + 1;
+  assert.equal(sha(framePolicy.slice(copiedStart, copiedStart + 1340)), '06e5e3eb2b20113217c9b30be15ffaef86d3fcf68c4ec38294b1311b5b854c4f', 'frame-policy.js no longer holds the copied file');
+});

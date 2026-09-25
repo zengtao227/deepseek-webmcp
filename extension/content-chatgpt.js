@@ -233,9 +233,8 @@
 
   const readComposer = (input) => (input.value ?? input.innerText ?? '').replace(/ /g, ' ');
 
-  // ChatGPT's ProseMirror composer accepts insertText through its own input path.
-  // ProseMirror turns inserted lines into paragraphs, so the read-back differs from the input only in
-  // whitespace.
+  // ChatGPT's ProseMirror composer turns written lines into paragraphs, so the read-back differs from
+  // the input only in whitespace.
   const sameText = (a, b) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
 
   function selectAll(input) {

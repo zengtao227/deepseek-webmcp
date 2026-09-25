@@ -38,7 +38,7 @@ To update, run the same command again, then click the extension's reload icon an
 
 ## Use
 
-Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it and the assistant starts. DeepSeek itself runs in its own window, which is created once and reused; you work in the panel. **Keep a strip of that window uncovered** (for example at a screen edge): macOS marks a fully covered window hidden and DeepSeek then renders no answer; the panel pauses and tells you to press Restore after you uncover it.
+Click the DeepSeek WebMCP icon on any webpage: the Side Panel opens beside it on the Provider you chose last (ChatGPT until you choose one; the selector is at the top). With DeepSeek chosen, the assistant starts. DeepSeek itself runs in its own window, which is created once and reused; you work in the panel. **Keep a strip of that window uncovered** (for example at a screen edge): macOS marks a fully covered window hidden and DeepSeek then renders no answer; the panel pauses and tells you to press Restore after you uncover it.
 
 1. Ask in the panel. To read or fill the page in front of you, just say so; the first page action locks the page that is open in this window.
 2. The task stays on that page. **Stop** releases it; the next page action locks whichever page is open then, so switching pages means going there and asking again.
@@ -54,7 +54,7 @@ In the panel, **Settings**:
 
 - **Folder / Change…** — the project or parent workspace DeepSeek may read and change; *Change…* opens the macOS folder dialog. If that root contains DeepSeek WebMCP's own control plane, the protected subtree is masked from the container. Choose only a folder you actually want to expose (for example your projects folder), not a test fixture.
 - **Full access** — temporarily allow the whole home folder (15 min – 1 h, confirmed in a macOS dialog, with a Stop button). DeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek.
-- **Temporary Full Host Access — High Trust** — a separate owner-approved lease (maximum 60 minutes) enables `host_command` as your Mac user. It can access files, Docker, network, processes and credentials available to that user. `bash` remains in Docker; normal folder/Full access settings are unchanged. Revoke from Settings at any time. This mode requires the installed WebMCP Bridge immutable runtime.
+- **Temporary Full Host Access — High Trust** — a separate owner-approved lease (maximum 60 minutes) enables `host_command` as your Mac user. It can access files, Docker, network, processes and credentials available to that user. `bash` remains in Docker; normal folder/Full access settings are unchanged. Revoke from Settings, or with **Revoke** in the panel's Access line, at any time. Switching Provider revokes Full access and Host Access too. This mode requires the installed WebMCP Bridge immutable runtime.
 
 Review changes in your project (for example `git diff`) before running anything on your Mac. Troubleshooting: `cd ~/deepseek-webmcp && npm run doctor`.
 
