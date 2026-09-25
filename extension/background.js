@@ -800,7 +800,15 @@ async function workOff(tabId) {
 
 const panelReply = (work) => work.then((result) => ({ ok: true, result }), (error) => ({ ok: false, error: error?.message ?? 'Extension action failed.' }));
 
+// One provider at a time: the Side Panel opens on DeepSeek first, and its assistant session would
+// otherwise refuse every ChatGPT tool call as NOT_BOUND_PROVIDER (live 2026-09-25). Switching back
+// to DeepSeek starts a new session.
 async function openPanelFrame() {
+  const deepseek = await assistantSession();
+  if (deepseek) {
+    await clearAssistantSession();
+    if (Number.isInteger(deepseek.providerTabId)) await workOff(deepseek.providerTabId);
+  }
   await enableFramePolicy();
   await workOn(PANEL_ID);
   return { started: true };

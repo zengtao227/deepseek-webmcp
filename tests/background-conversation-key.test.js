@@ -1019,3 +1019,28 @@ test('open_workspace tells DeepSeek that /workspace is the owner\'s folder itsel
   const plain = await other.send({ type: 'work.completion', text: TOOL_CALL_TEXT }, other.from(A));
   assert.doesNotMatch(plain.continueWith, /hostFolderName/, 'nothing is invented when the folder name is not known');
 });
+
+// Live 2026-09-25: the Side Panel opens on DeepSeek first, whose assistant session bound DeepSeek as
+// the only provider; after switching to ChatGPT every ChatGPT tool call was refused NOT_BOUND_PROVIDER.
+test('opening the ChatGPT panel ends the DeepSeek assistant session, so ChatGPT is the one provider', async () => {
+  const background = await loadBackground();
+  background.setActive(background.targetTab);
+  assert.equal((await openAssistant(background)).ok, true);
+  assert.ok(background.session.has(`work.authority.${PROVIDER_TAB_ID}`), 'DeepSeek provider has Work');
+
+  Object.assign(globalThis.chrome.runtime, { id: 'test' });
+  globalThis.chrome.declarativeNetRequest = { updateSessionRules: async () => {} };
+  const chatgptPanel = { url: 'chrome-extension://test/sidepanel-chatgpt.html' };
+  assert.equal((await background.send({ type: 'panel.frame-open' }, chatgptPanel)).ok, true);
+
+  assert.equal(background.session.has('assistant.session'), false);
+  assert.equal(background.session.has(`work.authority.${PROVIDER_TAB_ID}`), false, 'DeepSeek provider no longer has Work');
+
+  const frame = { origin: 'https://chatgpt.com', url: 'https://chatgpt.com/' };
+  const href = 'https://chatgpt.com/c/6ab6e0d4-357c-83ed-81dd-12919a6482c2';
+  assert.equal((await background.send({ type: 'work.arrive', href }, frame)).work, true);
+  const reply = await background.send({ type: 'work.completion', text: TOOL_CALL_TEXT, href }, frame);
+  assert.equal(background.session.get('work.diagnostics.-2')?.lastCode, 'TOOL_RESULT');
+  assert.equal(background.nativeCalls.filter((call) => call.tool === 'open_workspace' || call.name === 'open_workspace').length, 1);
+  assert.equal(typeof reply.continueWith, 'string');
+});
