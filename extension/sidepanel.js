@@ -18,8 +18,36 @@ function renderModel(model, visibility) {
   $('#model').hidden = !shown;
   $('#model-source').hidden = !model;
   if (!shown) return;
-  const parts = [model?.model ?? 'DeepSeek', model?.mode, visibility ? visibility[0].toUpperCase() + visibility.slice(1) : null];
-  $('#model-actual').textContent = parts.filter(Boolean).join(' · ');
+  const toggles = Array.isArray(model?.toggles) ? model.toggles : [];
+  // A page that reports no switches still shows its mode as text.
+  $('#model-actual').textContent = [model?.model ?? 'DeepSeek', toggles.length === 0 ? model?.mode : null].filter(Boolean).join(' · ');
+  $('#model-visibility').textContent = visibility ? ` · ${visibility[0].toUpperCase()}${visibility.slice(1)}` : '';
+  renderModeToggles(toggles);
+}
+
+// C6: DeepThink / Search as switches. Rebuilt only when they change: the panel polls every 500 ms,
+// and a rebuild between press and release would swallow the click.
+let lastToggleSignature = '';
+function renderModeToggles(toggles) {
+  const signature = JSON.stringify(toggles);
+  if (signature === lastToggleSignature) return;
+  lastToggleSignature = signature;
+  $('#model-toggles').replaceChildren(...toggles.map((toggle) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mode-toggle';
+    button.textContent = toggle.label;
+    button.setAttribute('aria-pressed', String(toggle.on));
+    button.title = `${toggle.on ? 'Turn off' : 'Turn on'} ${toggle.label} in DeepSeek`;
+    button.addEventListener('click', () => void switchMode(toggle.label));
+    return button;
+  }));
+}
+
+async function switchMode(label) {
+  const response = await chrome.runtime.sendMessage({ type: 'assistant.mode-toggle', label }).catch(() => null);
+  if (!response?.ok) $('#notice').textContent = response?.error?.message ?? 'Mode switch failed.';
+  await refresh();
 }
 
 let lastSessionKey = '';

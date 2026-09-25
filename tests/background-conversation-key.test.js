@@ -40,6 +40,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
   let promptReply = { ok: true, code: 'SEND_CLICKED' };
   let actionReply = { ok: true, code: 'ACTION_CLICKED' };
   const actionCalls = [];
+  const modeCalls = [];
   // Every storage round trip yields to the event loop, so concurrent handlers really interleave.
   const yieldToLoop = () => (slowStorage ? new Promise((resolve) => setImmediate(resolve)) : undefined);
   let active = tab;
@@ -95,6 +96,10 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
         }
         if (tabId === PROVIDER_TAB_ID && message?.type === 'assistant.prompt') {
           return promptReply;
+        }
+        if (tabId === PROVIDER_TAB_ID && message?.type === 'deepseek.mode-toggle') {
+          modeCalls.push(message.label);
+          return { ok: true, code: 'MODE_TOGGLED' };
         }
         if (tabId === PROVIDER_TAB_ID && message?.type === 'assistant.action') {
           actionCalls.push(message.action);
@@ -169,6 +174,7 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
     setPromptReply(next) { promptReply = next; },
     setActionReply(next) { actionReply = next; },
     actionCalls,
+    modeCalls,
     session,
     local,
     listeners,
@@ -1055,4 +1061,27 @@ test('the bound DeepSeek provider\'s mode report survives in the assistant sessi
   await background.send({ type: 'model.status', model: { model: 'DeepSeek', mode: '智能搜索', toggles } }, provider);
   const status = await background.send({ type: 'assistant.status' }, SIDE_PANEL);
   assert.deepEqual(status.session.presentation.model, { model: 'DeepSeek', mode: '智能搜索', toggles });
+});
+
+// C6: the panel switches a DeepSeek mode; only a toggle the provider page reported is relayed.
+test('the panel switches a DeepSeek mode in the bound provider page, and nothing else', async () => {
+  const background = await loadBackground();
+  background.setActive(background.targetTab);
+  assert.equal((await openAssistant(background)).ok, true);
+  const provider = { tab: { id: PROVIDER_TAB_ID, url: A }, frameId: 0, url: A };
+  const toggles = [{ label: '深度思考', on: false }, { label: '智能搜索', on: true }];
+  await background.send({ type: 'model.status', model: { model: 'DeepSeek', mode: '智能搜索', toggles } }, provider);
+
+  assert.equal(await background.send({ type: 'assistant.mode-toggle', label: '深度思考' }, background.from(A)), undefined, 'a page cannot ask');
+  assert.equal((await background.send({ type: 'assistant.mode-toggle', label: 'Delete chat' }, SIDE_PANEL)).error.code, 'INVALID_MODE');
+  assert.deepEqual(background.modeCalls, []);
+
+  const done = await background.send({ type: 'assistant.mode-toggle', label: '深度思考' }, SIDE_PANEL);
+  assert.equal(done.ok, true);
+  assert.deepEqual(background.modeCalls, ['深度思考']);
+
+  await background.send({ type: 'work.generating' }, provider);
+  const busy = await background.send({ type: 'assistant.mode-toggle', label: '深度思考' }, SIDE_PANEL);
+  assert.equal(busy.error.code, 'GENERATION_IN_PROGRESS');
+  assert.deepEqual(background.modeCalls, ['深度思考']);
 });

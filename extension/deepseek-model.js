@@ -39,13 +39,21 @@
     return [];
   }
 
+  // A mode toggle says it is one: DeepSeek's toggle class or an aria-pressed state.
+  const isToggle = (button) => /(^|\s)ds-toggle-button(\s|$)/.test(classesOf(button)) || button.getAttribute?.('aria-pressed') !== null;
+
+  function modeToggles(input) {
+    return modeButtons(input).filter(isToggle);
+  }
+
   // Without the composer the page is not a DeepSeek chat yet. Without recognisable mode buttons the
   // model is still reported, with no mode.
   function readModel() {
     const input = document.querySelector(COMPOSER_SELECTOR);
     if (!input) return null;
     const on = modeButtons(input).filter(isOn).map(labelOf);
-    return { model: 'DeepSeek', mode: on.length > 0 ? on.join(' · ') : null };
+    const toggles = modeToggles(input).map((button) => ({ label: labelOf(button), on: isOn(button) }));
+    return { model: 'DeepSeek', mode: on.length > 0 ? on.join(' · ') : null, toggles };
   }
 
   let last = '';
@@ -61,6 +69,23 @@
       void chrome.runtime.sendMessage({ type: 'model.status', model }).catch(() => {});
     } catch {}
   }
+
+  // C6: the Side Panel switches a mode by its label, relayed by the worker. Only a toggle this
+  // adapter reports can be pressed; the next report carries the state DeepSeek actually shows.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== 'deepseek.mode-toggle' || typeof message.label !== 'string') return false;
+    const input = document.querySelector(COMPOSER_SELECTOR);
+    const toggle = input ? modeToggles(input).find((button) => labelOf(button) === message.label) : null;
+    if (!toggle || typeof toggle.click !== 'function') {
+      sendResponse({ ok: false, code: 'MODE_NOT_FOUND', message: 'This DeepSeek mode is not on the page.' });
+      return false;
+    }
+    toggle.click();
+    last = '';
+    setTimeout(report, 150);
+    sendResponse({ ok: true, code: 'MODE_TOGGLED' });
+    return false;
+  });
 
   report();
   setInterval(report, POLL_MS);

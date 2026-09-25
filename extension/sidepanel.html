@@ -66,6 +66,9 @@
     #empty { opacity: .68; padding: 24px 8px; text-align: center; }
     #model { font-size: 11px; opacity: 0.85; margin-top: 4px; }
     #model code { font-size: 11px; }
+    /* C6 mode switches: on is solid, off is faded; each press goes to DeepSeek's own toggle. */
+    .mode-toggle { font: inherit; font-size: 11px; margin-left: 4px; padding: 0 7px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); background: transparent; color: inherit; opacity: .55; cursor: pointer; }
+    .mode-toggle[aria-pressed="true"] { opacity: 1; font-weight: 600; background: color-mix(in srgb, currentColor 14%, transparent); }
     #model-source { font-size: 11px; opacity: 0.7; }
     #access { font-size: 11px; }
     .access-write { font-weight: 600; }
@@ -85,7 +88,7 @@
         <button id="restore" hidden>Restore</button>
         <button id="stop" hidden>Stop</button>
       </div>
-      <div id="model" hidden>Model: <code id="model-actual"></code></div>
+      <div id="model" hidden>Model: <code id="model-actual"></code><span id="model-toggles"></span><span id="model-visibility"></span></div>
       <div id="access"></div>
       <div id="model-source" hidden>Source: DeepSeek page</div>
     </header>

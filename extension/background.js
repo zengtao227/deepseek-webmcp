@@ -694,6 +694,41 @@ async function runAssistantAction(action) {
   return { ok: true, session };
 }
 
+// C6: the panel's mode switches press DeepSeek's own toggle in the bound provider page, like
+// Regenerate does. Only a toggle that page reported is relayed; its next report shows the result.
+async function runModeToggle(label) {
+  let session = await assistantSession();
+  if (!session || session.state !== 'active') {
+    return { ok: false, error: { code: 'ASSISTANT_NOT_ACTIVE', message: 'Restore or open the assistant first.' } };
+  }
+  const known = session.presentation.model?.toggles ?? [];
+  if (typeof label !== 'string' || !known.some((toggle) => toggle.label === label)) {
+    return { ok: false, error: { code: 'INVALID_MODE', message: 'Unknown DeepSeek mode.' } };
+  }
+  if (session.presentation.generating) {
+    return { ok: false, error: { code: 'GENERATION_IN_PROGRESS', message: 'DeepSeek is still generating.' } };
+  }
+
+  const health = await providerHealth(session);
+  if (!health.ok) {
+    session = await pauseAssistant(session, health.code, health.message);
+    return { ok: false, session, error: { code: health.code, message: health.message } };
+  }
+
+  let result;
+  try {
+    result = await chrome.tabs.sendMessage(session.providerTabId, { type: 'deepseek.mode-toggle', label });
+  } catch {
+    result = null;
+  }
+  if (result?.ok !== true) {
+    const message = String(result?.message ?? 'DeepSeek mode could not be switched.').slice(0, 500);
+    session = (await patchAssistantSession(session, withNotice(message))) ?? session;
+    return { ok: false, session, error: { code: result?.code ?? 'MODE_TOGGLE_FAILED', message } };
+  }
+  return { ok: true, session };
+}
+
 // deepseek-model.js: the provider page's model and mode, shown in the panel's model line. Only the
 // bound provider tab's report is kept (patchActiveProviderPresentation checks that).
 // Also applied when the session is saved: without it the model never reached the panel.
@@ -1119,6 +1154,7 @@ function handleMessage(message, sender) {
   if (message.type === 'assistant.stop') return stopAssistantTask();
   if (message.type === 'assistant.prompt') return sendAssistantPrompt(message.text);
   if (message.type === 'assistant.action') return runAssistantAction(message.action);
+  if (message.type === 'assistant.mode-toggle') return runModeToggle(message.label);
   if (message.type === 'assistant.page-status') return targetStatus();
   if (message.type === 'assistant.closed') return releaseTask().then(markPageReleased);
   // ChatGPT panel (sidepanel-chatgpt.js, the ChatGPT Embedded Panel's page): replies use its

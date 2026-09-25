@@ -30,3 +30,13 @@ test('both Side Panel pages carry the same Provider selector in their header', a
   assert.equal(chatgpt.includes('model-requested'), false, 'ChatGPT shows the model actually used, not the requested one');
   assert.equal(chatgpt.includes('model-mismatch'), false, 'no Mismatch without the Requested line it compared against');
 });
+
+// C6: the DeepSeek panel's model line carries the mode switches and relays a press to the worker.
+test('the DeepSeek model line has mode switches wired to assistant.mode-toggle', async () => {
+  const html = await page('sidepanel.html');
+  const header = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
+  assert.ok(header.includes('<span id="model-toggles"></span>'), 'switches sit in the model line');
+  const script = await page('sidepanel.js');
+  assert.match(script, /type: 'assistant\.mode-toggle', label/);
+  assert.match(script, /setAttribute\('aria-pressed', String\(toggle\.on\)\)/, 'each switch shows its real state');
+});
