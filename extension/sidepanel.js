@@ -1,20 +1,25 @@
 import { blocksToPlainText } from './answer-blocks.js';
 import { renderBlocks } from './answer-render.js';
 import { initSettings } from './settings-ui.js';
-import { mountProviderSelect, routeToProviderPage } from './panel-header.js';
+import { mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
 
 const $ = (selector) => document.querySelector(selector);
 
 // ChatGPT has its own panel page (the ChatGPT Embedded Panel's); nothing below runs for it.
 const provider = await routeToProviderPage('sidepanel.html');
 mountProviderSelect($('#provider'), provider);
+startAccessLine($('#access'));
 
 // DeepSeek's model/mode, read from the DeepSeek page by deepseek-model.js. Only the DeepSeek
 // session's own value is shown here, so another provider's value can never appear.
-function renderModel(model) {
-  $('#model').hidden = !model;
-  if (!model) return;
-  $('#model-actual').textContent = model.mode ? `${model.model} · ${model.mode}` : model.model;
+// Header line 3: the model, its mode and whether the DeepSeek window is visible (header contract).
+function renderModel(model, visibility) {
+  const shown = Boolean(model || visibility);
+  $('#model').hidden = !shown;
+  $('#model-source').hidden = !model;
+  if (!shown) return;
+  const parts = [model?.model ?? 'DeepSeek', model?.mode, visibility ? visibility[0].toUpperCase() + visibility.slice(1) : null];
+  $('#model-actual').textContent = parts.filter(Boolean).join(' · ');
 }
 
 let lastSessionKey = '';
@@ -22,7 +27,6 @@ let lastCompleted = false;
 let lastGenerating = false;
 // The panel polls every 500 ms; history and the current answer are only rebuilt when they
 // change, so a click on an action button is never swallowed by a re-render between press and release.
-let providerNote = '';
 let lastHistorySignature = '';
 let lastAnswerSignature = '';
 
@@ -196,15 +200,15 @@ function render(response) {
     return;
   }
 
+  // Active needs no words: the Provider selector already says DeepSeek.
   $('#state').textContent = session.state === 'active'
-    ? 'DeepSeek Assistant'
+    ? ''
     : session.state === 'paused'
       ? 'Assistant paused'
       : 'Preparing Assistant';
-  providerNote = health?.page?.visibility ? ' · DeepSeek ' + health.page.visibility : '';
 
   const presentation = session.presentation ?? {};
-  renderModel(presentation.model ?? null);
+  renderModel(presentation.model ?? null, health?.page?.visibility ?? null);
   renderHistory(presentation.history);
 
   const reasoning = typeof presentation.reasoning === 'string' ? presentation.reasoning : '';
@@ -252,7 +256,7 @@ async function refreshPage() {
   const stop = $('#stop');
 
   if (task.mode === 'locked' && task.target) {
-    $('#target').textContent = `Working on: ${task.target.title}${providerNote}`;
+    $('#target').textContent = `Working on: ${task.target.title}`;
     $('#target').title = `${task.target.title} — ${task.target.origin}`;
     stop.hidden = false;
   } else if (task.mode === 'blocked' && task.target) {
@@ -262,7 +266,7 @@ async function refreshPage() {
     // The "Paused" line above is easy to miss; render() has just written presentation.notice, so only fill an empty notice.
     if (!$('#notice').textContent) $('#notice').textContent = `The page this task was working on is no longer available (${task.reason || 'PAGE_UNAVAILABLE'}). Press Stop, then ask again.`;
   } else {
-    $('#target').textContent = (candidate ? `Ready — current page: ${candidate.title}` : 'Ready — open a webpage to work on') + providerNote;
+    $('#target').textContent = candidate ? `Ready — current page: ${candidate.title}` : 'Ready — open a webpage to work on';
     $('#target').title = 'The first page action locks the page that is open in this window. Stop releases it.';
     stop.hidden = true;
   }

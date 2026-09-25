@@ -60,7 +60,7 @@ a{color:var(--accent)}
 
 <div class="wrap">
   <header style="display:grid;gap:10px">
-    <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.107</code></span><span>更新于 2026-09-25</span></p>
+    <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.108</code></span><span>更新于 2026-09-25</span></p>
     <h1>ChatGPT Web Provider 开发计划</h1>
     <p class="lede">目标：在 Side Panel 里直接用 ChatGPT 网页当 Provider，调用本地 WebMCP。ChatGPT 这部分完全照搬已经做好的 ChatGPT Embedded Panel，DeepSeek 保持不变。每一步都按本页对照、验收、审查，状态也记在本页。</p>
   </header>
@@ -116,6 +116,21 @@ a{color:var(--accent)}
   </section>
 
   <section>
+    <h2>Unified Side Panel 顶部契约（你已确认，所有 Provider 共用）</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>行</th><th>内容</th><th>ChatGPT</th><th>DeepSeek</th></tr></thead>
+      <tbody>
+        <tr><td class="id">1</td><td>Provider 选择器</td><td colspan="2">同一个控件（panel-header.js）</td></tr>
+        <tr><td class="id">2</td><td>Ready / Working / Paused + 当前页面</td><td>原面板的状态行</td><td>原 DeepSeek 状态行</td></tr>
+        <tr><td class="id">3</td><td>实际模型 + Provider 自己的运行信息</td><td>Model: gpt-5-6 · Effort: high（Effort 只在服务器返回时显示）</td><td>Model: DeepSeek · 模式 · Visible/Hidden</td></tr>
+        <tr><td class="id">4</td><td>Access：目录 + WRITE + FULL ACCESS + HOST ACCESS</td><td colspan="2">同一个渲染器。普通目录用常规颜色；WRITE 加粗；FULL ACCESS 橙色；HOST ACCESS 红色加粗；未验证显示红色；过期立即消失。开启 Full Access 时目录显示为 Home；只开 High Trust 时保留原目录。倒计时每秒刷新，状态每 30 秒重新读取一次</td></tr>
+        <tr><td class="id">5</td><td>Source</td><td>server response (…)</td><td>DeepSeek page</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">这里的 WRITE：DeepSeek 运行时挂载的目录一直是可写的（没有只读模式），所以目录后面总会显示 WRITE。</p>
+  </section>
+
+  <section>
     <h2>对齐清单：ChatGPT Embedded Panel 的功能</h2>
     <p class="lede">来源：原面板的 README（Acceptance、Browser WebMCP task gate）和页面代码。你看到缺了哪一项，直接告诉我，我补进清单（第 1 步）。</p>
     <div class="tbl"><table>
@@ -128,21 +143,22 @@ a{color:var(--accent)}
         <tr><td class="id">A5</td><td>关掉面板再打开，ChatGPT 自动重新连上</td><td><span class="pill todo">未验证</span></td><td>代码照搬</td></tr>
         <tr><td class="id">A6</td><td>连不上时出现恢复界面：Retry / Open ChatGPT window</td><td><span class="pill todo">未验证</span></td><td>代码照搬；备用窗口里的 ChatGPT 也默认开启 Work</td></tr>
         <tr><td class="id">B1</td><td>空闲时顶部显示 “Ready — Current: 页面标题”</td><td><span class="pill warn">待你验收</span></td><td>0.5.103 修了消息被拒的问题</td></tr>
-        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill warn">待你验收</span></td><td>你测 0.5.106 失败：面板恢复的是已有对话，工具说明只附在新对话里。0.5.107 改为：对话里还没有说明就附上。真实 ChatGPT 页面上用键盘在已有对话里发送，ChatGPT 立即调用了 inspect_page</td></tr>
+        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill warn">待你验收</span></td><td>你测 0.5.107 在恢复的旧对话里仍失败。普通标签页里的同一流程能通（ChatGPT 调用了 inspect_page），面板里为什么不同还没有证据。下一步先确认：你发出的那条消息后面有没有附上工具说明</td></tr>
         <tr><td class="id">B3</td><td>任务进行中切换标签页，不会改变目标页面</td><td><span class="pill todo">未验证</span></td><td>和 DeepSeek 用同一份代码</td></tr>
         <tr><td class="id">B4</td><td>Stop 解除锁定，回到空闲状态</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B6</td><td>工具 click 造成的跳转或新标签，由任务接管</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B7</td><td>和任务无关的跨域跳转会暂停任务，而不是悄悄换目标</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">C1</td><td>ChatGPT：显示实际使用的模型 / Effort</td><td><span class="pill ok">你已测</span></td><td>0.5.106 显示了 gpt-5-6。Requested 按你的要求去掉；Mismatch 是拿来和 Requested 比的，0.5.107 一并去掉</td></tr>
-        <tr><td class="id">C3</td><td>DeepSeek：在顶部用一行显示实际使用的模型</td><td><span class="pill miss">未达到</span></td><td>你测 0.5.106 没有显示：我按猜测写的按钮识别没有对上真实的 DeepSeek 页面。需要你 DeepSeek 窗口输入框附近的截图，照真实结构改</td></tr>
+        <tr><td class="id">C3</td><td>DeepSeek：在顶部一行显示实际使用的模型</td><td><span class="pill warn">待你验收</span></td><td>0.5.108 修了一个确定的 bug：第一次读到的值在窗口绑定前发出就被丢掉，之后不再重发；现在每 10 秒重发一次，而且认不出模式按钮时至少显示 DeepSeek。模式和模型版本仍需要你的 DeepSeek 截图才能对准</td></tr>
         <tr><td class="id">C4</td><td>切换 Provider 后，不显示上一个 Provider 的旧模型信息</td><td><span class="pill ok">结构保证</span></td><td>两个 Provider 各用一个页面，切换时整页换掉，不需要单独测</td></tr>
         <tr><td class="id">C6</td><td>在 Side Panel 里切换 DeepSeek 的模式（不用去 DeepSeek 窗口）</td><td><span class="pill todo">新需求</span></td><td>等 C3 拿到真实页面结构后再做</td></tr>
         <tr><td class="id">C5</td><td>DeepSeek 继续显示 Provider 窗口是否可见</td><td><span class="pill ok">未改动</span></td><td>DeepSeek 原有功能</td></tr>
         <tr><td class="id">C2</td><td>工具调用的显示方式</td><td><span class="pill todo">模式差异</span></td><td>原面板用 ChatGPT 自带的 “Called tool”（MCP 模式）；Web Provider 模式下，工具调用是聊天里的文字，自动折叠成一行</td></tr>
         <tr><td class="id">D1</td><td>本地文件工具：open_workspace / read / write / edit / bash</td><td><span class="pill warn">部分</span></td><td>独立窗口模式你已跑通；面板模式未验证</td></tr>
         <tr><td class="id">D2</td><td>High Trust host_command（在 WebMCP App 里授权）</td><td><span class="pill todo">未验证</span></td><td>ChatGPT 模式下还没测过</td></tr>
-        <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器，不额外占行</td><td><span class="pill warn">待你验收</span></td><td>你测 0.5.106：能用，但 DeepSeek 顶部占了三行。0.5.107 改为和 ChatGPT 一样：选择器和状态在同一行，模型信息一行</td></tr>
+        <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill warn">待你验收</span></td><td>0.5.108 按顶部契约排版</td></tr>
+        <tr><td class="id">H1</td><td>顶部按 5 行契约显示，Access 行颜色固定</td><td><span class="pill warn">待你验收</span></td><td>0.5.108；两个页面已用示例状态截图核对过排版</td></tr>
         <tr><td class="id">U2</td><td>Side Panel 里不再有 Folder / Full Access / High Trust，这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有这些设置；第 5b 步收敛</td></tr>
       </tbody>
     </table></div>

@@ -66,6 +66,11 @@
     #empty { opacity: .68; padding: 24px 8px; text-align: center; }
     #model { font-size: 11px; opacity: 0.85; margin-top: 4px; }
     #model code { font-size: 11px; }
+    #model-source { font-size: 11px; opacity: 0.7; }
+    #access { font-size: 11px; }
+    .access-write { font-weight: 600; }
+    .access-full { color: #ea580c; font-weight: 600; }
+    .access-host { color: #dc2626; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -73,14 +78,16 @@
     <header>
       <div class="row">
         <select id="provider" title="Provider"><option value="chatgpt">ChatGPT</option><option value="deepseek">DeepSeek</option></select>
-        <div class="grow">
-          <div id="state">Assistant not started</div>
-          <div id="target"></div>
-        </div>
+        <div id="state" class="grow">Assistant not started</div>
+      </div>
+      <div class="row">
+        <div id="target" class="grow"></div>
         <button id="restore" hidden>Restore</button>
         <button id="stop" hidden>Stop</button>
       </div>
       <div id="model" hidden>Model: <code id="model-actual"></code></div>
+      <div id="access"></div>
+      <div id="model-source" hidden>Source: DeepSeek page</div>
     </header>
 
     <main id="messages">

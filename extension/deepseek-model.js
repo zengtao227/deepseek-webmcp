@@ -11,6 +11,9 @@
   const BUTTON_SELECTOR = '[role="button"], button, .ds-button';
   const MAX_LEVELS = 6;
   const POLL_MS = 1000;
+  // Live 2026-09-25: a report sent before this window was bound to the panel was dropped and, being
+  // unchanged, never sent again. An unchanged value is therefore repeated every 10 s.
+  const REPEAT_MS = 10000;
 
   const labelOf = (button) => String(button.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
   const classesOf = (button) => String(button.getAttribute?.('class') ?? '');
@@ -23,9 +26,8 @@
 
   // The nearest container around the composer that holds labelled buttons, minus the Send control;
   // a button nested in another candidate counts once.
-  function modeButtons() {
-    const input = document.querySelector(COMPOSER_SELECTOR);
-    let scope = input?.parentElement ?? null;
+  function modeButtons(input) {
+    let scope = input.parentElement ?? null;
     for (let level = 0; scope && level < MAX_LEVELS; level += 1, scope = scope.parentElement) {
       const all = [...scope.querySelectorAll(BUTTON_SELECTOR)];
       const found = all.filter((button) => labelOf(button)
@@ -33,23 +35,27 @@
         && !all.some((other) => other !== button && other.contains?.(button)));
       if (found.length > 0) return found;
     }
-    return null;
+    return [];
   }
 
+  // Without the composer the page is not a DeepSeek chat yet. Without recognisable mode buttons the
+  // model is still reported, with no mode.
   function readModel() {
-    const buttons = modeButtons();
-    if (buttons === null) return null;
-    const on = buttons.filter(isOn).map(labelOf);
-    return { model: 'DeepSeek', mode: on.length > 0 ? on.join(' · ') : 'Default' };
+    const input = document.querySelector(COMPOSER_SELECTOR);
+    if (!input) return null;
+    const on = modeButtons(input).filter(isOn).map(labelOf);
+    return { model: 'DeepSeek', mode: on.length > 0 ? on.join(' · ') : null };
   }
 
   let last = '';
+  let lastSentAt = -Infinity;
   function report() {
     if (!chrome.runtime?.id) return;
     const model = readModel();
     const signature = JSON.stringify(model);
-    if (model === null || signature === last) return;
+    if (model === null || (signature === last && Date.now() - lastSentAt < REPEAT_MS)) return;
     last = signature;
+    lastSentAt = Date.now();
     try {
       void chrome.runtime.sendMessage({ type: 'model.status', model }).catch(() => {});
     } catch {}

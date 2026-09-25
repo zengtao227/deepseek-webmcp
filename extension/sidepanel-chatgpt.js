@@ -1,5 +1,5 @@
 import { INITIAL_MODEL_STATUS, applyModelEvent, modelStatusLines } from './model-status.js';
-import { mountProviderSelect, routeToProviderPage } from './panel-header.js';
+import { mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
 
 // ChatGPT in Web Provider Mode: the ChatGPT Embedded Panel's page. Changes from the original are
 // listed in docs/web-provider-dev-plan.html (message names, Provider selector, Work relay).
@@ -196,6 +196,7 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 mountProviderSelect(document.getElementById('provider'), provider);
+startAccessLine(document.getElementById('access'));
 
 void refreshPageState().catch(() => {});
 void loadFrame().catch((error) => {
