@@ -15,10 +15,13 @@ export async function routeToProviderPage(page) {
   return new Promise(() => {});
 }
 
+// Owner decision 2026-09-26: high authority belongs to the provider in use. Both providers share one
+// local runtime, so switching ends Full / Host Access before the other provider's page opens.
 export function mountProviderSelect(select, provider) {
   select.value = provider;
   select.addEventListener('change', async () => {
     const next = providerOf(select.value);
+    await revokeHighAccess(await readAccessStatus());
     await chrome.storage.local.set({ [PROVIDER_KEY]: next });
     location.replace(PROVIDER_PAGES[next]);
   });
@@ -37,13 +40,36 @@ const folderName = (folder) => String(folder ?? '').split('/').filter(Boolean).p
 export function accessParts(status, now) {
   if (!status || typeof status.folder !== 'string') return null;
   const fullOn = Number.isFinite(status.fullAccessUntil) && status.fullAccessUntil > now;
-  const hostOn = status.hostAccessState === 'active' && Number.isFinite(status.hostAccessUntil) && status.hostAccessUntil > now;
+  const hostOn = hostLeaseOn(status, now);
   const parts = fullOn
     ? [{ text: 'Home', kind: 'mount' }, { text: `FULL ACCESS ${minutesLeft(status.fullAccessUntil, now)}`, kind: 'full' }]
     : [{ text: folderName(status.folder), kind: 'mount' }, { text: 'WRITE', kind: 'write' }];
   if (hostOn) parts.push({ text: `HOST ACCESS ${minutesLeft(status.hostAccessUntil, now)}`, kind: 'host' });
   else if (UNVERIFIED_HOST.has(status.hostAccessState)) parts.push({ text: 'HOST ACCESS UNVERIFIED', kind: 'host' });
   return parts;
+}
+
+const hostLeaseOn = (status, now) => status?.hostAccessState === 'active' && Number.isFinite(status.hostAccessUntil) && status.hostAccessUntil > now;
+
+// The controls that end Full / Host Access, the most dangerous first. Revoking only lowers
+// authority, so the panel may do it; granting stays behind the macOS dialog in Settings.
+export function highAccessControls(status, now) {
+  if (!status) return [];
+  const controls = [];
+  if (hostLeaseOn(status, now) || UNVERIFIED_HOST.has(status.hostAccessState)) controls.push('stop-host-access');
+  if (Number.isFinite(status.fullAccessUntil) && status.fullAccessUntil > now) controls.push('stop-full-access');
+  return controls;
+}
+
+async function readAccessStatus() {
+  const response = await chrome.runtime.sendMessage({ type: 'settings.control', control: 'status' }).catch(() => null);
+  return response?.ok ? response.result : null;
+}
+
+async function revokeHighAccess(status) {
+  for (const control of highAccessControls(status, Date.now())) {
+    await chrome.runtime.sendMessage({ type: 'settings.control', control }).catch(() => null);
+  }
 }
 
 function renderAccess(element, status, now) {
@@ -65,15 +91,42 @@ function renderAccess(element, status, now) {
 
 // Countdowns tick every second; the status itself is re-read every 30 s and whenever the panel
 // becomes visible again.
+// The Revoke button is rebuilt only when the set of leases changes, never by the 1 s countdown,
+// so a click cannot land on a button that is being replaced.
 export function startAccessLine(element) {
   let status = null;
+  let revokeSignature = '';
+  const text = document.createElement('span');
+  const revoke = document.createElement('span');
+  element.replaceChildren(text, revoke);
+  const render = () => {
+    const now = Date.now();
+    renderAccess(text, status, now);
+    const controls = highAccessControls(status, now);
+    if (controls.join() === revokeSignature) return;
+    revokeSignature = controls.join();
+    if (controls.length === 0) {
+      revoke.replaceChildren();
+      return;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'access-revoke';
+    button.textContent = 'Revoke';
+    button.title = 'End Full Access / Host Access now';
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      await revokeHighAccess(status);
+      await load();
+    });
+    revoke.replaceChildren(button);
+  };
   const load = async () => {
-    const response = await chrome.runtime.sendMessage({ type: 'settings.control', control: 'status' }).catch(() => null);
-    status = response?.ok ? response.result : null;
-    renderAccess(element, status, Date.now());
+    status = await readAccessStatus();
+    render();
   };
   void load();
-  setInterval(() => renderAccess(element, status, Date.now()), 1000);
+  setInterval(render, 1000);
   setInterval(() => { void load(); }, 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void load(); });
 }
