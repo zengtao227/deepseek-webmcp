@@ -228,10 +228,27 @@ test('the real Windows query answers PLAIN, LINK or ALIAS, and fails on a missin
     assert.equal(realQuery(path.join(base, 'real', 'proj')).trim(), 'PLAIN', 'case alone is not an alias');
     assert.equal(realQuery(path.join(base, 'Real', 'Link')).trim(), 'LINK');
     assert.equal(realQuery(`${path.join(base, 'Real', 'Proj')}/../Proj`).trim(), 'ALIAS', 'a spelling Windows maps elsewhere');
+    await mkdir(path.join(base, 'Real', 'Spaced '));
+    assert.equal(realQuery(path.join(base, 'Real', 'Spaced ')).trim(), 'PLAIN', 'a trailing space is part of the name');
     assert.throws(() => realQuery(path.join(base, 'Missing')));
   } finally {
     await rm(base, { recursive: true, force: true });
   }
+});
+
+test('a trailing space in the folder name reaches Windows unchanged', async () => {
+  await withWsl(async ({ winProfile }) => {
+    let script;
+    await assertWindowsWorkspace('/mnt/d/app ', {
+      protectedFolders: { profile: winProfile, others: [] },
+      exec: async (command, args) => {
+        if (command === 'wslpath') return { stdout: 'D:\\app \r\n' };
+        script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        return { stdout: 'PLAIN\n' };
+      },
+    });
+    assert.match(script, /\$original = 'D:\\app ';/);
+  });
 });
 
 // PowerShell also reads the typographic quotes U+2018-U+201B as single quotes.

@@ -63,8 +63,10 @@ export async function toWslPath(windowsPath, { exec = execFileAsync } = {}) {
   return (await exec('wslpath', ['-u', windowsPath], { encoding: 'utf8' })).stdout.trim();
 }
 
+// Only the line ending: a folder name may end in a space, and a trimmed path would name a
+// different folder from the one that is checked and saved.
 export async function toWindowsPath(wslPath, { exec = execFileAsync } = {}) {
-  return (await exec('wslpath', ['-w', wslPath], { encoding: 'utf8' })).stdout.trim();
+  return (await exec('wslpath', ['-w', wslPath], { encoding: 'utf8' })).stdout.replace(/\r?\n$/, '');
 }
 
 // Windows folders a workspace may never be, contain, or sit inside (the same rule the
