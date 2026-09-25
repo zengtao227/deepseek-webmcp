@@ -15,7 +15,9 @@ function fakeDocker({ present = [OLD_IMAGE], failing = [] } = {}) {
   const exec = async (command, args) => {
     calls.push(args.join(' '));
     if (failing.includes(args.slice(0, 2).join(' '))) throw new Error(`docker ${args.join(' ')} failed`);
-    if (args[0] === 'image' && args[1] === 'inspect' && !present.includes(args[2])) throw new Error('No such image');
+    if (args[0] === 'image' && args[1] === 'inspect' && !present.includes(args[2])) {
+      throw Object.assign(new Error('Command failed: docker image inspect'), { stderr: `Error: No such image: ${args[2]}` });
+    }
     return { stdout: '' };
   };
   return { exec, calls };
@@ -134,6 +136,22 @@ test('if the previous image cannot be guarded, nothing is written and the instal
     await assert.rejects(
       beginInstall({ files: files.files, previousImage: OLD_IMAGE, imageTag: TAG, dockerPath: 'docker', exec: docker.exec }),
       /failed/,
+    );
+    assert.equal(await readFile(files.config, 'utf8'), '{"image":"old"}\n');
+  });
+});
+
+test('a Docker error other than "No such image" stops the install before anything is written', async () => {
+  await withFiles(async (files) => {
+    const exec = async (command, args) => {
+      if (args[0] === 'image' && args[1] === 'inspect') {
+        throw Object.assign(new Error('Command failed: docker image inspect'), { stderr: 'Cannot connect to the Docker daemon' });
+      }
+      return { stdout: '' };
+    };
+    await assert.rejects(
+      beginInstall({ files: files.files, previousImage: OLD_IMAGE, imageTag: TAG, dockerPath: 'docker', exec }),
+      /Command failed/,
     );
     assert.equal(await readFile(files.config, 'utf8'), '{"image":"old"}\n');
   });

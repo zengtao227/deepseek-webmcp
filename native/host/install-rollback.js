@@ -23,7 +23,12 @@ export async function beginInstall({ files, previousImage = null, imageTag, dock
   const guardTag = guardTagFor(imageTag);
   let guarded = false;
   if (previousImage) {
-    const present = await exec(dockerPath, ['image', 'inspect', previousImage], { encoding: 'utf8' }).then(() => true, () => false);
+    // Only Docker's own "No such image" means the previous image is gone. Any other error (Docker
+    // not answering, say) is not proof of absence: stop before anything is written.
+    const present = await exec(dockerPath, ['image', 'inspect', previousImage], { encoding: 'utf8' }).then(() => true, (error) => {
+      if (/no such image/i.test(`${error?.stderr ?? ''}\n${error?.message ?? ''}`)) return false;
+      throw error;
+    });
     // Nothing has been written yet, so a failure here leaves the install exactly as it was.
     if (present) {
       await exec(dockerPath, ['tag', previousImage, guardTag], { encoding: 'utf8' });
