@@ -265,3 +265,54 @@ test('a finished reply with a complete tool call is reported at once, not after 
   assert.ok(await reportDelay(call) < 1000, 'tool call reported without the quiet period');
   assert.ok(await reportDelay('The title is Action.') >= 2000, 'a plain answer still waits until it is quiet');
 });
+
+// Live DOM 2026-09-26 (free plan): a sponsored card is a child of the turn's
+// [data-conversation-screenshot-content] block, beside the reply, with an "Ad" badge and no link.
+test('sponsored cards under ChatGPT replies are marked hidden; the reply itself never is', () => {
+  const node = (text, children = []) => {
+    const attributes = new Map();
+    const self = {
+      children, childElementCount: children.length, textContent: text || children.map((child) => child.textContent).join(''),
+      getAttribute: (name) => attributes.get(name) ?? null,
+      setAttribute: (name, value) => attributes.set(name, value),
+      hasAttribute: (name) => attributes.has(name),
+      querySelector: (selector) => (selector === '[data-message-author-role]' ? self.all().find((child) => child.isMessage) ?? null : null),
+      querySelectorAll: () => self.all(),
+      all: () => children.flatMap((child) => [child, ...child.all()]),
+    };
+    return self;
+  };
+  const message = Object.assign(node('', [node('The title is Ad')]), { isMessage: true });
+  const reply = node('', [message]);
+  const card = node('', [node('', [node('ki-checker.ch'), node('Ad')]), node('KI-Sichtbarkeit prüfen')]);
+  const actions = node('', [node('Copy')]);
+  const content = node('', [reply, actions, card]);
+  const turn = { querySelector: (selector) => (selector === '[data-conversation-screenshot-content]' ? content : null) };
+  let fold;
+  let css = '';
+  const document = {
+    body: {}, head: { append: (element) => { css = element.textContent; } },
+    createElement: () => ({ textContent: '' }),
+    querySelector: () => null,
+    querySelectorAll: (selector) => (selector.includes('[data-turn="assistant"]') ? [turn] : []),
+    addEventListener() {},
+  };
+  const window = { addEventListener() {} };
+  window.top = window;
+  vm.runInNewContext(source, {
+    window, document,
+    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/c/existing', pathname: '/c/existing' },
+    chrome: { runtime: { id: 'test', sendMessage: async () => ({}), onMessage: { addListener() {} } } },
+    Node: { TEXT_NODE: 3 },
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: (callback) => { fold = callback; },
+    setInterval: (callback) => callback(),
+    setTimeout,
+  });
+  fold();
+  assert.equal(card.hasAttribute('data-webmcp-ad'), true);
+  assert.equal(reply.hasAttribute('data-webmcp-ad'), false, 'a reply that mentions "Ad" stays');
+  assert.equal(actions.hasAttribute('data-webmcp-ad'), false);
+  assert.match(css, /\[data-webmcp-ad\] \{ display: none !important; \}/);
+  assert.match(css, /\[data-webmcp-step\]\[data-turn="user"\] button \{ display: none !important; \}/, 'no empty Show more under a folded tool result');
+});

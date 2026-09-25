@@ -510,6 +510,10 @@
   // icon row; the owner's question and the final answer keep Copy / Rate (live DOM 2026-09-25).
   const STEP = 'data-webmcp-step';
   const TURN_SELECTOR = '[data-testid^="conversation-turn"]';
+  // Free-plan sponsored cards sit in the reply's block beside the reply itself, with no link or
+  // attribute of their own; only the badge text marks them (live DOM 2026-09-26).
+  const AD = 'data-webmcp-ad';
+  const AD_BADGE = /^(Ad|Ads|Sponsored|广告|赞助)$/;
   const RESULT_START = 'DeepSeek WebMCP tool result.\n';
   const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
   const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
@@ -524,6 +528,8 @@
     [${FOLD}]:not([${OPEN}])::after { content: attr(${FOLD}); display: block; font-size: 12px; line-height: 20px; color: var(${COLOR}, inherit); opacity: 0.55; white-space: pre-wrap; }
     [${FOLD}][${OPEN}] { cursor: pointer; }
     [${STEP}] [role="group"]:has(button[data-testid="copy-turn-action-button"]) { display: none !important; }
+    [${STEP}][data-turn="user"] button { display: none !important; }
+    [${AD}] { display: none !important; }
   `;
   (document.head ?? document.documentElement).append(style);
 
@@ -565,9 +571,21 @@
     if (turn && !turn.hasAttribute(STEP)) turn.setAttribute(STEP, '');
   }
 
+  function hideAds() {
+    for (const turn of document.querySelectorAll(`${TURN_SELECTOR}[data-turn="assistant"]`)) {
+      const content = turn.querySelector('[data-conversation-screenshot-content]');
+      for (const block of content?.children ?? []) {
+        if (block.hasAttribute(AD) || block.querySelector('[data-message-author-role]')) continue;
+        const badge = [...block.querySelectorAll('*')].some((element) => element.childElementCount === 0 && AD_BADGE.test((element.textContent ?? '').trim()));
+        if (badge) block.setAttribute(AD, '');
+      }
+    }
+  }
+
   let foldScheduled = false;
   function foldMessages() {
     foldScheduled = false;
+    hideAds();
     for (const element of document.querySelectorAll(USER_TEXT_SELECTOR)) {
       if (!isTypedText(element)) continue;
       if (element.closest(ANSWER_SELECTOR)) continue;
