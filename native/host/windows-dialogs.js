@@ -15,8 +15,12 @@ function encoded(script) {
   return Buffer.from(script, 'utf16le').toString('base64');
 }
 
+// Windows PowerShell writes the OEM code page unless told otherwise, which garbles a
+// non-ASCII user or folder name on its way into WSL.
+const UTF8_OUTPUT = '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); ';
+
 async function runPowerShell(script, { exec = execFileAsync, timeoutMs } = {}) {
-  const { stdout } = await exec(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded(script)], {
+  const { stdout } = await exec(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded(UTF8_OUTPUT + script)], {
     encoding: 'utf8',
     timeout: timeoutMs,
   });
@@ -63,12 +67,20 @@ export async function toWindowsPath(wslPath, { exec = execFileAsync } = {}) {
 // Windows folders a workspace may never be, contain, or sit inside (the same rule the
 // WebMCP Setup applies): the user folder itself, AppData, Windows, ProgramData and the
 // program folders. Returned as WSL paths.
+// Tagged lines, so an unset variable cannot shift another folder into the profile slot.
 export async function windowsProtectedFolders({ exec = execFileAsync } = {}) {
   const lines = (await runPowerShell(
-    "$env:USERPROFILE; $env:APPDATA; $env:LOCALAPPDATA; $env:SystemRoot; $env:ProgramData; $env:ProgramFiles; ${env:ProgramFiles(x86)}",
+    '"P=$env:USERPROFILE"; "O=$env:APPDATA"; "O=$env:LOCALAPPDATA"; "O=$env:SystemRoot"; "O=$env:ProgramData"; "O=$env:ProgramFiles"; "O=${env:ProgramFiles(x86)}"',
     { exec },
-  )).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const [profile, ...others] = await Promise.all(lines.map((line) => toWslPath(line, { exec })));
+  )).split(/\r?\n/).map((line) => line.trim());
+  const reportedProfile = lines.find((line) => line.startsWith('P='))?.slice(2);
+  if (!reportedProfile) throw new Error('Windows did not report the user folder.');
+  const reportedOthers = lines.filter((line) => line.startsWith('O=') && line.length > 2).map((line) => line.slice(2));
+  const [profile, ...others] = await Promise.all([reportedProfile, ...reportedOthers].map(async (line) => {
+    const mapped = await toWslPath(line, { exec });
+    if (!mapped) throw new Error(`wslpath returned nothing for ${line}`);
+    return mapped;
+  }));
   return { profile, others };
 }
 

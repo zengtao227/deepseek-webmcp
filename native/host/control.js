@@ -118,18 +118,26 @@ async function pickFolder({ config, exec, kind }) {
 
 // Same rule as the WebMCP Setup: not a drive root, not the user folder or anything that
 // contains it, and nothing that contains or sits inside AppData, Windows, ProgramData or
-// the program folders.
+// the program folders. `folder` must already be canonical. Any doubt refuses: drvfs is
+// case-insensitive (so is the comparison), and a Windows folder that cannot be looked up or
+// found would match nothing.
 export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
   const within = (root, candidate) => {
-    const relative = path.relative(root, candidate);
+    const relative = path.relative(root.toLowerCase(), candidate.toLowerCase());
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
   };
   const refuse = () => fail('Choose a project folder, not a system folder or your whole Windows user folder.', 'INVALID_FOLDER');
+  const unchecked = () => fail('Windows folders cannot be checked from WSL, so no folder is accepted.', 'WINDOWS_FOLDER_CHECK_UNAVAILABLE');
   if (/^\/mnt\/[a-z]\/?$/i.test(folder)) refuse();
-  const { profile, others } = protectedFolders ?? await windowsProtectedFolders({ exec });
-  const real = async (candidate) => realpath(candidate).catch(() => path.resolve(candidate));
-  if (within(folder, await real(profile))) refuse();
-  for (const other of others) {
+  let folders;
+  try {
+    folders = protectedFolders ?? await windowsProtectedFolders({ exec });
+  } catch {
+    unchecked();
+  }
+  const real = (candidate) => realpath(candidate).catch(unchecked);
+  if (within(folder, await real(folders.profile))) refuse();
+  for (const other of folders.others) {
     const resolved = await real(other);
     if (within(folder, resolved) || within(resolved, folder)) refuse();
   }
