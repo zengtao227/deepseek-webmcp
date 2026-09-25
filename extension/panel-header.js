@@ -4,7 +4,7 @@ export const PROVIDER_KEY = 'provider.id';
 export const PROVIDER_PAGES = Object.freeze({ deepseek: 'sidepanel.html', chatgpt: 'sidepanel-chatgpt.html' });
 
 export function providerOf(stored) {
-  return Object.hasOwn(PROVIDER_PAGES, stored) ? stored : 'deepseek';
+  return Object.hasOwn(PROVIDER_PAGES, stored) ? stored : 'chatgpt';
 }
 
 // Opens the selected provider's page when this page is not it. Resolves only when this page stays.

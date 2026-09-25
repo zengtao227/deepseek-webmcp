@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROVIDER_PAGES, providerOf } from '../extension/panel-header.js';
 
-test('every provider has its own panel page; anything unknown falls back to DeepSeek', () => {
+// Owner decision 2026-09-26: a panel that never chose a provider opens ChatGPT, because opening
+// DeepSeek first also opens its provider window.
+test('every provider has its own panel page; nothing chosen yet (or anything unknown) opens ChatGPT', () => {
   assert.deepEqual(PROVIDER_PAGES, { deepseek: 'sidepanel.html', chatgpt: 'sidepanel-chatgpt.html' });
   assert.equal(providerOf('chatgpt'), 'chatgpt');
   assert.equal(providerOf('deepseek'), 'deepseek');
-  assert.equal(providerOf(undefined), 'deepseek');
-  assert.equal(providerOf('toString'), 'deepseek');
+  assert.equal(providerOf(undefined), 'chatgpt');
+  assert.equal(providerOf('toString'), 'chatgpt');
 });
 
 import { accessParts } from '../extension/panel-header.js';

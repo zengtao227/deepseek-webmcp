@@ -167,7 +167,7 @@ tr.done td{background:var(--ok-soft)}
         <tr><td class="id">E2</td><td>（计划外，你提出）工具调用写完就执行，不再固定多等 2 秒</td><td><span class="pill warn">待你验收</span></td><td>8fe282a；只对含完整工具调用的回复生效，普通回答仍等 2 秒</td></tr>
         <tr><td class="id">E3</td><td>（计划外，你提出）隐藏 ChatGPT 免费版回复下的广告卡片</td><td><span class="pill warn">待你验收</span></td><td>e776142；靠卡片上的 “Ad” 字样识别，ChatGPT 改版可能失效。我在 Comet 的对话里只读试过：3 张广告都能藏住，回答本身不受影响</td></tr>
         <tr><td class="id">E4</td><td>（计划外，你提出）折叠后的工具结果不再留空的 Show more</td><td><span class="pill warn">待你验收</span></td><td>e776142；只作用于工具步骤，你自己的长消息不受影响</td></tr>
-        <tr class="done"><td class="id">E5</td><td>（计划外，你提出）打开面板时直接进入上次选的 Provider，不先弹出 DeepSeek</td><td><span class="pill ok">你已测</span></td><td>原有功能（panel-header.js 记住选择）；你确认打开就是 ChatGPT。从没选过时默认仍是 DeepSeek，是否改默认待你决定</td></tr>
+        <tr class="done"><td class="id">E5</td><td>（计划外，你提出）打开面板时直接进入上次选的 Provider，不先弹出 DeepSeek</td><td><span class="pill ok">你已测</span></td><td>原有功能（panel-header.js 记住选择）；你确认打开就是 ChatGPT。从没选过时（新装、换 profile）改为默认打开 ChatGPT，不再弹出 DeepSeek 的 Provider 窗口（你的决定，2026-09-26）</td></tr>
         <tr><td class="id">U2</td><td>Side Panel 里不再有 Folder / Full Access / High Trust，这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有这些设置；第 5b 步收敛</td></tr>
       </tbody>
     </table></div>
@@ -268,6 +268,7 @@ tr.done td{background:var(--ok-soft)}
     <ul>
       <li>底层合并：一个扩展 ID、一个 native host。只推迟这一项；统一的 Side Panel 界面在本阶段完成（第 5b 步）。</li>
       <li>任何对 WebMCP Setup、发布集和已安装程序的改动。</li>
+      <li>（以后的方向，你 2026-09-26 提出）DeepSeek 运行环境照 ChatGPT 那套 WebMCP 改成：可以挂多个文件夹，每个文件夹单独控制能否写入；到那时 Access 行必须能显示 WRITE OFF。现在 DeepSeek 只能挂一个文件夹、始终可写。</li>
     </ul>
   </section>
 </div>
