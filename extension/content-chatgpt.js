@@ -9,7 +9,7 @@
   // logged out) a textarea UI with `li[data-message-role]` turns and `/uc/<id>` conversations.
   const ANSWER_SELECTOR = '[data-message-author-role="assistant"], li[data-message-role="assistant"]';
   const USER_SELECTOR = '[data-message-author-role="user"], li[data-message-role="user"]';
-  const COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"], form textarea';
+  const COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"]';
   const SEND_SELECTOR = '#composer-submit-button, button[data-testid="send-button"], form button[type="submit"][aria-label^="Send" i]';
   const STOP_SELECTOR = 'button[data-testid="stop-button"], button[aria-label^="Stop" i]';
   const CONVERSATION_PATH = /^\/u?c\/[A-Za-z0-9-]+$/;
@@ -28,7 +28,8 @@
   const send = (message) => chrome.runtime.sendMessage({ ...message, href: location.href });
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const composer = () => document.querySelector(COMPOSER_SELECTOR);
+  const composer = () => document.querySelector(COMPOSER_SELECTOR)
+    ?? [...document.querySelectorAll('form textarea')].find((input) => input.getClientRects().length > 0);
   const sendControl = () => document.querySelector(SEND_SELECTOR);
   const isGenerating = () => document.querySelector(STOP_SELECTOR) !== null;
   const sendDisabled = (control) => control.disabled || control.getAttribute('aria-disabled') === 'true'
@@ -230,9 +231,8 @@
 
   const readComposer = (input) => (input.value ?? input.innerText ?? '').replace(/ /g, ' ');
 
-  // ChatGPT's composer is ProseMirror: a synthetic paste keeps line breaks and goes through the
-  // editor's own input path; execCommand is the fallback the original fallback adapter used.
-  // ProseMirror turns pasted lines into paragraphs, so the read-back differs from the input only in
+  // ChatGPT's ProseMirror composer accepts insertText through its own input path.
+  // ProseMirror turns inserted lines into paragraphs, so the read-back differs from the input only in
   // whitespace.
   const sameText = (a, b) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
 
@@ -254,13 +254,7 @@
       return sameText(readComposer(input), text);
     }
     selectAll(input);
-    const data = new DataTransfer();
-    data.setData('text/plain', text);
-    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
-    if (!sameText(readComposer(input), text)) {
-      selectAll(input);
-      try { document.execCommand('insertText', false, text); } catch {}
-    }
+    try { document.execCommand('insertText', false, text); } catch {}
     return sameText(readComposer(input), text);
   }
 
@@ -268,6 +262,10 @@
     const input = composer();
     if (!input) return { ok: false, code: 'COMPOSER_NOT_FOUND' };
     if (!writeComposer(input, text)) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
+    if (!(input instanceof HTMLTextAreaElement)) {
+      await sleep(100);
+      if (!sameText(readComposer(input), text)) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
+    }
 
     const enableDeadline = Date.now() + SEND_ENABLE_WAIT_MS;
     let control = sendControl();

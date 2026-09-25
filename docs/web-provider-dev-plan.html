@@ -142,8 +142,8 @@ a{color:var(--accent)}
         <tr><td class="id">A4</td><td>进入某个对话后，关掉面板再打开，回到同一个对话</td><td><span class="pill todo">未验证</span></td><td>代码照搬（记住上次 URL）</td></tr>
         <tr><td class="id">A5</td><td>关掉面板再打开，ChatGPT 自动重新连上</td><td><span class="pill todo">未验证</span></td><td>代码照搬</td></tr>
         <tr><td class="id">A6</td><td>连不上时出现恢复界面：Retry / Open ChatGPT window</td><td><span class="pill todo">未验证</span></td><td>代码照搬；备用窗口里的 ChatGPT 也默认开启 Work</td></tr>
-        <tr><td class="id">B1</td><td>空闲时顶部显示 “Ready — Current: 页面标题”</td><td><span class="pill warn">待你验收</span></td><td>0.5.103 修了消息被拒的问题</td></tr>
-        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill warn">待你验收</span></td><td>你测 0.5.107 在恢复的旧对话里仍失败。普通标签页里的同一流程能通（ChatGPT 调用了 inspect_page），面板里为什么不同还没有证据。下一步先确认：你发出的那条消息后面有没有附上工具说明</td></tr>
+        <tr><td class="id">B1</td><td>空闲时顶部显示 “Ready — Current: 页面标题”</td><td><span class="pill ok">Chrome 实测</span></td><td>Action 页面打开时显示 Ready — Current: Wochenangebote für Deutschland | Action DE。</td></tr>
+        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill ok">Chrome 实测</span></td><td>恢复的旧对话：面板 frame 的 sender.tab 为空、sender.origin 为 https://chatgpt.com；后台接受 work.arrive，Work 开启且返回工具说明。失败根因是隐藏 textarea 排在可见 ProseMirror 前，旧选择器取到空值；旧 paste/insertText 双路径还会留下重复草稿。修正后真实 Chrome 中 ChatGPT 发出 inspect_page，扩展返回 Action 页面标题，ChatGPT 据此作答，输入框清空；无诊断代码重载后再次往返成功。回归测试见 tests/content-chatgpt.test.js。</td></tr>
         <tr><td class="id">B3</td><td>任务进行中切换标签页，不会改变目标页面</td><td><span class="pill todo">未验证</span></td><td>和 DeepSeek 用同一份代码</td></tr>
         <tr><td class="id">B4</td><td>Stop 解除锁定，回到空闲状态</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
@@ -196,10 +196,10 @@ a{color:var(--accent)}
         <dt>验收</dt><dd>你确认清单完整。</dd>
         <dt>审查</dt><dd>逐项对照原面板的 README 和页面代码。</dd></dl></div>
 
-      <div class="card now"><div class="head"><h3>第 2 步 · 读取左边页面（B1、B2）</h3><span class="pill warn">0.5.105 待你验收</span></div>
-        <dl><dt>做什么</dt><dd>已修：面板模式下告诉模型“当前页面已附加”。</dd>
-        <dt>验收</dt><dd>顶部显示左边页面的标题；让 ChatGPT 读左边页面，它能返回页面内容。</dd>
-        <dt>审查</dt><dd>这次改动只有 <code>background.js</code> 里的一行判断。</dd></dl></div>
+      <div class="card now"><div class="head"><h3>第 2 步 · 读取左边页面（B1、B2）</h3><span class="pill ok">Chrome 实测通过</span></div>
+        <dl><dt>做什么</dt><dd>面板模式下告诉模型“当前页面已附加”；选择可见 ProseMirror 输入框并只用 insertText 写入工具说明。</dd>
+        <dt>验收</dt><dd>真实 Chrome 中恢复的旧对话完成 inspect_page 往返，返回左侧 Action 页面标题；无诊断代码重载后复测通过。</dd>
+        <dt>审查</dt><dd>本轮发送修复只改 <code>content-chatgpt.js</code> 的输入框选择与写入确认，后台路由未改；新增一个定向回归测试。</dd></dl></div>
 
       <div class="card now"><div class="head"><h3>第 3 步 · 顶部状态区：Provider 选择器 + 模型信息（U1、C1、C3、C4）</h3><span class="pill warn">0.5.106 待你验收</span></div>
         <dl><dt>做什么</dt><dd>ChatGPT：原样移植原面板的 model-probe.js、model-status.js 和顶部模型显示（按你的要求去掉 Requested）。DeepSeek：新增 deepseek-model.js，只读取 DeepSeek 页面的模式按钮，显示在同一位置。两个页面顶部使用同一个 Provider 选择器（panel-header.js），并从 Settings 中移除。</dd>
