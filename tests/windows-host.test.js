@@ -1,15 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { assertWindowsFolderRule, assertWindowsWorkspace, handleControlRequest } from '../native/host/control.js';
-import { windowsPathHasLink } from '../native/host/windows-dialogs.js';
+import { assertWindowsDrivePath, assertWindowsFolderRule, assertWindowsWorkspace, handleControlRequest } from '../native/host/control.js';
+import { windowsFolderQuery, windowsFolderQueryScript } from '../native/host/windows-dialogs.js';
 import { WINDOWS_REGISTRY_KEYS, browserProfileRoots, hostKind } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
+
+function hasPwsh() {
+  try {
+    execFileSync('pwsh', ['-NoProfile', '-Command', '1'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const PWSH = hasPwsh();
+
+// The real folder query, run by pwsh against a local folder (Unix pwsh marks symlinks
+// ReparsePoint as Windows does junctions). Short 8.3 names exist only on Windows: Tester 1 gate.
+function realQuery(folder) {
+  const encoded = Buffer.from(windowsFolderQueryScript(folder), 'utf16le').toString('base64');
+  return execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+}
 
 // A WSL home with a "Windows user folder" (containing AppData) and a project folder in it.
 async function withWsl(run) {
@@ -27,6 +44,7 @@ async function withWsl(run) {
     const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
     await writeFile(configFile, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/bin/docker' }));
     const calls = [];
+    const queried = [];
     let pick = 'C:\\Users\\me\\Projects\\app';
     let folderReport = 'P=C:\\Users\\me\r\nO=C:\\Users\\me\\AppData\\Roaming\r\nO=C:\\Users\\me\\AppData\\Local\r\nO=C:\\Windows\r\nO=\r\n';
     const toWsl = {
@@ -46,6 +64,12 @@ async function withWsl(run) {
           return { stdout: folderReport };
         }
         if (script.includes('MessageBox')) return { stdout: 'OK\r\n' };
+        if (script.includes('$original = ')) {
+          // The folder query: run the real query against the folder this Windows path stands for.
+          const windowsPath = script.match(/\$original = '([^']*)';/)[1];
+          queried.push(windowsPath);
+          return { stdout: PWSH ? realQuery(toWsl[windowsPath]) : 'PLAIN\r\n' };
+        }
         return { stdout: '' };
       }
       if (command === 'wslpath') return { stdout: `${args[0] === '-u' ? (toWsl[args[1]] ?? path.join(root, 'unmapped', path.win32.basename(args[1]))) : 'C:\\Users\\me\\Projects\\app'}\n` };
@@ -55,7 +79,7 @@ async function withWsl(run) {
       { version: 1, id: 'w1', control: name, arguments: args },
       { home, configFile, now: 1000, exec, kind: 'wsl', notify: () => {} },
     );
-    await run({ home, configFile, winProfile, project, calls, control, setPick: (value) => { pick = value; }, setFolderReport: (value) => { folderReport = value; } });
+    await run({ home, configFile, winProfile, project, calls, queried, control, setPick: (value) => { pick = value; }, setFolderReport: (value) => { folderReport = value; } });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -77,9 +101,11 @@ test('on Windows the panel is told Full access and Host access are not available
 });
 
 test('on Windows the folder is chosen in a Windows dialog, and the whole user folder is refused', async () => {
-  await withWsl(async ({ control, configFile, project, setPick }) => {
+  await withWsl(async ({ control, configFile, project, setPick, queried }) => {
     const chosen = await control('choose-folder');
     assert.equal(chosen.result.changed, true);
+    // The accepted folder went through the real link/alias query.
+    assert.deepEqual(queried, ['C:\\Users\\me\\Projects\\app']);
     assert.equal(JSON.parse(await readFile(configFile, 'utf8')).workspaceRoot, project);
     for (const refused of ['C:\\Users\\me', 'C:\\Windows']) {
       setPick(refused);
@@ -108,10 +134,10 @@ test('the Windows folder rule ignores case, as drvfs and WebMCP Setup do', async
     await assert.rejects(assertWindowsWorkspace(upper(winProfile), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
     await assert.rejects(assertWindowsWorkspace(path.dirname(upper(winProfile)), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
     await assert.rejects(assertWindowsWorkspace(upper(path.join(winProfile, 'AppData', 'Roaming', 'Google')), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
-    await assertWindowsWorkspace(upper(path.join(winProfile, 'Projects', 'app')), { protectedFolders: folders });
+    assertWindowsFolderRule(upper(path.join(winProfile, 'Projects', 'app')), folders);
     // A name that merely starts with ".." is still inside, as for Setup's StartsWith(parent + "\\").
     await assert.rejects(assertWindowsWorkspace(path.join(winProfile, 'AppData', 'Roaming', '..cache'), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
-    await assertWindowsWorkspace(path.join(winProfile, '..dotted-project'), { protectedFolders: folders });
+    assertWindowsFolderRule(path.join(winProfile, '..dotted-project'), folders);
   });
 });
 
@@ -145,36 +171,67 @@ test('every PowerShell script asks for UTF-8 output, so non-ASCII names survive'
 const CASES = JSON.parse(readFileSync(new URL('./fixtures/windows-folder-policy-cases.json', import.meta.url), 'utf8'));
 
 test('Windows folder rule matches WebMCP Setup (shared conformance cases)', () => {
-  for (const folder of CASES.refuse) {
+  for (const folder of CASES.wslPaths.refuse) {
     assert.throws(() => assertWindowsFolderRule(folder, CASES.protected), { code: 'INVALID_FOLDER' }, folder);
   }
-  for (const folder of CASES.allow) {
+  for (const folder of CASES.wslPaths.allow) {
     assert.doesNotThrow(() => assertWindowsFolderRule(folder, CASES.protected), folder);
+  }
+  for (const windowsPath of CASES.windowsPaths.refuse) {
+    assert.throws(() => assertWindowsDrivePath(windowsPath), { code: 'INVALID_FOLDER' }, windowsPath);
+  }
+  for (const windowsPath of CASES.windowsPaths.allow) {
+    assert.doesNotThrow(() => assertWindowsDrivePath(windowsPath), windowsPath);
   }
 });
 
-test('Windows is asked about junctions and links in a Windows folder, and any doubt refuses', async () => {
+test('the folder must map to a drive path, and Windows is asked about links and names; any doubt refuses', async () => {
   await withWsl(async ({ winProfile }) => {
     const folders = { profile: winProfile, others: [] };
-    const check = (answer) => assertWindowsWorkspace('/mnt/d/work/app', {
+    const calls = [];
+    const check = (mapped, answer) => assertWindowsWorkspace('/mnt/d/work/app', {
       protectedFolders: folders,
       exec: async (command, args) => {
+        calls.push(command);
         if (command === 'wslpath') {
           assert.deepEqual(args, ['-w', '/mnt/d/work/app']);
-          return { stdout: 'D:\\work\\app\n' };
+          if (mapped instanceof Error) throw mapped;
+          return { stdout: `${mapped}\n` };
         }
         const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
-        assert.match(script, /GetFullPath\('D:\\work\\app'\)/);
-        assert.match(script, /ReparsePoint/);
+        assert.match(script, /\$original = 'D:\\work\\app';/);
         if (answer instanceof Error) throw answer;
         return { stdout: answer };
       },
     });
-    await check('PLAIN\r\n');
-    await assert.rejects(check('LINK\r\n'), { code: 'INVALID_FOLDER' });
-    await assert.rejects(check('something else\r\n'), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
-    await assert.rejects(check(new Error('Get-Item failed')), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
+    const drive = 'D:\\work\\app';
+    await check(drive, 'PLAIN\r\n');
+    await assert.rejects(check(drive, 'LINK\r\n'), { code: 'INVALID_FOLDER' });
+    await assert.rejects(check(drive, 'ALIAS\r\n'), { code: 'INVALID_FOLDER' });
+    await assert.rejects(check(drive, 'something else\r\n'), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
+    await assert.rejects(check(drive, new Error('Get-Item failed')), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
+    await assert.rejects(check(new Error('wslpath failed')), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
+    calls.length = 0;
+    // A folder inside WSL maps to a UNC path and is refused before PowerShell is asked.
+    await assert.rejects(check('\\\\wsl.localhost\\Ubuntu\\home\\me\\code'), { code: 'INVALID_FOLDER' });
+    assert.deepEqual(calls, ['wslpath']);
   });
+});
+
+test('the real Windows query answers PLAIN, LINK or ALIAS, and fails on a missing folder', { skip: !PWSH && 'pwsh not installed' }, async () => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'deepseek-win-query-')));
+  try {
+    await mkdir(path.join(base, 'Real', 'Proj'), { recursive: true });
+    await mkdir(path.join(base, 'Other'));
+    await symlink(path.join(base, 'Other'), path.join(base, 'Real', 'Link'));
+    assert.equal(realQuery(path.join(base, 'Real', 'Proj')).trim(), 'PLAIN');
+    assert.equal(realQuery(path.join(base, 'real', 'proj')).trim(), 'PLAIN', 'case alone is not an alias');
+    assert.equal(realQuery(path.join(base, 'Real', 'Link')).trim(), 'LINK');
+    assert.equal(realQuery(`${path.join(base, 'Real', 'Proj')}/../Proj`).trim(), 'ALIAS', 'a spelling Windows maps elsewhere');
+    assert.throws(() => realQuery(path.join(base, 'Missing')));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 // PowerShell also reads the typographic quotes U+2018-U+201B as single quotes.
@@ -182,18 +239,15 @@ const HOSTILE = "D:\\work\\Tom\u2019+(\"INJECTED\")+\u2019s \u2018a\u201Ab\u201B
 
 test('a folder name with any PowerShell quote character stays a literal in PowerShell scripts', async () => {
   let script;
-  await windowsPathHasLink('/mnt/d/work/x', {
+  await windowsFolderQuery(HOSTILE, {
     exec: async (command, args) => {
-      if (command === 'wslpath') return { stdout: `${HOSTILE}\n` };
       script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
       return { stdout: 'PLAIN\n' };
     },
   });
-  const literal = script.match(/GetFullPath\(('(?:[^'\u2018\u2019\u201A\u201B]|['\u2018\u2019\u201A\u201B]{2})*')\)/)?.[1];
+  const literal = script.match(/\$original = ('(?:[^'\u2018\u2019\u201A\u201B]|['\u2018\u2019\u201A\u201B]{2})*');/)?.[1];
   assert.ok(literal, script);
-  let pwsh = true;
-  try { execFileSync('pwsh', ['-NoProfile', '-Command', '1'], { stdio: 'ignore' }); } catch { pwsh = false; }
-  if (pwsh) {
+  if (PWSH) {
     assert.equal(execFileSync('pwsh', ['-NoProfile', '-Command', `$x = ${literal}; $x`], { encoding: 'utf8' }).trim(), HOSTILE);
   }
 });

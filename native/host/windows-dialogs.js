@@ -87,18 +87,33 @@ export async function windowsProtectedFolders({ exec = execFileAsync } = {}) {
   return { profile, others };
 }
 
-// Setup's Test-PathContainsLink: drvfs does not necessarily show a Windows junction as a
-// Linux link, so Windows is asked about the path itself. true/false, or throws when unsure.
-export async function windowsPathHasLink(wslPath, { exec = execFileAsync } = {}) {
-  const windowsPath = await toWindowsPath(wslPath, { exec });
-  if (!windowsPath) throw new Error(`wslpath returned nothing for ${wslPath}`);
-  const answer = await runPowerShell(
-    `$current = Get-Item -LiteralPath ([IO.Path]::GetFullPath(${psString(windowsPath)})) -Force -ErrorAction Stop; $link = $false; while ($null -ne $current) { if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $link = $true }; $current = $current.Parent }; if ($link) { "LINK" } else { "PLAIN" }`,
-    { exec },
-  );
-  if (answer === 'LINK') return true;
-  if (answer === 'PLAIN') return false;
-  throw new Error(`Unexpected link check answer: ${answer}`);
+// Setup's Test-PathContainsLink, asked of Windows itself because drvfs does not necessarily
+// show a Windows junction as a Linux link. The path is also rebuilt from each folder's real
+// name: a short 8.3 name, a trailing dot or any other spelling Windows maps to a different
+// folder is an ALIAS. Same query as webmcp-bridge windows-folder-policy.js.
+export function windowsFolderQueryScript(windowsPath) {
+  return [
+    `$original = ${psString(windowsPath)};`,
+    '$current = Get-Item -LiteralPath $original -Force -ErrorAction Stop;',
+    '$link = $false; $names = @();',
+    'while ($null -ne $current.Parent) {',
+    '  if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $link = $true };',
+    '  $match = @($current.Parent.GetFileSystemInfos($current.Name));',
+    '  if ($match.Count -ne 1) { throw "ambiguous name" };',
+    '  $names = @($match[0].Name) + $names; $current = $current.Parent',
+    '};',
+    'if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $link = $true };',
+    "$rebuilt = $current.FullName.TrimEnd('\\', '/');",
+    'foreach ($name in $names) { $rebuilt = $rebuilt + [IO.Path]::DirectorySeparatorChar + $name };',
+    "if ($link) { 'LINK' } elseif (-not [string]::Equals($rebuilt, $original.TrimEnd('\\', '/'), [StringComparison]::OrdinalIgnoreCase)) { 'ALIAS' } else { 'PLAIN' }",
+  ].join(' ');
+}
+
+// PLAIN, LINK or ALIAS; throws when Windows cannot answer or answers anything else.
+export async function windowsFolderQuery(windowsPath, { exec = execFileAsync } = {}) {
+  const answer = await runPowerShell(windowsFolderQueryScript(windowsPath), { exec });
+  if (['PLAIN', 'LINK', 'ALIAS'].includes(answer)) return answer;
+  throw new Error(`Unexpected folder query answer: ${answer}`);
 }
 
 // Removes the Windows side of an install: browser registrations and the relay folder.

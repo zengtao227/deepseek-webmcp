@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
-import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsPathHasLink, windowsProtectedFolders } from './windows-dialogs.js';
+import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
 import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -121,26 +121,31 @@ const within = (root, candidate) => {
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 };
 
-// Same rule as the WebMCP Setup: not a drive root, not the user folder or anything that
-// contains it, and nothing that contains or sits inside AppData, Windows, ProgramData or
-// the program folders. drvfs is case-insensitive, so is the comparison. `folder` must
-// already be canonical; the protected folders are canonical WSL paths.
+// Same rule as the WebMCP Setup, on WSL paths: not the user folder or anything that contains
+// it, and nothing that contains or sits inside AppData, Windows, ProgramData or the program
+// folders. drvfs is case-insensitive, so is the comparison. `folder` must already be
+// canonical; the protected folders are canonical WSL paths. That the folder is on a Windows
+// drive at all is checked on its Windows form (assertWindowsDrivePath).
 export function assertWindowsFolderRule(folder, { profile, others }) {
   const refuse = () => fail('Choose a project folder, not a system folder or your whole Windows user folder.', 'INVALID_FOLDER');
-  if (/^\/mnt\/[a-z]\/?$/i.test(folder)) refuse();
-  // Windows resolves 8.3 short names (C:\PROGRA~1) but realpath keeps them, so the short
-  // form of a protected folder would match nothing. Only the full name is accepted.
-  if (/^\/mnt\/[a-z]\//i.test(folder) && folder.split('/').some((part) => /~\d/.test(part))) {
-    fail('Use the full folder name, not a short 8.3 name (like PROGRA~1).', 'INVALID_FOLDER');
-  }
   if (within(folder, profile)) refuse();
   for (const other of others) {
     if (within(folder, other) || within(other, folder)) refuse();
   }
 }
 
-// Any doubt refuses: a Windows folder that cannot be looked up or found would match nothing,
-// and Setup refuses any path with a junction or link in it.
+// Setup accepts only X:\ paths below a drive root. A folder inside WSL (/home, /mnt/wsl,
+// /mnt/wslg) maps to a \\wsl.localhost\ UNC path, a network share to \\server\, so asking
+// wslpath covers every mount layout without guessing where the drives are.
+export function assertWindowsDrivePath(windowsPath) {
+  if (!/^[A-Za-z]:\\[^\\]/.test(windowsPath)) {
+    fail('Choose a project folder on a Windows drive (like C:), not a drive root, a network share or a folder inside WSL.', 'INVALID_FOLDER');
+  }
+}
+
+// Any doubt refuses: a Windows folder that cannot be looked up or found would match nothing;
+// Setup refuses any path with a junction or link in it (OneDrive folders included); and a
+// name Windows knows the folder by differently (an 8.3 short name) could hide a protected one.
 export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
   const unchecked = () => fail('Windows folders cannot be checked from WSL, so no folder is accepted.', 'WINDOWS_FOLDER_CHECK_UNAVAILABLE');
   let folders;
@@ -154,9 +159,11 @@ export async function assertWindowsWorkspace(folder, { exec, protectedFolders } 
     profile: await real(folders.profile),
     others: await Promise.all(folders.others.map(real)),
   });
-  if (!/^\/mnt\/[a-z]\//i.test(folder)) return;
-  const answer = await windowsPathHasLink(folder, { exec }).catch(unchecked);
-  if (answer !== false) fail('Choose a folder outside OneDrive with no junction or link in its path, for example a new folder C:\\Users\\<you>\\WebMCP-Workspace.', 'INVALID_FOLDER');
+  const windowsPath = await toWindowsPath(folder, { exec }).catch(unchecked);
+  assertWindowsDrivePath(windowsPath);
+  const answer = await windowsFolderQuery(windowsPath, { exec }).catch(unchecked);
+  if (answer === 'ALIAS') fail('Use the folder\'s full name as Windows shows it (not a short 8.3 name like PROGRA~1).', 'INVALID_FOLDER');
+  if (answer !== 'PLAIN') fail('Choose a folder outside OneDrive with no junction or link in its path, for example a new folder C:\\Users\\<you>\\WebMCP-Workspace.', 'INVALID_FOLDER');
 }
 
 async function chooseFolder({ home, configFile, now, exec, kind }) {

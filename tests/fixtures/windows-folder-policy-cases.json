@@ -1,5 +1,5 @@
 {
-  "about": "WebMCP Setup's Windows folder rule (webmcp-setup windows/setup.ps1 Resolve-WindowsWorkspace) as WSL paths. The same file lives in webmcp-bridge and deepseek-webmcp; keep them byte-identical until the rule has one implementation.",
+  "about": "WebMCP Setup's Windows folder rule (webmcp-setup windows/setup.ps1 Resolve-WindowsWorkspace). wslPaths: the protected-folder rule on canonical WSL paths. windowsPaths: the folder's Windows form from `wslpath -w` must be a folder on a drive (X:\\...), never a drive root, a UNC share or a folder inside WSL. Links, junctions (OneDrive) and names Windows maps to another folder (8.3 short names) are refused by asking Windows, not by these cases. The same file lives in webmcp-bridge and deepseek-webmcp; keep them byte-identical until the rule has one implementation.",
   "protected": {
     "profile": "/mnt/c/Users/me",
     "others": [
@@ -11,34 +11,49 @@
       "/mnt/c/Program Files (x86)"
     ]
   },
-  "refuse": [
-    "/",
-    "/mnt",
-    "/mnt/c",
-    "/mnt/d/",
-    "/mnt/c/Users",
-    "/mnt/c/Users/me",
-    "/mnt/c/users/ME",
-    "/mnt/c/Users/me/AppData",
-    "/mnt/c/Users/me/AppData/Roaming/Google",
-    "/mnt/c/Users/me/AppData/Roaming/..cache",
-    "/mnt/c/Windows",
-    "/mnt/c/windows/System32",
-    "/mnt/c/Windows/..hidden",
-    "/mnt/c/ProgramData/x",
-    "/mnt/c/Program Files",
-    "/mnt/c/Program Files (x86)/App",
-    "/mnt/c/PROGRA~1",
-    "/mnt/c/Users/ME~1/AppData",
-    "/mnt/c/Users/me/Projects/LONGNA~2"
-  ],
-  "allow": [
-    "/mnt/c/Users/me/Projects",
-    "/mnt/c/Users/me/Documents/site",
-    "/mnt/c/Users/me/..dotted-project",
-    "/mnt/c/Users/me/Projects/a~b",
-    "/mnt/d/work",
-    "/home/me/code",
-    "/home/me/backup~1"
-  ]
+  "wslPaths": {
+    "refuse": [
+      "/",
+      "/mnt",
+      "/mnt/c",
+      "/mnt/c/Users",
+      "/mnt/c/Users/me",
+      "/mnt/c/users/ME",
+      "/mnt/c/Users/me/AppData",
+      "/mnt/c/Users/me/AppData/Roaming/Google",
+      "/mnt/c/Users/me/AppData/Roaming/..cache",
+      "/mnt/c/Windows",
+      "/mnt/c/windows/System32",
+      "/mnt/c/Windows/..hidden",
+      "/mnt/c/ProgramData/x",
+      "/mnt/c/Program Files",
+      "/mnt/c/Program Files (x86)/App"
+    ],
+    "allow": [
+      "/mnt/c/Users/me/Projects",
+      "/mnt/c/Users/me/Documents/site",
+      "/mnt/c/Users/me/..dotted-project",
+      "/mnt/c/Users/me/Projects/a~b",
+      "/mnt/c/Users/me/report~2024",
+      "/mnt/d/work"
+    ]
+  },
+  "windowsPaths": {
+    "refuse": [
+      "C:\\",
+      "D:\\",
+      "C:",
+      "\\\\wsl.localhost\\Ubuntu\\home\\me\\code",
+      "\\\\wsl$\\Ubuntu\\mnt\\wslg",
+      "\\\\wsl.localhost\\Ubuntu\\mnt\\wsl\\shared",
+      "\\\\server\\share\\project",
+      "\\\\?\\C:\\Users\\me\\Projects"
+    ],
+    "allow": [
+      "C:\\Users\\me\\Projects",
+      "D:\\work",
+      "C:\\Users\\me\\report~2024",
+      "E:\\WebMCP-Workspace"
+    ]
+  }
 }
