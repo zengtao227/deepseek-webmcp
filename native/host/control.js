@@ -156,7 +156,7 @@ export async function assertWindowsWorkspace(folder, { exec, protectedFolders } 
   });
   if (!/^\/mnt\/[a-z]\//i.test(folder)) return;
   const answer = await windowsPathHasLink(folder, { exec }).catch(unchecked);
-  if (answer !== false) fail('Choose the real folder, not a junction or symbolic-link path.', 'INVALID_FOLDER');
+  if (answer !== false) fail('Choose a folder outside OneDrive with no junction or link in its path, for example a new folder C:\\Users\\<you>\\WebMCP-Workspace.', 'INVALID_FOLDER');
 }
 
 async function chooseFolder({ home, configFile, now, exec, kind }) {
