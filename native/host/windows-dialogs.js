@@ -84,6 +84,20 @@ export async function windowsProtectedFolders({ exec = execFileAsync } = {}) {
   return { profile, others };
 }
 
+// Setup's Test-PathContainsLink: drvfs does not necessarily show a Windows junction as a
+// Linux link, so Windows is asked about the path itself. true/false, or throws when unsure.
+export async function windowsPathHasLink(wslPath, { exec = execFileAsync } = {}) {
+  const windowsPath = await toWindowsPath(wslPath, { exec });
+  if (!windowsPath) throw new Error(`wslpath returned nothing for ${wslPath}`);
+  const answer = await runPowerShell(
+    `$current = Get-Item -LiteralPath ([IO.Path]::GetFullPath(${psString(windowsPath)})) -Force -ErrorAction Stop; $link = $false; while ($null -ne $current) { if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $link = $true }; $current = $current.Parent }; if ($link) { "LINK" } else { "PLAIN" }`,
+    { exec },
+  );
+  if (answer === 'LINK') return true;
+  if (answer === 'PLAIN') return false;
+  throw new Error(`Unexpected link check answer: ${answer}`);
+}
+
 // Removes the Windows side of an install: browser registrations and the relay folder.
 export async function removeWindowsRegistration({ registryKeys, appFolder, exec = execFileAsync }) {
   for (const key of registryKeys) {

@@ -1,0 +1,44 @@
+{
+  "about": "WebMCP Setup's Windows folder rule (webmcp-setup windows/setup.ps1 Resolve-WindowsWorkspace) as WSL paths. The same file lives in webmcp-bridge and deepseek-webmcp; keep them byte-identical until the rule has one implementation.",
+  "protected": {
+    "profile": "/mnt/c/Users/me",
+    "others": [
+      "/mnt/c/Users/me/AppData/Roaming",
+      "/mnt/c/Users/me/AppData/Local",
+      "/mnt/c/Windows",
+      "/mnt/c/ProgramData",
+      "/mnt/c/Program Files",
+      "/mnt/c/Program Files (x86)"
+    ]
+  },
+  "refuse": [
+    "/",
+    "/mnt",
+    "/mnt/c",
+    "/mnt/d/",
+    "/mnt/c/Users",
+    "/mnt/c/Users/me",
+    "/mnt/c/users/ME",
+    "/mnt/c/Users/me/AppData",
+    "/mnt/c/Users/me/AppData/Roaming/Google",
+    "/mnt/c/Users/me/AppData/Roaming/..cache",
+    "/mnt/c/Windows",
+    "/mnt/c/windows/System32",
+    "/mnt/c/Windows/..hidden",
+    "/mnt/c/ProgramData/x",
+    "/mnt/c/Program Files",
+    "/mnt/c/Program Files (x86)/App",
+    "/mnt/c/PROGRA~1",
+    "/mnt/c/Users/ME~1/AppData",
+    "/mnt/c/Users/me/Projects/LONGNA~2"
+  ],
+  "allow": [
+    "/mnt/c/Users/me/Projects",
+    "/mnt/c/Users/me/Documents/site",
+    "/mnt/c/Users/me/..dotted-project",
+    "/mnt/c/Users/me/Projects/a~b",
+    "/mnt/d/work",
+    "/home/me/code",
+    "/home/me/backup~1"
+  ]
+}

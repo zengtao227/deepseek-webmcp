@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { assertWindowsWorkspace, handleControlRequest } from '../native/host/control.js';
+import { readFileSync } from 'node:fs';
+import { assertWindowsFolderRule, assertWindowsWorkspace, handleControlRequest } from '../native/host/control.js';
 import { WINDOWS_REGISTRY_KEYS, browserProfileRoots, hostKind } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
@@ -135,5 +136,41 @@ test('every PowerShell script asks for UTF-8 output, so non-ASCII names survive'
       .map((call) => Buffer.from(call.at(-1), 'base64').toString('utf16le'));
     assert.ok(scripts.length >= 2);
     for (const script of scripts) assert.ok(script.startsWith('[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); '), script);
+  });
+});
+
+// Shared with webmcp-bridge (byte-identical fixture) so both implementations keep Setup's rule.
+const CASES = JSON.parse(readFileSync(new URL('./fixtures/windows-folder-policy-cases.json', import.meta.url), 'utf8'));
+
+test('Windows folder rule matches WebMCP Setup (shared conformance cases)', () => {
+  for (const folder of CASES.refuse) {
+    assert.throws(() => assertWindowsFolderRule(folder, CASES.protected), { code: 'INVALID_FOLDER' }, folder);
+  }
+  for (const folder of CASES.allow) {
+    assert.doesNotThrow(() => assertWindowsFolderRule(folder, CASES.protected), folder);
+  }
+});
+
+test('Windows is asked about junctions and links in a Windows folder, and any doubt refuses', async () => {
+  await withWsl(async ({ winProfile }) => {
+    const folders = { profile: winProfile, others: [] };
+    const check = (answer) => assertWindowsWorkspace('/mnt/d/work/app', {
+      protectedFolders: folders,
+      exec: async (command, args) => {
+        if (command === 'wslpath') {
+          assert.deepEqual(args, ['-w', '/mnt/d/work/app']);
+          return { stdout: 'D:\\work\\app\n' };
+        }
+        const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        assert.match(script, /GetFullPath\('D:\\work\\app'\)/);
+        assert.match(script, /ReparsePoint/);
+        if (answer instanceof Error) throw answer;
+        return { stdout: answer };
+      },
+    });
+    await check('PLAIN\r\n');
+    await assert.rejects(check('LINK\r\n'), { code: 'INVALID_FOLDER' });
+    await assert.rejects(check('something else\r\n'), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
+    await assert.rejects(check(new Error('Get-Item failed')), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
   });
 });

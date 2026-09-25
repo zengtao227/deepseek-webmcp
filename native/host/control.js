@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
-import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsProtectedFolders } from './windows-dialogs.js';
+import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsPathHasLink, windowsProtectedFolders } from './windows-dialogs.js';
 import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -116,19 +116,33 @@ async function pickFolder({ config, exec, kind }) {
   );
 }
 
+const within = (root, candidate) => {
+  const relative = path.relative(root.toLowerCase(), candidate.toLowerCase());
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
+
 // Same rule as the WebMCP Setup: not a drive root, not the user folder or anything that
 // contains it, and nothing that contains or sits inside AppData, Windows, ProgramData or
-// the program folders. `folder` must already be canonical. Any doubt refuses: drvfs is
-// case-insensitive (so is the comparison), and a Windows folder that cannot be looked up or
-// found would match nothing.
-export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
-  const within = (root, candidate) => {
-    const relative = path.relative(root.toLowerCase(), candidate.toLowerCase());
-    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-  };
+// the program folders. drvfs is case-insensitive, so is the comparison. `folder` must
+// already be canonical; the protected folders are canonical WSL paths.
+export function assertWindowsFolderRule(folder, { profile, others }) {
   const refuse = () => fail('Choose a project folder, not a system folder or your whole Windows user folder.', 'INVALID_FOLDER');
-  const unchecked = () => fail('Windows folders cannot be checked from WSL, so no folder is accepted.', 'WINDOWS_FOLDER_CHECK_UNAVAILABLE');
   if (/^\/mnt\/[a-z]\/?$/i.test(folder)) refuse();
+  // Windows resolves 8.3 short names (C:\PROGRA~1) but realpath keeps them, so the short
+  // form of a protected folder would match nothing. Only the full name is accepted.
+  if (/^\/mnt\/[a-z]\//i.test(folder) && folder.split('/').some((part) => /~\d/.test(part))) {
+    fail('Use the full folder name, not a short 8.3 name (like PROGRA~1).', 'INVALID_FOLDER');
+  }
+  if (within(folder, profile)) refuse();
+  for (const other of others) {
+    if (within(folder, other) || within(other, folder)) refuse();
+  }
+}
+
+// Any doubt refuses: a Windows folder that cannot be looked up or found would match nothing,
+// and Setup refuses any path with a junction or link in it.
+export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
+  const unchecked = () => fail('Windows folders cannot be checked from WSL, so no folder is accepted.', 'WINDOWS_FOLDER_CHECK_UNAVAILABLE');
   let folders;
   try {
     folders = protectedFolders ?? await windowsProtectedFolders({ exec });
@@ -136,11 +150,13 @@ export async function assertWindowsWorkspace(folder, { exec, protectedFolders } 
     unchecked();
   }
   const real = (candidate) => realpath(candidate).catch(unchecked);
-  if (within(folder, await real(folders.profile))) refuse();
-  for (const other of folders.others) {
-    const resolved = await real(other);
-    if (within(folder, resolved) || within(resolved, folder)) refuse();
-  }
+  assertWindowsFolderRule(folder, {
+    profile: await real(folders.profile),
+    others: await Promise.all(folders.others.map(real)),
+  });
+  if (!/^\/mnt\/[a-z]\//i.test(folder)) return;
+  const answer = await windowsPathHasLink(folder, { exec }).catch(unchecked);
+  if (answer !== false) fail('Choose the real folder, not a junction or symbolic-link path.', 'INVALID_FOLDER');
 }
 
 async function chooseFolder({ home, configFile, now, exec, kind }) {

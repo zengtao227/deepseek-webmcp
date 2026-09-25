@@ -133,6 +133,28 @@ test('a normal workspace masks existing cross-provider state and rejects roots i
   }
 });
 
+test('control state in a workspace folder whose name starts with ".." is still masked or refused', async () => {
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'deepseek-dotdot-')));
+  try {
+    const root = path.join(home, 'project');
+    await mkdir(path.join(root, '..deepseek-state'), { recursive: true });
+    await mkdir(path.join(root, '..bin'), { recursive: true });
+    await writeFile(path.join(root, '..bin', 'docker'), '');
+    const masks = await buildWorkspaceControlPlaneMasks(root, {
+      home, configPath: path.join(root, '..deepseek-state', 'config.json'), dockerPath: '/usr/local/bin/docker',
+    });
+    assert.ok(masks.some((item) => item.destination === '/workspace/..deepseek-state'), JSON.stringify(masks));
+    await assert.rejects(
+      buildWorkspaceControlPlaneMasks(root, {
+        home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: path.join(root, '..bin', 'docker'),
+      }),
+      { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' },
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test('host still refuses exact control-plane roots, host executables, filesystem root and normal home access', async () => {
   const hostCodeRoot = path.resolve(import.meta.dirname, '..');
   const stateDir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-state-'));
