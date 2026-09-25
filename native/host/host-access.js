@@ -1,4 +1,4 @@
-import { readdir, readFile, readlink, realpath, rm } from 'node:fs/promises';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,35 +9,12 @@ const INSTANCE_ID = 'deepseek';
 const ARTIFACT_ID = /^[0-9a-f]{40}-[0-9a-f]{64}$/;
 
 // Uninstall removes only DeepSeek's own WebMCP instance: its pin, lease and settings. Its
-// release leaves the shared store only when no other instance pins it and it is not the
-// default instance's `current`; other providers' state is never touched.
+// release stays in the shared store: no lock spans the providers, so a release that looks
+// unused here may be getting pinned by another provider's install at this moment. A later
+// install of the same release reuses it. Other providers' state is never touched.
 export async function removeDeepSeekInstance(home = os.homedir()) {
-  const dataRoot = path.join(home, '.local', 'share', 'webmcp');
-  const ownState = path.join(dataRoot, 'instances', INSTANCE_ID);
-  let artifactId = null;
-  try {
-    artifactId = JSON.parse(await readFile(path.join(ownState, 'host-release.json'), 'utf8')).artifactId;
-  } catch {}
-  await rm(ownState, { recursive: true, force: true });
+  await rm(path.join(home, '.local', 'share', 'webmcp', 'instances', INSTANCE_ID), { recursive: true, force: true });
   await rm(path.join(home, '.config', 'webmcp', 'instances', INSTANCE_ID), { recursive: true, force: true });
-  if (typeof artifactId !== 'string' || !ARTIFACT_ID.test(artifactId)) return { releaseRemoved: false };
-
-  const releases = path.join(hostRuntimeRoot(home), 'releases');
-  const current = await readlink(path.join(hostRuntimeRoot(home), 'current')).catch(() => null);
-  if (current !== null && path.basename(current) === artifactId) return { releaseRemoved: false };
-  for (const instance of await readdir(path.join(dataRoot, 'instances')).catch(() => [])) {
-    let pin;
-    try {
-      pin = JSON.parse(await readFile(path.join(dataRoot, 'instances', instance, 'host-release.json'), 'utf8'));
-    } catch (error) {
-      if (error?.code === 'ENOENT') continue;
-      // An unreadable pin might pin this release: keep it.
-      return { releaseRemoved: false };
-    }
-    if (pin?.artifactId === artifactId) return { releaseRemoved: false };
-  }
-  await rm(path.join(releases, artifactId), { recursive: true, force: true });
-  return { releaseRemoved: true };
 }
 
 export function hostRuntimeRoot(home = os.homedir()) {
