@@ -490,6 +490,10 @@
   const OPEN = 'data-webmcp-open';
   const QUESTION = 'data-webmcp-question';
   const COLOR = '--webmcp-fold-color';
+  // A turn that is only a WebMCP step (a tool call, or a typed tool result / correction) loses its
+  // icon row; the owner's question and the final answer keep Copy / Rate (live DOM 2026-09-25).
+  const STEP = 'data-webmcp-step';
+  const TURN_SELECTOR = '[data-testid^="conversation-turn"]';
   const RESULT_START = 'DeepSeek WebMCP tool result.\n';
   const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
   const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
@@ -503,6 +507,7 @@
     [${FOLD}]:not([${OPEN}])::before { content: attr(${QUESTION}); display: block; font-size: 16px; line-height: 26px; color: var(${COLOR}, inherit); white-space: pre-wrap; }
     [${FOLD}]:not([${OPEN}])::after { content: attr(${FOLD}); display: block; font-size: 12px; line-height: 20px; color: var(${COLOR}, inherit); opacity: 0.55; white-space: pre-wrap; }
     [${FOLD}][${OPEN}] { cursor: pointer; }
+    [${STEP}] [role="group"]:has(button[data-testid="copy-turn-action-button"]) { display: none !important; }
   `;
   (document.head ?? document.documentElement).append(style);
 
@@ -539,6 +544,11 @@
       && nodes.every((node) => node.nodeType === Node.TEXT_NODE || node.nodeName === 'PRE');
   }
 
+  function markStep(element) {
+    const turn = element.closest(TURN_SELECTOR);
+    if (turn && !turn.hasAttribute(STEP)) turn.setAttribute(STEP, '');
+  }
+
   let foldScheduled = false;
   function foldMessages() {
     foldScheduled = false;
@@ -546,16 +556,21 @@
       if (!isTypedText(element)) continue;
       if (element.closest(ANSWER_SELECTOR)) continue;
       const summary = summaryFor(element.textContent ?? '');
-      if (summary) setFold(element, summary, element);
+      if (!summary) continue;
+      setFold(element, summary, element);
+      if (!summary.question) markStep(element);
     }
     for (const answer of document.querySelectorAll(ANSWER_SELECTOR)) {
       const text = answer.textContent ?? '';
       for (const block of answer.querySelectorAll('pre')) {
         const code = block.querySelector('code')?.textContent ?? block.textContent ?? '';
-        if (code.trimStart().startsWith('<webmcp_tool_call>')) setFold(block, { note: `🔧 ${toolName(code)}` }, answer);
+        if (!code.trimStart().startsWith('<webmcp_tool_call>')) continue;
+        setFold(block, { note: `🔧 ${toolName(code)}` }, answer);
+        markStep(answer);
       }
       if (text.trimStart().startsWith('<webmcp_tool_call>') && !answer.querySelector('pre')) {
         setFold(answer, { note: `🔧 ${toolName(text)}` }, answer);
+        markStep(answer);
       }
     }
   }

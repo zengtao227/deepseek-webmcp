@@ -135,3 +135,64 @@ test('typed tool results and the tool contract fold although ChatGPT renders the
   assert.equal(contract.getAttribute('data-webmcp-question'), 'Can you read the left page?');
   assert.equal(question.getAttribute('data-webmcp-fold'), null);
 });
+
+// Live DOM 2026-09-25: each turn is section[data-testid^="conversation-turn"] with its icon row as a
+// [role="group"] holding copy-turn-action-button. Only the WebMCP steps lose that row.
+test('tool-call replies and typed tool results are marked so their icon rows hide; the final answer keeps its row', () => {
+  const turn = () => {
+    const attributes = new Map();
+    return { getAttribute: (name) => attributes.get(name) ?? null, setAttribute: (name, value) => attributes.set(name, value), hasAttribute: (name) => attributes.has(name) };
+  };
+  const inTurn = (node, owner) => Object.assign(node, {
+    closest: (selector) => (selector.includes('conversation-turn') ? owner : null),
+    style: { setProperty() {} },
+    getAttribute: node.getAttribute ?? (() => null),
+    setAttribute: node.setAttribute ?? (() => {}),
+  });
+  const toolTurn = turn();
+  const resultTurn = turn();
+  const questionTurn = turn();
+  const finalTurn = turn();
+  const text = (value) => ({ nodeType: 3, nodeName: '#text', nodeValue: value, textContent: value });
+  const bubble = (value, owner) => inTurn({ childNodes: [text(value)], textContent: value }, owner);
+  const call = '<webmcp_tool_call>{"id":"a","name":"inspect_page","arguments":{}}</webmcp_tool_call>';
+  const toolPre = inTurn({ textContent: call, querySelector: () => ({ textContent: call }) }, toolTurn);
+  const toolReply = inTurn({ textContent: call, querySelectorAll: () => [toolPre], querySelector: () => toolPre }, toolTurn);
+  const finalReply = inTurn({ textContent: 'The title is Action.', querySelectorAll: () => [], querySelector: () => null }, finalTurn);
+  const users = [
+    bubble('DeepSeek WebMCP tool result.\n{"id":"a","name":"inspect_page","isError":false}', resultTurn),
+    bubble('Can you read the left page?', questionTurn),
+  ];
+  let fold;
+  let css = '';
+  const document = {
+    body: {}, head: { append: (node) => { css = node.textContent; } },
+    createElement: () => ({ textContent: '' }),
+    querySelector: () => null,
+    querySelectorAll: (selector) => {
+      if (selector.split(',').some((part) => part.trim() === '[data-message-author-role="user"] div')) return users;
+      if (selector.includes('data-message-author-role="assistant"')) return [toolReply, finalReply];
+      return [];
+    },
+    addEventListener() {},
+  };
+  const window = { addEventListener() {} };
+  window.top = window;
+  vm.runInNewContext(source, {
+    window, document,
+    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/c/existing', pathname: '/c/existing' },
+    chrome: { runtime: { id: 'test', sendMessage: async () => ({}), onMessage: { addListener() {} } } },
+    Node: { TEXT_NODE: 3 },
+    getComputedStyle: () => ({ color: 'white' }),
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: (callback) => { fold = callback; },
+    setInterval: (callback) => callback(),
+    setTimeout,
+  });
+  fold();
+  assert.equal(toolTurn.hasAttribute('data-webmcp-step'), true, 'tool-call reply');
+  assert.equal(resultTurn.hasAttribute('data-webmcp-step'), true, 'typed tool result');
+  assert.equal(questionTurn.hasAttribute('data-webmcp-step'), false, 'the owner\'s own question keeps its icons');
+  assert.equal(finalTurn.hasAttribute('data-webmcp-step'), false, 'the final answer keeps Copy / Rate');
+  assert.match(css, /\[data-webmcp-step\] \[role="group"\]:has\(button\[data-testid="copy-turn-action-button"\]\) \{ display: none !important; \}/);
+});

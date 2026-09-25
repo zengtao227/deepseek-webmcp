@@ -143,7 +143,7 @@ a{color:var(--accent)}
         <tr><td class="id">A5</td><td>关掉面板再打开，ChatGPT 自动重新连上</td><td><span class="pill todo">未验证</span></td><td>代码照搬</td></tr>
         <tr><td class="id">A6</td><td>连不上时出现恢复界面：Retry / Open ChatGPT window</td><td><span class="pill todo">未验证</span></td><td>代码照搬；备用窗口里的 ChatGPT 也默认开启 Work</td></tr>
         <tr><td class="id">B1</td><td>空闲时顶部显示 “Ready — Current: 页面标题”</td><td><span class="pill ok">Chrome 实测</span></td><td>Action 页面打开时显示 Ready — Current: Wochenangebote für Deutschland | Action DE。</td></tr>
-        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill ok">Chrome 实测</span></td><td>恢复的旧对话：面板 frame 的 sender.tab 为空、sender.origin 为 https://chatgpt.com；后台接受 work.arrive，Work 开启且返回工具说明。失败根因是隐藏 textarea 排在可见 ProseMirror 前，旧选择器取到空值；旧 paste/insertText 双路径还会留下重复草稿。修正后真实 Chrome 中 ChatGPT 发出 inspect_page，扩展返回 Action 页面标题，ChatGPT 据此作答，输入框清空；无诊断代码重载后再次往返成功。回归测试见 tests/content-chatgpt.test.js。</td></tr>
+        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill ok">Chrome 实测</span></td><td>恢复的旧对话：面板 frame 的 sender.tab 为空、sender.origin 为 https://chatgpt.com；后台接受 work.arrive，Work 开启且返回工具说明。失败根因是隐藏 textarea 排在可见 ProseMirror 前，旧选择器取到空值；旧 paste/insertText 双路径还会留下重复草稿。修正后真实 Chrome 中 ChatGPT 发出 inspect_page，扩展返回 Action 页面标题，ChatGPT 据此作答，输入框清空；无诊断代码重载后再次往返成功。回归测试见 tests/content-chatgpt.test.js。2026-09-25 Comet 免费账号复测：面板默认先开 DeepSeek，其助手会话把 DeepSeek 绑为唯一提供方，ChatGPT 的调用全被 NOT_BOUND_PROVIDER 拒绝；改为打开 ChatGPT 面板即结束 DeepSeek 会话并关掉其 Work（561a8a4，权限检查本身未改），你已实测：换页面后 ChatGPT 能读出新标题。</td></tr>
         <tr><td class="id">B3</td><td>任务进行中切换标签页，不会改变目标页面</td><td><span class="pill todo">未验证</span></td><td>和 DeepSeek 用同一份代码</td></tr>
         <tr><td class="id">B4</td><td>Stop 解除锁定，回到空闲状态</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
@@ -154,7 +154,7 @@ a{color:var(--accent)}
         <tr><td class="id">C4</td><td>切换 Provider 后，不显示上一个 Provider 的旧模型信息</td><td><span class="pill ok">结构保证</span></td><td>两个 Provider 各用一个页面，切换时整页换掉，不需要单独测</td></tr>
         <tr><td class="id">C6</td><td>在 Side Panel 里切换 DeepSeek 的模式（不用去 DeepSeek 窗口）</td><td><span class="pill todo">新需求</span></td><td>等 C3 拿到真实页面结构后再做</td></tr>
         <tr><td class="id">C5</td><td>DeepSeek 继续显示 Provider 窗口是否可见</td><td><span class="pill ok">未改动</span></td><td>DeepSeek 原有功能</td></tr>
-        <tr><td class="id">C2</td><td>工具调用的显示方式</td><td><span class="pill todo">模式差异</span></td><td>原面板用 ChatGPT 自带的 “Called tool”（MCP 模式）；Web Provider 模式下，工具调用是聊天里的文字，自动折叠成一行</td></tr>
+        <tr><td class="id">C2</td><td>工具调用的显示方式</td><td><span class="pill todo">模式差异</span></td><td>原面板用 ChatGPT 自带的 “Called tool”（MCP 模式）；Web Provider 模式下，工具调用是聊天里的文字，自动折叠成一行。2026-09-25：用户消息的折叠此前从未生效（选择器列表拼接错误 + ChatGPT 把代码块渲染成 PRE），已修（64cd298）；工具调用和工具结果那几轮不再显示 Copy/Rate 图标，你的问题和最终答案保留图标（待你验收）</td></tr>
         <tr><td class="id">D1</td><td>本地文件工具：open_workspace / read / write / edit / bash</td><td><span class="pill warn">部分</span></td><td>独立窗口模式你已跑通；面板模式未验证</td></tr>
         <tr><td class="id">D2</td><td>High Trust host_command（在 WebMCP App 里授权）</td><td><span class="pill todo">未验证</span></td><td>ChatGPT 模式下还没测过</td></tr>
         <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill warn">待你验收</span></td><td>0.5.108 按顶部契约排版</td></tr>
