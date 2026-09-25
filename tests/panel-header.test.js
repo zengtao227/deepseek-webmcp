@@ -31,7 +31,7 @@ test('Access line follows the header contract', () => {
   assert.equal(accessParts(null, now), null);
 });
 
-import { highAccessControls, mountProviderSelect } from '../extension/panel-header.js';
+import { highAccessControls, mountProviderSelect, startAccessLine } from '../extension/panel-header.js';
 
 // Owner decision 2026-09-26: the panel may revoke Full / Host Access (it only lowers authority);
 // granting stays behind the macOS dialog in Settings / the WebMCP App.
@@ -45,16 +45,21 @@ test('the controls that end Full / Host Access, the most dangerous first', () =>
   assert.deepEqual(highAccessControls(null, now), []);
 });
 
-test('switching Provider ends Full / Host Access before the other provider\'s page opens', async () => {
+// Owner decision 2026-09-26 (C2): an unreadable status means the local program is unreachable, so no
+// provider can use the access and the switch goes ahead; a failed revoke keeps the current provider.
+async function switchProvider({ statusOk = true, stopOk = true } = {}) {
   const calls = [];
   const stored = [];
+  const notices = [];
   let opened = null;
   globalThis.chrome = {
     runtime: {
       sendMessage: async (message) => {
         calls.push(message.control);
-        if (message.control === 'status') return { ok: true, result: { folder: '/x', fullAccessUntil: Date.now() + 60000, hostAccessState: 'active', hostAccessUntil: Date.now() + 60000 } };
-        return { ok: true, result: {} };
+        if (message.control === 'status') {
+          return statusOk ? { ok: true, result: { folder: '/x', fullAccessUntil: Date.now() + 60000, hostAccessState: 'active', hostAccessUntil: Date.now() + 60000 } } : null;
+        }
+        return { ok: stopOk, result: {} };
       },
     },
     storage: { local: { set: async (items) => { stored.push(items); } } },
@@ -62,12 +67,54 @@ test('switching Provider ends Full / Host Access before the other provider\'s pa
   globalThis.location = { replace: (page) => { opened = page; } };
   let onChange;
   const select = { value: '', addEventListener: (_type, handler) => { onChange = handler; } };
-  mountProviderSelect(select, 'chatgpt');
-  select.value = 'deepseek';
-  await onChange();
-  assert.deepEqual(calls, ['status', 'stop-host-access', 'stop-full-access']);
-  assert.deepEqual(stored, [{ 'provider.id': 'deepseek' }]);
-  assert.equal(opened, 'sidepanel.html');
-  delete globalThis.chrome;
-  delete globalThis.location;
+  try {
+    mountProviderSelect(select, 'chatgpt', (text) => notices.push(text));
+    select.value = 'deepseek';
+    await onChange();
+  } finally {
+    delete globalThis.chrome;
+    delete globalThis.location;
+  }
+  return { calls, stored, notices, opened, selected: select.value };
+}
+
+test('switching Provider ends Full / Host Access before the other provider\'s page opens', async () => {
+  const done = await switchProvider();
+  assert.deepEqual(done.calls, ['status', 'stop-host-access', 'stop-full-access']);
+  assert.deepEqual(done.stored, [{ 'provider.id': 'deepseek' }]);
+  assert.equal(done.opened, 'sidepanel.html');
+
+  const unreachable = await switchProvider({ statusOk: false });
+  assert.equal(unreachable.opened, 'sidepanel.html', 'no local program, nothing to revoke');
+
+  const failed = await switchProvider({ stopOk: false });
+  assert.equal(failed.opened, null, 'a failed revoke keeps the current provider');
+  assert.deepEqual(failed.stored, []);
+  assert.equal(failed.selected, 'chatgpt');
+  assert.equal(failed.notices.length, 1);
+});
+
+// C1: the Revoke button is one persistent button; after a failed revoke it can be pressed again.
+test('the Revoke button stays usable after a revoke that failed', async () => {
+  const node = (tag) => ({ tagName: tag, hidden: false, disabled: false, children: [], listeners: {},
+    replaceChildren(...nodes) { this.children = nodes; }, addEventListener(type, fn) { this.listeners[type] = fn; } });
+  const element = node('div');
+  const lease = { folder: '/x', fullAccessUntil: Date.now() + 60000, hostAccessState: 'inactive' };
+  globalThis.document = { createElement: node, createTextNode: (text) => ({ text }), addEventListener() {} };
+  const realSetInterval = globalThis.setInterval;
+  globalThis.setInterval = () => 0;
+  globalThis.chrome = { runtime: { sendMessage: async (message) => (message.control === 'status' ? { ok: true, result: lease } : { ok: false }) } };
+  try {
+    startAccessLine(element);
+    await new Promise(setImmediate);
+    const revoke = element.children.find((child) => child.tagName === 'button');
+    assert.equal(revoke.hidden, false, 'shown while Full Access is on');
+    await revoke.listeners.click();
+    assert.equal(revoke.disabled, false);
+    assert.equal(revoke.hidden, false);
+  } finally {
+    globalThis.setInterval = realSetInterval;
+    delete globalThis.document;
+    delete globalThis.chrome;
+  }
 });

@@ -195,7 +195,7 @@ chrome.runtime.onMessage.addListener((message) => {
   return false;
 });
 
-mountProviderSelect(document.getElementById('provider'), provider);
+mountProviderSelect(document.getElementById('provider'), provider, setStatus);
 startAccessLine(document.getElementById('access'));
 
 void refreshPageState().catch(() => {});
