@@ -28,4 +28,5 @@ test('both Side Panel pages carry the same Provider selector in their header', a
   }
   const chatgpt = await page('sidepanel-chatgpt.html');
   assert.equal(chatgpt.includes('model-requested'), false, 'ChatGPT shows the model actually used, not the requested one');
+  assert.equal(chatgpt.includes('model-mismatch'), false, 'no Mismatch without the Requested line it compared against');
 });

@@ -14,10 +14,7 @@ mountProviderSelect($('#provider'), provider);
 function renderModel(model) {
   $('#model').hidden = !model;
   if (!model) return;
-  $('#model-actual').textContent = model.model;
-  $('#model-mode').hidden = !model.mode;
-  $('#model-mode-value').textContent = model.mode ?? '';
-  $('#model-source').textContent = 'Source: DeepSeek page';
+  $('#model-actual').textContent = model.mode ? `${model.model} · ${model.mode}` : model.model;
 }
 
 let lastSessionKey = '';

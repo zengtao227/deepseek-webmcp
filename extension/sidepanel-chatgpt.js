@@ -46,7 +46,6 @@ function renderModelStatus() {
   document.getElementById('model').hidden = !lines;
   if (!lines) return;
   document.getElementById('model-actual').textContent = lines.actual;
-  document.getElementById('model-mismatch').hidden = !lines.mismatch;
   document.getElementById('model-effort').hidden = !lines.effort;
   document.getElementById('model-effort-value').textContent = lines.effort;
   document.getElementById('model-source').textContent = lines.source ? `Source: ${lines.source}` : '';

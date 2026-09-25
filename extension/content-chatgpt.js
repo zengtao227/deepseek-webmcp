@@ -326,11 +326,11 @@
   const CHATGPT_FRAMING = 'Note: these are not built-in ChatGPT tools and you do not run them yourself. You only write the call as the text block shown above. My local WebMCP browser extension reads that block from this chat, runs it on my machine, and pastes the real result back as my next message.';
 
   // `force` is for the assistant's first prompt of a session: the provider may reopen on a
-  // conversation that never received the tool contract, where isNewChat() is false.
+  // conversation that never received the tool contract.
   function userTextWithInstructions(text, { force = false } = {}) {
     const clean = String(text ?? '').trimEnd();
     if (!clean || instructions === null || clean.includes(INSTRUCTIONS_START)) return clean;
-    if (!force && !isNewChat()) return clean;
+    if (!force && !needsInstructions()) return clean;
     return `${clean}\n\n${instructions}\n\n${CHATGPT_FRAMING}`;
   }
 
@@ -353,8 +353,11 @@
     }
   }
 
-  function isNewChat() {
-    return !CONVERSATION_PATH.test(location.pathname) && latestAnswer() === null;
+  // The panel reopens the last conversation, which may never have received the tool contract
+  // (live 2026-09-25: ChatGPT said it could not see the page). The contract is attached to the next
+  // message of any conversation whose user messages do not contain it yet.
+  function needsInstructions() {
+    return ![...document.querySelectorAll(USER_SELECTOR)].some((message) => (message.textContent ?? '').includes(INSTRUCTIONS_START));
   }
 
   // In a Work tab, the user's first message of a new chat is sent with the tool
@@ -362,11 +365,11 @@
   // stays visible when the page collapses long messages. Enter during IME composition
   // (e.g. Chinese input) is never treated as Send.
   function interceptSend(event) {
-    if (ownSend || instructions === null || !isNewChat()) return;
+    if (ownSend || instructions === null || !needsInstructions()) return;
     const input = composer();
     if (!input || readComposer(input).trim() === '' || readComposer(input).includes(INSTRUCTIONS_START)) return;
     if (event.type === 'keydown') {
-      if (event.target !== input || event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+      if (!input.contains(event.target) || event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
     } else if (!event.target?.closest?.(SEND_SELECTOR)) {
       return;
     }
