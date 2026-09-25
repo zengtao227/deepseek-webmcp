@@ -144,9 +144,6 @@ const dockerPath = await which('docker').catch(() => {
 await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
-// A failed fresh install removes this folder again if it is still empty (see below).
-const stateDirExisted = await stat(stateDir).then(() => true, () => false);
-await mkdir(stateDir, { recursive: true, mode: 0o700 });
 const runtime = await installRuntime(dockerPath);
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);
@@ -157,6 +154,9 @@ const hostScript = path.join(projectRoot, 'native/host/chrome-host.js');
 
 // From here on every write is undone if a later step fails, so an update that fails leaves
 // the previous install working and a fresh install that fails leaves no instance files.
+// A failed fresh install removes the state folder again if it created it and it is still
+// empty; only a definite ENOENT counts as "did not exist".
+const stateDirExisted = await stat(stateDir).then(() => true, (error) => error?.code !== 'ENOENT');
 let previousImage = null;
 try {
   previousImage = JSON.parse(await readFile(configPath, 'utf8')).image ?? null;
@@ -169,6 +169,7 @@ const install = await beginInstall({
   exec: execFileAsync,
 });
 async function writeInstall() {
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
   const builtImage = await runtime.build();
   await writeFile(configPath, `${JSON.stringify({ workspaceRoot, image: builtImage, dockerPath }, null, 2)}\n`, { mode: 0o600 });
   await chmod(configPath, 0o600);
