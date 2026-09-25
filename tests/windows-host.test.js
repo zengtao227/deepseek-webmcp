@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { assertWindowsFolderRule, assertWindowsWorkspace, handleControlRequest } from '../native/host/control.js';
+import { windowsPathHasLink } from '../native/host/windows-dialogs.js';
 import { WINDOWS_REGISTRY_KEYS, browserProfileRoots, hostKind } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
@@ -173,4 +175,25 @@ test('Windows is asked about junctions and links in a Windows folder, and any do
     await assert.rejects(check('something else\r\n'), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
     await assert.rejects(check(new Error('Get-Item failed')), { code: 'WINDOWS_FOLDER_CHECK_UNAVAILABLE' });
   });
+});
+
+// PowerShell also reads the typographic quotes U+2018-U+201B as single quotes.
+const HOSTILE = "D:\\work\\Tom\u2019+(\"INJECTED\")+\u2019s \u2018a\u201Ab\u201Bc'd";
+
+test('a folder name with any PowerShell quote character stays a literal in PowerShell scripts', async () => {
+  let script;
+  await windowsPathHasLink('/mnt/d/work/x', {
+    exec: async (command, args) => {
+      if (command === 'wslpath') return { stdout: `${HOSTILE}\n` };
+      script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+      return { stdout: 'PLAIN\n' };
+    },
+  });
+  const literal = script.match(/GetFullPath\(('(?:[^'\u2018\u2019\u201A\u201B]|['\u2018\u2019\u201A\u201B]{2})*')\)/)?.[1];
+  assert.ok(literal, script);
+  let pwsh = true;
+  try { execFileSync('pwsh', ['-NoProfile', '-Command', '1'], { stdio: 'ignore' }); } catch { pwsh = false; }
+  if (pwsh) {
+    assert.equal(execFileSync('pwsh', ['-NoProfile', '-Command', `$x = ${literal}; $x`], { encoding: 'utf8' }).trim(), HOSTILE);
+  }
 });

@@ -6,8 +6,11 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const POWERSHELL = 'powershell.exe';
 
+// PowerShell treats ' and the typographic quotes U+2018-U+201B alike as single quotes, so
+// all five are doubled (as PowerShell's own EscapeSingleQuotedStringContent does); escaping
+// only ' lets a folder name like Tom’+(...)+’s run as code.
 function psString(value) {
-  return `'${String(value).replaceAll("'", "''")}'`;
+  return `'${String(value).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`;
 }
 
 // The script travels base64-encoded, so no message text can break the command line.
