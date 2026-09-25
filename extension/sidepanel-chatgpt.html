@@ -13,9 +13,11 @@
     #attached { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
     #status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; opacity: 0.7; }
     button { cursor: pointer; padding: 5px 8px; }
-    #model { font-size: 11px; opacity: 0.85; }
+    /* One line: Model and Effort keep their width; Source is cut off, never wrapped, when the panel is narrow. */
+    #model { display: flex; gap: 0.6em; white-space: nowrap; overflow: hidden; font-size: 11px; opacity: 0.85; }
     #model code { font-size: 11px; }
-    #model-source { font-size: 11px; opacity: 0.7; }
+    #model-values { flex: none; }
+    #model-source { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
     #access { font-size: 11px; }
     .access-write { font-weight: 600; }
     .access-full { color: #ea580c; font-weight: 600; }
@@ -38,9 +40,8 @@
       <button id="stop" type="button" hidden title="Release the page locked to this task">Stop</button>
     </div>
     <span id="status" hidden></span>
-    <div id="model" hidden>Model: <code id="model-actual"></code><span id="model-effort" hidden> · Effort: <code id="model-effort-value"></code></span></div>
+    <div id="model" hidden><span id="model-values">Model: <code id="model-actual"></code><span id="model-effort" hidden> · Effort: <code id="model-effort-value"></code></span></span><span id="model-source"></span></div>
     <div id="access"></div>
-    <div id="model-source"></div>
   </header>
   <div id="frame-wrap">
     <iframe id="chatgpt-frame" title="ChatGPT" allow="clipboard-write"></iframe>
