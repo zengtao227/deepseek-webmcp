@@ -106,6 +106,9 @@ test('the Windows folder rule ignores case, as drvfs and WebMCP Setup do', async
     await assert.rejects(assertWindowsWorkspace(path.dirname(upper(winProfile)), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
     await assert.rejects(assertWindowsWorkspace(upper(path.join(winProfile, 'AppData', 'Roaming', 'Google')), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
     await assertWindowsWorkspace(upper(path.join(winProfile, 'Projects', 'app')), { protectedFolders: folders });
+    // A name that merely starts with ".." is still inside, as for Setup's StartsWith(parent + "\\").
+    await assert.rejects(assertWindowsWorkspace(path.join(winProfile, 'AppData', 'Roaming', '..cache'), { protectedFolders: folders }), { code: 'INVALID_FOLDER' });
+    await assertWindowsWorkspace(path.join(winProfile, '..dotted-project'), { protectedFolders: folders });
   });
 });
 

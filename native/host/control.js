@@ -124,7 +124,7 @@ async function pickFolder({ config, exec, kind }) {
 export async function assertWindowsWorkspace(folder, { exec, protectedFolders } = {}) {
   const within = (root, candidate) => {
     const relative = path.relative(root.toLowerCase(), candidate.toLowerCase());
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
   };
   const refuse = () => fail('Choose a project folder, not a system folder or your whole Windows user folder.', 'INVALID_FOLDER');
   const unchecked = () => fail('Windows folders cannot be checked from WSL, so no folder is accepted.', 'WINDOWS_FOLDER_CHECK_UNAVAILABLE');
