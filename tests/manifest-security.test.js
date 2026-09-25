@@ -8,8 +8,11 @@ const manifest = JSON.parse(await readFile(new URL('../extension/manifest.json',
 // ordinary webpage is open next to the panel, so it needs host access to http(s) pages. Browsing
 // history, cookies, network hooks and debugger access stay out; commit-like clicks stay with the owner.
 test('page tools use http(s) host access, but no browsing, cookie, network or debugger permissions', () => {
-  assert.deepEqual(manifest.host_permissions, ['https://chat.deepseek.com/*', 'http://*/*', 'https://*/*']);
-  assert.deepEqual(manifest.permissions, ['storage', 'nativeMessaging', 'scripting', 'sidePanel']);
+  assert.deepEqual(manifest.host_permissions, ['https://chat.deepseek.com/*', 'https://chatgpt.com/*', 'http://*/*', 'https://*/*']);
+  // declarativeNetRequestWithHostAccess (2026-09-25, ChatGPT inside the Side Panel): one session rule
+  // removes X-Frame-Options/CSP only for chatgpt.com frames this extension loads (extension/frame-policy.js,
+  // copied from the ChatGPT Embedded Panel). Nothing is observed, blocked or originated.
+  assert.deepEqual(manifest.permissions, ['storage', 'nativeMessaging', 'scripting', 'sidePanel', 'declarativeNetRequestWithHostAccess']);
   assert.deepEqual(manifest.side_panel, { default_path: 'sidepanel.html' });
   assert.deepEqual(manifest.action, { default_title: 'DeepSeek WebMCP' }, 'the toolbar icon opens the panel; no popup');
   assert.equal(JSON.stringify(manifest).includes('<all_urls>'), false);
@@ -20,11 +23,12 @@ test('page tools use http(s) host access, but no browsing, cookie, network or de
   assert.equal(JSON.stringify(manifest).includes('debugger'), false);
 });
 
-test('P2 observes DeepSeek only from one ISOLATED content script (no MAIN-world page hook)', () => {
-  const scripts = manifest.content_scripts;
-  assert.equal(scripts.length, 1);
-  assert.deepEqual(scripts[0].matches, ['https://chat.deepseek.com/*']);
-  assert.equal(scripts[0].world, 'ISOLATED');
-  assert.deepEqual(scripts[0].js, ['content.js']);
+// Web Provider Mode: one ISOLATED content script per provider page, nothing in the page's MAIN world.
+test('providers are observed only from ISOLATED content scripts (no MAIN-world page hook)', () => {
+  assert.deepEqual(manifest.content_scripts.map(({ matches, js, world }) => ({ matches, js, world })), [
+    { matches: ['https://chat.deepseek.com/*'], js: ['content.js'], world: 'ISOLATED' },
+    { matches: ['https://chatgpt.com/*'], js: ['embedded-chatgpt.js'], world: 'ISOLATED' },
+    { matches: ['https://chatgpt.com/*'], js: ['content-chatgpt.js'], world: 'ISOLATED' },
+  ]);
   assert.equal(JSON.stringify(manifest).includes('"MAIN"'), false);
 });

@@ -3,8 +3,21 @@ import { BrowserClientError, callBrowserTool, isBrowserToolAllowed } from './bro
 import { normalizeBlocks } from './answer-blocks.js';
 import { createBrowserTask } from './browser-task.js';
 import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
+import { PANEL_ID, disableFramePolicy, enableFramePolicy, panelFrameHref } from './frame-policy.js';
 
-const ORIGIN = 'https://chat.deepseek.com';
+// Web Provider Mode: each provider is an AI web page driven by its own content script.
+// The tool loop, local runtime and approvals below are shared by all of them.
+const PROVIDERS = {
+  deepseek: { origin: 'https://chat.deepseek.com', conversationPath: /^\/a\/chat\/s\/[A-Za-z0-9-]+$/ },
+  chatgpt: { origin: 'https://chatgpt.com', conversationPath: /^\/u?c\/[A-Za-z0-9-]+$/ },
+};
+const PROVIDER_SETTING_KEY = 'provider.id';
+const providerForOrigin = (origin) => Object.values(PROVIDERS).find((provider) => provider.origin === origin) ?? null;
+
+async function selectedProvider() {
+  const id = (await chrome.storage.local.get(PROVIDER_SETTING_KEY))[PROVIDER_SETTING_KEY];
+  return PROVIDERS[id] ?? PROVIDERS.deepseek;
+}
 const AUTHORITY_PREFIX = 'work.authority.';
 // Diagnostics live in session storage too: a reconstructed worker must not
 // report `diagnostics: null` for a completion it actually handled.
@@ -16,7 +29,6 @@ const MAX_ANSWER_CHARS = 512 * 1024;
 const MAX_PRESENTATION_CHARS = 128 * 1024;
 const MAX_ASSISTANT_HISTORY = 20;
 const MAX_TOOL_EVENTS = 32;
-const CONVERSATION_PATH = /^\/a\/chat\/s\/[A-Za-z0-9-]+$/;
 const controllers = new Map();
 
 // The page in front of the owner: the active tab of the window whose Side Panel is open.
@@ -35,7 +47,7 @@ const { readTask, releaseTask, targetStatus, runBrowserTool, considerChildHandof
 function conversationKey(rawUrl) {
   try {
     const url = new URL(rawUrl);
-    if (url.origin !== ORIGIN) return null;
+    if (!providerForOrigin(url.origin)) return null;
     return `${url.origin}${url.pathname}${url.search}`;
   } catch {
     return null;
@@ -62,6 +74,7 @@ async function persist(tabId, controller) {
 }
 
 async function setBadge(tabId, on) {
+  if (tabId === PANEL_ID) return;
   try {
     await chrome.action.setBadgeText({ tabId, text: on ? 'ON' : '' });
     if (on) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#1a7f37' });
@@ -70,7 +83,9 @@ async function setBadge(tabId, on) {
 
 async function notifyTab(tabId) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'work.changed' });
+    // The panel page relays this into its ChatGPT frame, which content scripts cannot be sent to.
+    if (tabId === PANEL_ID) await chrome.runtime.sendMessage({ type: 'panel.work-changed' });
+    else await chrome.tabs.sendMessage(tabId, { type: 'work.changed' });
   } catch {}
 }
 
@@ -320,7 +335,7 @@ async function bootstrapProviderVisibility(providerWindowId, providerTabId, work
 
 async function createProviderWindow(workWindowId) {
   const created = await chrome.windows.create({
-    url: ORIGIN,
+    url: (await selectedProvider()).origin,
     focused: true,
     type: 'normal',
   });
@@ -355,7 +370,8 @@ async function normalizeProviderWindow(session, { createIfMissing = false } = {}
         chrome.windows.get(providerWindowId),
         chrome.tabs.get(providerTabId),
       ]);
-      if (tab.windowId === providerWindowId && conversationKey(tab.url)) existing = { windowInfo, tab };
+      const selected = await selectedProvider();
+      if (tab.windowId === providerWindowId && conversationKey(tab.url) && new URL(tab.url).origin === selected.origin) existing = { windowInfo, tab };
     } catch {}
   }
 
@@ -752,8 +768,10 @@ async function statusFor(tabId) {
 }
 
 async function workOn(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  if (!conversationKey(tab.url)) return { ok: false, code: 'NOT_DEEPSEEK' };
+  if (tabId !== PANEL_ID) {
+    const tab = await chrome.tabs.get(tabId);
+    if (!conversationKey(tab.url)) return { ok: false, code: 'NOT_DEEPSEEK' };
+  }
   const controller = (await controllerFor(tabId)) ?? new WorkController();
   controller.enable();
   await persist(tabId, controller);
@@ -769,6 +787,67 @@ async function workOff(tabId) {
   await setBadge(tabId, false);
   await notifyTab(tabId);
   return { ok: true, status: await statusFor(tabId) };
+}
+
+const panelReply = (work) => work.then((result) => ({ ok: true, result }), (error) => ({ ok: false, error: error?.message ?? 'Extension action failed.' }));
+
+async function openPanelFrame() {
+  await enableFramePolicy();
+  await workOn(PANEL_ID);
+  return { started: true };
+}
+
+// Closing the panel ends its ChatGPT session: the page is released, Work disarmed, the rule removed.
+async function closePanelFrame() {
+  await releaseTask();
+  await workOff(PANEL_ID);
+  await disableFramePolicy();
+  return { stopped: true };
+}
+
+// Copied from the ChatGPT Embedded Panel (service-worker.js openCompanionWindow): the recovery
+// screen's fallback opens ChatGPT in a small window; here it also gets Work, like the panel.
+const LAST_URL_KEY = 'chatgptEmbeddedPanel.lastUrl';
+const COMPANION_WINDOW_KEY = 'chatgptEmbeddedPanel.companionWindowId';
+
+function sanitizeChatGptUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.origin !== 'https://chatgpt.com' || url.username || url.password) return 'https://chatgpt.com/';
+    if (/^\/(api|backend-api|cdn)(\/|$)/.test(url.pathname)) return 'https://chatgpt.com/';
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return 'https://chatgpt.com/';
+  }
+}
+
+async function openCompanionWindow() {
+  const stored = await chrome.storage.local.get([LAST_URL_KEY, COMPANION_WINDOW_KEY]);
+  const existingId = stored[COMPANION_WINDOW_KEY];
+
+  if (Number.isInteger(existingId)) {
+    try {
+      await chrome.windows.update(existingId, { focused: true });
+      return { windowId: existingId, reused: true };
+    } catch {
+      await chrome.storage.local.remove(COMPANION_WINDOW_KEY);
+    }
+  }
+
+  const created = await chrome.windows.create({
+    url: sanitizeChatGptUrl(stored[LAST_URL_KEY]),
+    type: 'popup',
+    width: 520,
+    height: 760,
+    focused: true,
+  });
+  if (!Number.isInteger(created?.id)) throw new Error('ChatGPT companion window could not be created.');
+  await chrome.storage.local.set({ [COMPANION_WINDOW_KEY]: created.id });
+  const tabId = created.tabs?.[0]?.id;
+  if (Number.isInteger(tabId)) await workOn(tabId).catch(() => {});
+  return { windowId: created.id, reused: false };
 }
 
 async function toggleWork(tabId) {
@@ -881,7 +960,9 @@ async function arrive(tabId, key) {
   if (!controller) return { work: false };
   // Without this the contract only says tools act on a tab "I explicitly attached", and the
   // model answers that nothing is attached even though the owner already attached one.
-  const pageAttached = (await assistantSession()) !== null;
+  // The ChatGPT panel works on the current page of its window, like the ChatGPT Embedded Panel: the
+  // first Browser WebMCP call locks it.
+  const pageAttached = tabId === PANEL_ID || (await assistantSession()) !== null;
   return { work: true, instructions: buildWorkInstructions({ pageAttached }), ...deliveryFor(controller, key) };
 }
 
@@ -935,7 +1016,12 @@ async function runControl(control, args) {
 // extensions/renderer/ipc_message_sender.cc -> script_context->url()), so it stays
 // stale after DeepSeek's SPA pushState to /a/chat/s/<uuid>. Only the top frame may
 // speak for the tab's URL.
-function senderContext(sender) {
+function senderContext(sender, message) {
+  const panelHref = panelFrameHref(sender, message?.href);
+  if (panelHref !== null) {
+    const key = conversationKey(panelHref);
+    return key === null ? null : { tabId: PANEL_ID, key };
+  }
   if (!sender.tab || !Number.isInteger(sender.tab.id) || sender.frameId !== 0) return null;
   const key = conversationKey(sender.tab.url);
   if (conversationKey(sender.url) === null || key === null) return null;
@@ -943,19 +1029,19 @@ function senderContext(sender) {
 }
 
 function isSidePanel(sender) {
-  return !sender.tab && sender.url === chrome.runtime.getURL('sidepanel.html');
+  return !sender.tab && ['sidepanel.html', 'sidepanel-chatgpt.html'].some((page) => sender.url === chrome.runtime.getURL(page));
 }
 
 function handleMessage(message, sender) {
   if (!message || typeof message !== 'object') return undefined;
 
   if (message.type === 'work.completion' && typeof message.text === 'string') {
-    const context = senderContext(sender);
+    const context = senderContext(sender, message);
     if (!context) return undefined;
     return processCompletion(context.tabId, context.key, message.text, message.resume === true);
   }
   if (message.type === 'work.generating') {
-    const context = senderContext(sender);
+    const context = senderContext(sender, message);
     if (!context) return undefined;
     return controllerFor(context.tabId).then(async (controller) => {
       if (!controller) return { ok: true };
@@ -971,18 +1057,19 @@ function handleMessage(message, sender) {
     });
   }
   if (message.type === 'work.arrive') {
-    const context = senderContext(sender);
+    const context = senderContext(sender, message);
     if (!context) return undefined;
     return arrive(context.tabId, context.key);
   }
   if (message.type === 'work.continuation-result') {
-    const context = senderContext(sender);
-    if (!context || typeof message.conversationPath !== 'string' || !CONVERSATION_PATH.test(message.conversationPath)) return undefined;
+    const context = senderContext(sender, message);
+    const provider = context ? providerForOrigin(new URL(context.key).origin) : null;
+    if (!provider || typeof message.conversationPath !== 'string' || !provider.conversationPath.test(message.conversationPath)) return undefined;
     // The user may already have switched chats; the result belongs to the path it was typed into.
-    return recordContinuation(context.tabId, `${ORIGIN}${message.conversationPath}`, message.result).then(() => ({ ok: true }));
+    return recordContinuation(context.tabId, `${provider.origin}${message.conversationPath}`, message.result).then(() => ({ ok: true }));
   }
   if (message.type === 'assistant.snapshot') {
-    const context = senderContext(sender);
+    const context = senderContext(sender, message);
     if (!context) return undefined;
     return recordAssistantSnapshot(context.tabId, message).then(() => ({ ok: true }));
   }
@@ -997,6 +1084,13 @@ function handleMessage(message, sender) {
   if (message.type === 'assistant.action') return runAssistantAction(message.action);
   if (message.type === 'assistant.page-status') return targetStatus();
   if (message.type === 'assistant.closed') return releaseTask().then(markPageReleased);
+  // ChatGPT panel (sidepanel-chatgpt.js, the ChatGPT Embedded Panel's page): replies use its
+  // { ok, result } shape. Work is on by default for the embedded ChatGPT and its companion window.
+  if (message.type === 'panel.frame-open') return panelReply(openPanelFrame());
+  if (message.type === 'panel.open-companion') return panelReply(openCompanionWindow());
+  if (message.type === 'panel.closed') return panelReply(closePanelFrame());
+  if (message.type === 'panel.target-status') return panelReply(targetStatus());
+  if (message.type === 'panel.task-stop') return panelReply(stopAssistantTask());
   if (message.type === 'settings.control' && typeof message.control === 'string') return runControl(message.control, message.arguments);
   return undefined;
 }

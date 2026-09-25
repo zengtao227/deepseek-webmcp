@@ -1,0 +1,237 @@
+<title>ChatGPT Web Provider 开发计划</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#F5F6F8; --paper:#FFFFFF; --ink:#18212C; --muted:#586374; --line:#DCE1E7;
+  --accent:#2C5A87; --accent-soft:#E6EEF6;
+  --ok:#1F7446; --ok-soft:#E3F2E9; --warn:#9A6200; --warn-soft:#FBF0DC;
+  --todo:#5F6877; --todo-soft:#EEF0F3; --miss:#B42318; --miss-soft:#FBE7E5;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#12171D; --paper:#1A2129; --ink:#E6EAF0; --muted:#9AA5B4; --line:#2C3642;
+    --accent:#8DB6DE; --accent-soft:#1E2E3F;
+    --ok:#6FCF97; --ok-soft:#173424; --warn:#E5B35C; --warn-soft:#3A2D14;
+    --todo:#A7B0BD; --todo-soft:#252D37; --miss:#F28B82; --miss-soft:#3D1D1B;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#12171D; --paper:#1A2129; --ink:#E6EAF0; --muted:#9AA5B4; --line:#2C3642;
+  --accent:#8DB6DE; --accent-soft:#1E2E3F;
+  --ok:#6FCF97; --ok-soft:#173424; --warn:#E5B35C; --warn-soft:#3A2D14;
+  --todo:#A7B0BD; --todo-soft:#252D37; --miss:#F28B82; --miss-soft:#3D1D1B;
+  color-scheme:dark;
+}
+body{background:var(--ground);color:var(--ink);font:15px/1.65 "IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;padding-inline:16px;padding-block:28px 64px}
+.wrap{max-width:980px;margin:0 auto;display:grid;gap:28px}
+h1{font-size:28px;line-height:1.25;margin:0;text-wrap:balance}
+h2{font-size:19px;margin:0 0 12px;text-wrap:balance}
+h3{font-size:16px;margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:68ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.88em}
+section{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:12px}
+.note{background:var(--accent-soft);border-radius:8px;padding:12px 14px}
+ul,ol{margin:0;padding-left:1.3em;display:grid;gap:4px}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.ok{color:var(--ok);background:var(--ok-soft)} .warn{color:var(--warn);background:var(--warn-soft)}
+.todo{color:var(--todo);background:var(--todo-soft)} .miss{color:var(--miss);background:var(--miss-soft)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.id{font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--muted);white-space:nowrap}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}
+.flow span.step{background:var(--todo-soft);border-radius:6px;padding:3px 9px}
+.flow span.arrow{color:var(--muted)}
+.steps{display:grid;gap:12px}
+.card{border:1px solid var(--line);border-left:3px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:8px}
+.card.now{border-left-color:var(--accent)}
+.card .head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
+.card dl{display:grid;grid-template-columns:5.5em 1fr;gap:4px 12px;margin:0;font-size:14px}
+.card dt{color:var(--muted)}
+.card dd{margin:0}
+@media (max-width:520px){.card dl{grid-template-columns:1fr}.card dt{margin-top:4px}}
+a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:10px">
+    <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.105</code></span><span>更新于 2026-09-25</span></p>
+    <h1>ChatGPT Web Provider 开发计划</h1>
+    <p class="lede">目标：在 Side Panel 里直接用 ChatGPT 网页当 Provider，调用本地 WebMCP。ChatGPT 这部分完全照搬已经做好的 ChatGPT Embedded Panel，DeepSeek 保持不变。每一步都按本页对照、验收、审查，状态也记在本页。</p>
+  </header>
+
+  <section>
+    <h2>先确认：原有成果没有被破坏</h2>
+    <ul>
+      <li>DeepSeek 主仓库 <code>main 4950702</code>：没有任何改动。</li>
+      <li>ChatGPT Embedded Panel 仓库 <code>main 6ea9e32</code>：没有任何改动。</li>
+      <li>P1 发布集 <code>release-set-p1</code>，以及已安装的本地程序 <code>~/.deepseek-webmcp</code>：都没碰。</li>
+      <li>所有新改动都在隔离的 worktree <code>~/Doc/deepseek-webmcp-work/web-provider</code> 里，还没提交，也没合并。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>原则（每一步都必须遵守）</h2>
+    <ol>
+      <li><strong>照搬，不重新设计。</strong>ChatGPT 的界面和嵌入机制复制自 ChatGPT Embedded Panel，工具循环复制自 DeepSeek。凡是与原文件不同的地方，都要在“差异清单”里逐条写明理由。</li>
+      <li><strong>一步只做一件事。</strong>只改这一步范围内的代码，不顺手整理其他东西。</li>
+      <li><strong>以你在真实 Chrome 里的验收为准。</strong>自动测试只是辅助证据，不能代替你的实测。</li>
+      <li><strong>每一步都要审查，里程碑还要做独立审查。</strong>完成一步后，先把改动和本页清单对照一遍；到里程碑时，再请 Codex 独立审查。</li>
+      <li><strong>权限设置留在 WebMCP App。</strong>目录和 High Trust 都在屏幕顶部的菜单栏 App 里设置；Side Panel 只负责选 Provider 和聊天。</li>
+      <li><strong>最终形态：一个 Unified Work Side Panel 加一个 WebMCP App。</strong>POC 可以分阶段做，但每一处改动都要朝这个形态走，不再产生新的临时 UI 架构。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>每一步的固定流程</h2>
+    <div class="flow">
+      <span class="step">1 写清本步范围</span><span class="arrow">→</span>
+      <span class="step">2 只改本步代码</span><span class="arrow">→</span>
+      <span class="step">3 自动测试 + 照搬一致性检查</span><span class="arrow">→</span>
+      <span class="step">4 你在真实 Chrome 验收</span><span class="arrow">→</span>
+      <span class="step">5 对照清单审查</span><span class="arrow">→</span>
+      <span class="step">6 本地提交这一步</span><span class="arrow">→</span>
+      <span class="step">7 更新本页状态</span>
+    </div>
+    <p class="note">“照搬一致性检查”：用脚本把 <code>sidepanel-chatgpt.*</code>、<code>frame-policy.js</code>、<code>embedded-chatgpt.js</code> 和原面板的对应文件逐行比对。除了差异清单里登记过的修改，出现任何其他不同都算失败。上次页面加载错脚本的 bug，就是这一步能拦下来的问题。</p>
+  </section>
+
+  <section>
+    <h2>这次犯的错和对应的防范</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>错误</th><th>后果</th><th>防范</th></tr></thead>
+      <tbody>
+        <tr><td>自己设计 ChatGPT 面板，没有照搬原面板</td><td>界面和原来不一样，信息缺失</td><td>原则 1 和差异清单；已改成直接复制原文件</td></tr>
+        <tr><td>复制页面时漏改脚本名</td><td>面板白屏</td><td>照搬一致性检查，加上回归测试 <code>sidepanel-wiring.test.js</code></td></tr>
+        <tr><td>后台只认原 DeepSeek 页面</td><td>面板的请求全被拒绝</td><td>已修复；第 4 步会逐项验收面板功能</td></tr>
+        <tr><td>面板模式没告诉模型“当前页面已附加”</td><td>读不到左边页面</td><td>0.5.105 已修复，等你验收（第 2 步）</td></tr>
+        <tr><td>Work 起初需要手动打开</td><td>多一步操作</td><td>已改为默认开启</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>对齐清单：ChatGPT Embedded Panel 的功能</h2>
+    <p class="lede">来源：原面板的 README（Acceptance、Browser WebMCP task gate）和页面代码。你看到缺了哪一项，直接告诉我，我补进清单（第 1 步）。</p>
+    <div class="tbl"><table>
+      <thead><tr><th>编号</th><th>功能</th><th>状态</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="id">A1</td><td>点扩展图标打开 Side Panel</td><td><span class="pill ok">你已测</span></td><td>0.5.104</td></tr>
+        <tr><td class="id">A2</td><td>面板里显示真实的 ChatGPT 界面，可以使用</td><td><span class="pill ok">你已测</span></td><td>0.5.104；和同一 profile 的标签页共用登录状态</td></tr>
+        <tr><td class="id">A3</td><td>在面板里手动发消息、收到回复</td><td><span class="pill ok">你已测</span></td><td>0.5.104</td></tr>
+        <tr><td class="id">A4</td><td>进入某个对话后，关掉面板再打开，回到同一个对话</td><td><span class="pill todo">未验证</span></td><td>代码照搬（记住上次 URL）</td></tr>
+        <tr><td class="id">A5</td><td>关掉面板再打开，ChatGPT 自动重新连上</td><td><span class="pill todo">未验证</span></td><td>代码照搬</td></tr>
+        <tr><td class="id">A6</td><td>连不上时出现恢复界面：Retry / Open ChatGPT window</td><td><span class="pill todo">未验证</span></td><td>代码照搬；备用窗口里的 ChatGPT 也默认开启 Work</td></tr>
+        <tr><td class="id">B1</td><td>空闲时顶部显示 “Ready — Current: 页面标题”</td><td><span class="pill warn">待你验收</span></td><td>0.5.103 修了消息被拒的问题</td></tr>
+        <tr><td class="id">B2</td><td>第一次浏览器调用自动锁定当前页面，并能读取内容</td><td><span class="pill warn">待你验收</span></td><td>0.5.105 修复</td></tr>
+        <tr><td class="id">B3</td><td>任务进行中切换标签页，不会改变目标页面</td><td><span class="pill todo">未验证</span></td><td>和 DeepSeek 用同一份代码</td></tr>
+        <tr><td class="id">B4</td><td>Stop 解除锁定，回到空闲状态</td><td><span class="pill todo">未验证</span></td><td></td></tr>
+        <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
+        <tr><td class="id">B6</td><td>工具 click 造成的跳转或新标签，由任务接管</td><td><span class="pill todo">未验证</span></td><td></td></tr>
+        <tr><td class="id">B7</td><td>和任务无关的跨域跳转会暂停任务，而不是悄悄换目标</td><td><span class="pill todo">未验证</span></td><td></td></tr>
+        <tr><td class="id">C1</td><td>显示实际模型 / Effort / Requested / Mismatch</td><td><span class="pill miss">缺失</span></td><td>等决策 D1</td></tr>
+        <tr><td class="id">C2</td><td>工具调用的显示方式</td><td><span class="pill todo">模式差异</span></td><td>原面板用 ChatGPT 自带的 “Called tool”（MCP 模式）；Web Provider 模式下，工具调用是聊天里的文字，自动折叠成一行</td></tr>
+        <tr><td class="id">D1</td><td>本地文件工具：open_workspace / read / write / edit / bash</td><td><span class="pill warn">部分</span></td><td>独立窗口模式你已跑通；面板模式未验证</td></tr>
+        <tr><td class="id">D2</td><td>High Trust host_command（在 WebMCP App 里授权）</td><td><span class="pill todo">未验证</span></td><td>ChatGPT 模式下还没测过</td></tr>
+        <tr><td class="id">U1</td><td>ChatGPT 和 DeepSeek 都用 Side Panel 顶部同一个 Provider 选择器</td><td><span class="pill miss">未达到</span></td><td>现在 DeepSeek 的选择器还在 Settings 里，是临时做法；第 5b 步收敛</td></tr>
+        <tr><td class="id">U2</td><td>Side Panel 里不再有 Folder / Full Access / High Trust，这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有这些设置；第 5b 步收敛</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>差异清单：和原文件不同的地方</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>文件</th><th>来源</th><th>改动及理由</th></tr></thead>
+      <tbody>
+        <tr><td><code>frame-policy.js</code></td><td>原面板，原样复制</td><td>只在后面追加了面板 frame 的身份识别函数，复制的规则本身一字未改</td></tr>
+        <tr><td><code>embedded-chatgpt.js</code></td><td>原面板，原样复制</td><td>无改动</td></tr>
+        <tr><td><code>sidepanel-chatgpt.html</code></td><td>原面板 <code>sidepanel.html</code></td><td>加 Provider 下拉框；删掉模型信息那几行（D1）；脚本名改为 <code>sidepanel-chatgpt.js</code></td></tr>
+        <tr><td><code>sidepanel-chatgpt.js</code></td><td>原面板 <code>sidepanel.js</code></td><td>消息名改成本扩展的；删掉模型显示（D1）；加 Provider 切换；加 “Work 状态变化”的转发</td></tr>
+        <tr><td><code>content-chatgpt.js</code></td><td>DeepSeek <code>content.js</code></td><td>只替换页面操作层（ChatGPT 的输入框、发送/停止、回答区域）；加一句 ChatGPT 专用说明，告诉模型工具由扩展执行</td></tr>
+        <tr><td><code>background.js</code></td><td>DeepSeek</td><td>加 Provider 表；识别面板里的 ChatGPT frame；面板 ChatGPT 默认开启 Work；备用窗口（复制自原面板）；面板模式视为已附加当前页面</td></tr>
+        <tr><td><code>manifest.json</code></td><td>DeepSeek</td><td>加 chatgpt.com 的两个脚本、嵌入规则所需权限、原面板的 CSP；改名和版本号（POC）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>步骤</h2>
+    <div class="steps">
+      <div class="card now"><div class="head"><h3>第 0 步 · 冻结基线</h3><span class="pill warn">等你同意</span></div>
+        <dl><dt>做什么</dt><dd>把分支当前的改动原样提交一次，只在本地分支，不合并、不推送。之后每一步都是一个单独、可以审查的改动。顺便加上“照搬一致性检查”脚本。</dd>
+        <dt>验收</dt><dd>基线提交存在，<code>npm run check</code> 通过，一致性检查通过。</dd>
+        <dt>审查</dt><dd>对照差异清单检查提交内容；确认不包含 <code>node_modules</code> 软链。</dd></dl></div>
+
+      <div class="card now"><div class="head"><h3>第 1 步 · 确认对齐清单</h3><span class="pill warn">等你看</span></div>
+        <dl><dt>做什么</dt><dd>你看上面的对齐清单，把原面板里有、这里漏掉的信息项告诉我。我补进清单，但不写代码。</dd>
+        <dt>验收</dt><dd>你确认清单完整。</dd>
+        <dt>审查</dt><dd>逐项对照原面板的 README 和页面代码。</dd></dl></div>
+
+      <div class="card now"><div class="head"><h3>第 2 步 · 读取左边页面（B1、B2）</h3><span class="pill warn">0.5.105 待你验收</span></div>
+        <dl><dt>做什么</dt><dd>已修：面板模式下告诉模型“当前页面已附加”。</dd>
+        <dt>验收</dt><dd>顶部显示左边页面的标题；让 ChatGPT 读左边页面，它能返回页面内容。</dd>
+        <dt>审查</dt><dd>这次改动只有 <code>background.js</code> 里的一行判断。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 3 步 · 模型信息（C1）</h3><span class="pill todo">等决策 D1</span></div>
+        <dl><dt>做什么</dt><dd>如果你同意：原样移植原面板的 <code>model-probe.js</code>、<code>model-status.js</code> 和顶部的模型显示，同时把仓库安全规则改为“只禁止在 DeepSeek 页面注入”。</dd>
+        <dt>验收</dt><dd>顶部显示实际模型、Effort，不一致时标出 Mismatch。</dd>
+        <dt>审查</dt><dd>照搬一致性检查；安全规则的改动单独列出，交给第 7 步重点审。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 4 步 · 面板生命周期（A4–A6、B3–B7）</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>你逐项实测；哪一项失败，就只修那一项，每项单独提交。</dd>
+        <dt>验收</dt><dd>对齐清单里这些项全部变成“你已测”。</dd>
+        <dt>审查</dt><dd>每项修复都要说明对应原面板的哪一段代码。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 5 步 · 本地工具与 High Trust（D1、D2）</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>在面板模式下跑一次文件工具的完整往返；在 WebMCP App 里开启 High Trust 后，跑一次 host_command。</dd>
+        <dt>验收</dt><dd>两项都成功；撤销 High Trust 后，host_command 被拒绝。</dd>
+        <dt>审查</dt><dd>确认没有改动任何权限相关代码。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 5b 步 · Unified Side Panel 界面收敛（U1、U2）</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>很小的一步：把 Provider 选择器放到两个面板顶部的同一位置，用同一个控件；从 DeepSeek 面板去掉 Folder / Full Access / High Trust，这些只在 WebMCP App 里设置。先确认 WebMCP App 对 DeepSeek 实例已经提供这些设置，再去掉面板里的对应入口。</dd>
+        <dt>验收</dt><dd>U1、U2 在真实 Chrome 里达到；在 WebMCP App 里改目录、开关 High Trust 后，DeepSeek 和 ChatGPT 都能正常工作。</dd>
+        <dt>审查</dt><dd>只改面板界面，不改权限逻辑；对照差异清单。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 6 步 · DeepSeek 回归</h3><span class="pill ok">0.5.104 你已测通过</span></div>
+        <dl><dt>做什么</dt><dd>所有步骤完成后，按 DeepSeek 原有的验收项再跑一遍：Provider 窗口、工具、High Trust、Regenerate / Share。</dd>
+        <dt>验收</dt><dd>全部和改动前一致。</dd>
+        <dt>审查</dt><dd>对照 <code>git diff 4950702</code> 里 DeepSeek 相关文件的改动。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 7 步 · 独立审查（里程碑）</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>用 <code>codex-review</code> 审查整个分支相对 <code>4950702</code> 的改动：R1 是否照搬 / 有无越界，R2 安全（嵌入规则、消息来源识别、D1），R3 DeepSeek 回归风险。按审查结果修复，然后重新验收。</dd>
+        <dt>验收</dt><dd>审查结论里没有未处理的阻断项。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 8 步 · 文档与路线图</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>按实际验收结果，更新 <code>docs/web-provider-mode.md</code> 和路线图里的状态。</dd></dl></div>
+
+      <div class="card"><div class="head"><h3>第 9 步 · 合并 / 发布</h3><span class="pill todo">单独审批</span></div>
+        <dl><dt>做什么</dt><dd>你决定是否合并进 DeepSeek 的 main、是否进入 WebMCP Setup 发布。没有你的明确同意，不会做。</dd></dl></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>需要你做的决定</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>编号</th><th>问题</th><th>我的建议</th></tr></thead>
+      <tbody>
+        <tr><td class="id">D0</td><td>第 0 步：是否允许在本地分支提交基线？（仓库规定：你不说就不提交）</td><td>同意。之后每一步都能单独审查、单独回退</td></tr>
+        <tr><td class="id">D1</td><td>模型信息：要不要移植原面板在 ChatGPT 页面主环境里的网络探测？</td><td>同意移植，并把安全规则收窄为只禁止 DeepSeek 页面</td></tr>
+        <tr><td class="id">D2</td><td>路线图的两个本地提交（<code>7e2372f</code>、<code>06ea912</code>）要不要推送？</td><td>等第 2 步验收通过后再推送</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>本阶段不做的事</h2>
+    <ul>
+      <li>底层合并：一个扩展 ID、一个 native host。只推迟这一项；统一的 Side Panel 界面在本阶段完成（第 5b 步）。</li>
+      <li>任何对 WebMCP Setup、发布集和已安装程序的改动。</li>
+    </ul>
+  </section>
+</div>

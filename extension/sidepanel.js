@@ -4,6 +4,12 @@ import { initSettings } from './settings-ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 
+// ChatGPT has its own panel page (the ChatGPT Embedded Panel's); nothing below runs for it.
+if ((await chrome.storage.local.get('provider.id'))['provider.id'] === 'chatgpt') {
+  location.replace('sidepanel-chatgpt.html');
+  await new Promise(() => {});
+}
+
 let lastSessionKey = '';
 let lastCompleted = false;
 let lastGenerating = false;

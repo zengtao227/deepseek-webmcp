@@ -95,3 +95,10 @@ DeepSeek consumes the provider-neutral `webmcp-runtime` as a pinned release arti
 - Full Host Access (`native/host/host-access.js`): resolves only through the artifact id in the adapter's own `runtime.lock.json` and the `deepseek` instance pin; approval comes from the runtime's `local-approval.js`. There is no dependency on an installed Bridge release or its `installer.js`.
 - Tool calls (`native/host/docker-dispatch.js` + `native/host/runtime-bootstrap.js`): DeepSeek keeps its one-shot, network-less, non-root policy wrapper and starts the image's runtime modules with a mandatory runtime token, the 30 s command cap and DeepSeek's workspace instruction.
 - `native/src/*`, `native/bin/start.js`, `native/Dockerfile` and `gateway/path-policy` in this repository are no longer used by installs; they are deleted after the browser-core migration (plan step D5).
+
+## ChatGPT Web Adapter (Web Provider Mode, 2026-09-25)
+
+- `extension/content-chatgpt.js`: adapted from this repository's `extension/content.js` (worker protocol, completion detection, answer structuring and folding kept); the page layer (composer, send/stop, answer turn) replaced with selectors and ProseMirror write logic from `chatgpt-embedded-panel-dev` `7ae86f7:embedded-chatgpt.js`, extended for the textarea / `li[data-message-role]` ChatGPT UI seen live on 2026-09-25.
+- `extension/frame-policy.js`, `extension/embedded-chatgpt.js`: copied unchanged from `chatgpt-embedded-panel` (`frame-policy.js` gains the panel-frame sender check below the copied rule).
+- `extension/sidepanel-chatgpt.html` / `.js`: copied from `chatgpt-embedded-panel` `sidepanel.html` / `sidepanel.js`; only message names mapped to this worker, the model display (MAIN-world fetch probe, not allowed here) removed, a Provider picker and the Work-changed relay added.
+- `openCompanionWindow` in `extension/background.js`: copied from `chatgpt-embedded-panel` `service-worker.js`; the companion ChatGPT tab also gets Work.

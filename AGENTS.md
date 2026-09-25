@@ -4,7 +4,9 @@
 
 DeepSeek WebMCP is an independent product. It uses the user's already-authenticated `https://chat.deepseek.com` web UI as the model/governance layer and must not require a DeepSeek API key or DeepSeek Harness.
 
-Do not turn this repository into a DeepSeek private-API client, a generic browser-automation framework, or a provider plugin platform. Implement only the minimum mechanism required by the current phase acceptance criteria.
+Architecture direction (owner decision 2026-09-25): this extension is the first implementation of the **WebMCP Unified Side Panel** — one extension, one Side Panel, several Provider Adapters (DeepSeek, ChatGPT, later Claude / local models), several Connection Modes, one shared WebMCP capability/runtime layer. Web Provider adapters for other AI web pages are in scope; see `docs/web-provider-mode.md`. A provider adds only its page layer (a `PROVIDERS` entry and an ISOLATED content script); the tool loop, runtime, Browser tools, approvals and High Trust stay shared and are never re-implemented per provider.
+
+Do not turn this repository into a private-API client for any provider or a generic browser-automation framework. Implement only the minimum mechanism required by the current acceptance criteria.
 
 ## Engineering minimalism
 

@@ -60,6 +60,12 @@ function applySettings(response) {
 }
 
 export async function initSettings() {
+  const provider = $('#provider');
+  provider.value = (await chrome.storage.local.get('provider.id'))['provider.id'] ?? 'deepseek';
+  provider.addEventListener('change', async () => {
+    await chrome.storage.local.set({ 'provider.id': provider.value });
+    location.replace(provider.value === 'chatgpt' ? 'sidepanel-chatgpt.html' : 'sidepanel.html');
+  });
   // macOS dialogs take focus; the background finishes the request and the panel shows the result.
   $('#choose').addEventListener('click', async () => {
     showMessage('Choose a folder in the dialog…');

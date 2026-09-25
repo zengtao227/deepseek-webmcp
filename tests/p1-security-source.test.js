@@ -21,11 +21,12 @@ test('P2 extension uses one-shot Native Messaging without DeepSeek credential ac
   assert.doesNotMatch(source, /chrome\.cookies|document\.cookie/i);
   assert.doesNotMatch(source, /authorization|bearer\s/i);
   assert.match(source, /chrome\.storage\.session/);
-  // Persistent storage holds exactly one thing: which window/tab is the DeepSeek provider, so that
-  // opening the panel again reuses it instead of creating another window. Nothing else may use it.
+  // Persistent storage holds only: which window/tab is the provider (so opening the panel again reuses
+  // it), which Web Provider is selected, and — copied from the ChatGPT Embedded Panel — the last
+  // ChatGPT URL and its companion window id. Nothing else may use it.
   const persistent = source.split('\n').filter((line) => /chrome\.storage\.local/.test(line));
   assert.ok(persistent.length > 0);
-  for (const line of persistent) assert.match(line, /PROVIDER_REF_KEY/, line);
+  for (const line of persistent) assert.match(line, /PROVIDER_REF_KEY|PROVIDER_SETTING_KEY|PROVIDER_KEY|'provider\.id'|LAST_URL_KEY|COMPANION_WINDOW_KEY/, line);
   assert.match(source, /providerWindowId: provider\.providerWindowId, providerTabId: provider\.providerTabId \}/);
 });
 

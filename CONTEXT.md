@@ -1,5 +1,7 @@
 # DeepSeek WebMCP — Project Context
 
+Direction (2026-09-25): Web Provider Mode and the WebMCP Unified Side Panel govern new work — DeepSeek is the first Web Provider adapter, ChatGPT the second (`content-chatgpt.js`, real-runtime round trip passed 2026-09-25). See `docs/web-provider-mode.md`. The "DeepSeek" wording below describes the DeepSeek adapter and the shared loop it proved; the non-goal "speculative provider abstraction" no longer blocks provider adapters that are actually built and used.
+
 Status: P1–P4 are CLOSED/PASS in Google Chrome; P5 small-circle distribution is PASS in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged. Actual code and validated browser behavior remain authoritative when they conflict with an assumption here.
 
 ## 1. Identity
