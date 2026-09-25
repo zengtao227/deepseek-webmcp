@@ -16,6 +16,7 @@
   const POLL_MS = 500;
   const STABLE_MS = 2000;
   const SEND_ENABLE_WAIT_MS = 3000;
+  const PASTE_WAIT_MS = 1000;
   const SEND_CONFIRM_WAIT_MS = 5000;
 
   // Runs in a normal chatgpt.com tab (provider window) or as the ChatGPT frame inside this
@@ -246,7 +247,7 @@
     selection.addRange(range);
   }
 
-  function writeComposer(input, text) {
+  async function writeComposer(input, text) {
     if (input instanceof HTMLTextAreaElement) {
       input.focus();
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, text);
@@ -254,18 +255,28 @@
       return sameText(readComposer(input), text);
     }
     selectAll(input);
-    try { document.execCommand('insertText', false, text); } catch {}
+    // One paste is one editor step; insertText makes every line its own step (live 2026-09-25:
+    // 8 ms against 2.6 s for a 12 kB tool result, which stayed in the composer meanwhile).
+    // ProseMirror applies the paste a task later, so the read-back waits for it; reading at once
+    // looked like a failure and wrote the text a second time. insertText only if the paste changed nothing.
+    const before = readComposer(input);
+    const data = new DataTransfer();
+    data.setData('text/plain', text);
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    const deadline = Date.now() + PASTE_WAIT_MS;
+    while (!sameText(readComposer(input), text) && Date.now() < deadline) await sleep(25);
+    if (readComposer(input) === before && !sameText(before, text)) {
+      selectAll(input);
+      try { document.execCommand('insertText', false, text); } catch {}
+      await sleep(100);
+    }
     return sameText(readComposer(input), text);
   }
 
   async function sendText(text) {
     const input = composer();
     if (!input) return { ok: false, code: 'COMPOSER_NOT_FOUND' };
-    if (!writeComposer(input, text)) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
-    if (!(input instanceof HTMLTextAreaElement)) {
-      await sleep(100);
-      if (!sameText(readComposer(input), text)) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
-    }
+    if (!(await writeComposer(input, text))) return { ok: false, code: 'COMPOSER_WRITE_FAILED' };
 
     const enableDeadline = Date.now() + SEND_ENABLE_WAIT_MS;
     let control = sendControl();

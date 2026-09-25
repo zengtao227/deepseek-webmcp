@@ -5,14 +5,21 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../extension/content-chatgpt.js', import.meta.url), 'utf8');
 
-test('an old conversation sends one tool-enabled prompt through the visible ProseMirror editor', async () => {
+async function sendThroughComposer({ pasteApplies }) {
   const listeners = new Map();
   const messages = [];
   const sent = [];
   const hiddenTextarea = { value: '', getClientRects: () => [] };
+  const inserts = [];
   const editor = {
     tagName: 'DIV', innerText: 'Inspect the current page', isConnected: true,
     focus() {}, contains: (target) => target === editor,
+    // Live 2026-09-25: ChatGPT's ProseMirror applies a synthetic paste one task later, not at once.
+    dispatchEvent(event) {
+      if (event.type !== 'paste' || !pasteApplies) return true;
+      setTimeout(() => { editor.innerText = event.clipboardData.getData('text/plain'); }, 20);
+      return false;
+    },
   };
   const sendButton = {
     disabled: false,
@@ -41,6 +48,7 @@ test('an old conversation sends one tool-enabled prompt through the visible Pros
     addEventListener(type, listener) { listeners.set(type, listener); },
     execCommand(command, _ui, text) {
       assert.equal(command, 'insertText');
+      inserts.push(text);
       editor.innerText = text;
       return true;
     },
@@ -61,6 +69,8 @@ test('an old conversation sends one tool-enabled prompt through the visible Pros
       onMessage: { addListener() {} },
     } },
     HTMLTextAreaElement: class {},
+    DataTransfer: class { #data = new Map(); setData(type, value) { this.#data.set(type, value); } getData(type) { return this.#data.get(type) ?? ''; } },
+    ClipboardEvent: class { constructor(type, init) { this.type = type; this.clipboardData = init.clipboardData; } },
     MutationObserver: class { observe() {} },
     getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     requestAnimationFrame: () => {},
@@ -76,13 +86,23 @@ test('an old conversation sends one tool-enabled prompt through the visible Pros
     type: 'keydown', target: editor, key: 'Enter', keyCode: 13,
     preventDefault() { prevented = true; }, stopImmediatePropagation() {},
   });
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await new Promise((resolve) => setTimeout(resolve, pasteApplies ? 300 : 1500));
 
   assert.equal(prevented, true);
   assert.equal(sent.length, 1);
   assert.match(sent[0], /^Inspect the current page\n\nYou can use owner-approved tools/);
   assert.equal(editor.innerText, '');
   assert.equal(messages.some((message) => message.type === 'work.generating'), true);
+  return inserts;
+}
+
+test('an old conversation sends one tool-enabled prompt through the visible ProseMirror editor', async () => {
+  // insertText makes every line its own editor step: 2.6 s for a 12 kB tool result (live 2026-09-25).
+  assert.deepEqual(await sendThroughComposer({ pasteApplies: true }), [], 'written by one paste, never also by insertText');
+});
+
+test('insertText is the fallback only when the editor ignored the paste', async () => {
+  assert.equal((await sendThroughComposer({ pasteApplies: false })).length, 1);
 });
 
 // Live DOM 2026-09-25 (free account): ChatGPT renders the fenced example inside a typed tool result

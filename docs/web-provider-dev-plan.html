@@ -197,7 +197,7 @@ a{color:var(--accent)}
         <dt>审查</dt><dd>逐项对照原面板的 README 和页面代码。</dd></dl></div>
 
       <div class="card now"><div class="head"><h3>第 2 步 · 读取左边页面（B1、B2）</h3><span class="pill ok">Chrome 实测通过</span></div>
-        <dl><dt>做什么</dt><dd>面板模式下告诉模型“当前页面已附加”；选择可见 ProseMirror 输入框并只用 insertText 写入工具说明。</dd>
+        <dl><dt>做什么</dt><dd>面板模式下告诉模型“当前页面已附加”；选择可见 ProseMirror 输入框写入工具说明；2026-09-26 改为一次粘贴写入（1.2 万字 8 毫秒，insertText 要 2.6 秒且期间整段停在输入框里），等粘贴生效后再核对，粘贴无效时才退回 insertText。</dd>
         <dt>验收</dt><dd>真实 Chrome 中恢复的旧对话完成 inspect_page 往返，返回左侧 Action 页面标题；无诊断代码重载后复测通过。</dd>
         <dt>审查</dt><dd>本轮发送修复只改 <code>content-chatgpt.js</code> 的输入框选择与写入确认，后台路由未改；新增一个定向回归测试。</dd></dl></div>
 
