@@ -50,6 +50,17 @@ The Side Panel keeps no Folder, Full access or High Trust settings: those live i
 3. Register `com.webmcp.extension`; remove the two old host registrations; remove the `deepseek` and `prism` instances and old program folders.
 4. Everything is checked before the first write (active lease, folders the runtime refuses); a failure rolls back files and removes only the new instance's container.
 
+### Install without Docker Hub (owner decision 2026-09-26)
+
+Some testers' networks block Docker Hub entirely (seen on an Intel Mac: registry-1/auth/CDN time out, IPv4 and IPv6, with or without a proxy-mode VPN). Installs therefore never touch Docker Hub:
+
+- The Dockerfile has no `# syntax=` line (nothing in it needs the external frontend).
+- The pinned `node:22-bookworm-slim` base image is served from the WebMCP download server as a `docker save` archive, checked by SHA256, then `docker load`ed; builds use its local tag. Verified: a build `FROM` a local-only tag needs no registry.
+- One archive is enough: it holds both amd64 and arm64 (the two per-arch archives made on 2026-09-26 carry identical content).
+- The loaded image is accepted if its ID is one of: the index digest `sha256:83f487e0…` (containerd image store), the amd64 config digest `sha256:6e626115…`, or the arm64 config digest `sha256:97aaa653…` (classic store). Pinning only the index digest would refuse installs on the classic store.
+- Reference implementation (drafted on the old P1 line, not merged): `~/Doc/webmcp-bridge-work/base-image-reference/` (patches for runtime, Bridge, DeepSeek, Setup; archive builder). Archives: `~/Doc/webmcp-bridge-work/base-images/`.
+- Where it lands: the runtime's `buildNativeImageFromRelease` (used by the extension's local program, E1) and the Bridge installer (ChatGPT MCP, E2); Setup downloads, verifies and loads the archive (E4).
+
 ## Phases (each accepted on its own)
 
 | Phase | Scope | Accepted when |
@@ -57,7 +68,7 @@ The Side Panel keeps no Folder, Full access or High Trust settings: those live i
 | E1 | Repo rename; merge `p1/two-access-levels` and S1–S4 into the base; instance `webmcp`; host `com.webmcp.extension`; remove panel settings (S5/U2); migration of the `deepseek` instance and `~/.deepseek-webmcp` | App shows "WebMCP Extension" with Add Folder, Write ON/OFF and Host Access; DeepSeek and ChatGPT web complete a real tool call through the instance |
 | E2 | ChatGPT MCP mode moved in (embedded page + Browser MCP bridge); ChatGPT Embedded Panel archived | ChatGPT MCP works from the one extension, including Browser tools and iframes |
 | E3 | Prism adapter; Prism folders migrated; `prism-webmcp` archived | Prism completes a real tool call from the panel |
-| E4 | WebMCP Setup installs only the App + this extension; retires old installs; VPS tester links resume | fresh install and migration from the old three-extension layout both pass in isolation |
+| E4 | WebMCP Setup installs only the App + this extension (base image from the download server, no Docker Hub); migrates old installs (the ChatGPT installer skips an existing install, so migration is explicit); VPS tester links resume | fresh install with Docker Hub unreachable, and migration from the old three-extension layout, both pass in isolation |
 
 ## Acceptance (whole)
 
