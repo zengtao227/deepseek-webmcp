@@ -279,7 +279,12 @@ test('the first browser tool call locks the page active in the assistant window;
   assert.equal(task.mode, 'locked');
   assert.equal(task.target.tabId, background.targetTab.id);
   assert.equal(task.target.origin, 'https://fixture.example');
-  assert.deepEqual(background.scriptingCalls, [{ target: { tabId: background.targetTab.id }, files: ['target-executor.js'] }]);
+  assert.ok(background.scriptingCalls.length >= 2);
+  assert.ok(background.scriptingCalls.every((call) => (
+    call.target.tabId === background.targetTab.id
+    && call.target.allFrames === true
+    && call.files?.[0] === 'target-executor.js'
+  )));
 });
 
 test('browser tools act on the locked page and never go through Native Messaging', async () => {

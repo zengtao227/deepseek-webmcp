@@ -66,7 +66,7 @@ tr.done td{background:var(--ok-soft)}
     <p class="meta"><span>分支 <code>feat/web-provider-chatgpt</code>（基于 <code>4950702</code>）</span><span>扩展版本 <code>0.5.108</code>（之后的修复按提交区分，版本号未改）</span><span>更新于 2026-09-26</span></p>
     <h1>ChatGPT Web Provider 开发计划</h1>
     <p class="lede">目标：在 Side Panel 里直接用 ChatGPT 网页当 Provider，调用本地 WebMCP。ChatGPT 这部分完全照搬已经做好的 ChatGPT Embedded Panel，DeepSeek 保持不变。每一步都按本页对照、验收、审查，状态也记在本页。</p>
-    <p class="progress"><span class="pill ok">清单 14/31 项已完成</span><span class="pill ok">步骤 5/11 已完成</span><span>绿色 = 已完成（你实测或结构保证）；黄色 = 待你验收；灰色 = 未开始</span></p>
+    <p class="progress"><span class="pill ok">清单 14/32 项已完成</span><span class="pill ok">步骤 5/11 已完成</span><span>绿色 = 已完成（你实测或结构保证）；黄色 = 待你验收；灰色 = 未开始</span></p>
   </header>
 
   <section>
@@ -127,7 +127,7 @@ tr.done td{background:var(--ok-soft)}
         <tr><td class="id">1</td><td>Provider 选择器</td><td colspan="2">同一个控件（panel-header.js）</td></tr>
         <tr><td class="id">2</td><td>Ready / Working / Paused + 当前页面</td><td>原面板的状态行</td><td>原 DeepSeek 状态行</td></tr>
         <tr><td class="id">3</td><td>实际模型 + Provider 自己的运行信息</td><td>Model: gpt-5-6 · Effort: high（Effort 只在服务器返回时显示）</td><td>Model: DeepSeek · 模式 · Visible/Hidden</td></tr>
-        <tr><td class="id">4</td><td>Access：目录 + WRITE + FULL ACCESS + HOST ACCESS</td><td colspan="2">同一个渲染器。普通目录用常规颜色；WRITE 加粗；FULL ACCESS 橙色；HOST ACCESS 红色加粗；未验证显示红色；过期立即消失。开启 Full Access 时目录显示为 Home；只开 High Trust 时保留原目录。倒计时每秒刷新，状态每 30 秒重新读取一次</td></tr>
+        <tr><td class="id">4</td><td>Access：挂载目录 + WRITE + HOST ACCESS</td><td colspan="2">同一个渲染器。普通目录用常规颜色；WRITE 加粗；HOST ACCESS 红色加粗；未验证显示红色；过期立即消失。Host Access 不改变挂载目录或每个目录的 Write 状态。倒计时每秒刷新，状态每 30 秒重新读取一次</td></tr>
         <tr><td class="id">5</td><td>Source</td><td>2026-09-26 按你的要求移到第 3 行 Model 后面，同一行显示，面板窄时截掉、不换行</td><td>DeepSeek page（仍单独一行）</td></tr>
       </tbody>
     </table></div>
@@ -153,6 +153,7 @@ tr.done td{background:var(--ok-soft)}
         <tr><td class="id">B5</td><td>同源刷新后保持锁定</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B6</td><td>工具 click 造成的跳转或新标签，由任务接管</td><td><span class="pill todo">未验证</span></td><td></td></tr>
         <tr><td class="id">B7</td><td>和任务无关的跨域跳转会暂停任务，而不是悄悄换目标</td><td><span class="pill todo">未验证</span></td><td></td></tr>
+        <tr><td class="id">B8</td><td>跨域 iframe 的正文和控件也属于当前页面：inspect 能读，后续动作只路由到 inspect 返回的那个 frame</td><td><span class="pill warn">自动测试通过；实机待验收</span></td><td>2026-09-26 Claude Artifact 暴露缺口。已把 Browser Execution Plane 改成 frame-aware：所有可访问 frame 各自运行 bounded executor；子 frame ref 使用 f&lt;frameId&gt;:eN；frame 消失时 FRAME_UNAVAILABLE，绝不退回 top frame。ChatGPT / DeepSeek 共享实现。</td></tr>
         <tr class="done"><td class="id">C1</td><td>ChatGPT：显示实际使用的模型 / Effort</td><td><span class="pill ok">你已测</span></td><td>0.5.106 显示了 gpt-5-6。Requested 按你的要求去掉；Mismatch 是拿来和 Requested 比的，0.5.107 一并去掉</td></tr>
         <tr class="done"><td class="id">C3</td><td>DeepSeek：在顶部一行显示实际使用的模型</td><td><span class="pill ok">你已确认</span></td><td>0.5.108 修了一个确定的 bug：第一次读到的值在窗口绑定前发出就被丢掉，之后不再重发；现在每 10 秒重发一次，而且认不出模式按钮时至少显示 DeepSeek。真实 DeepSeek 页面的模式开关是没有 role 的 DIV.ds-toggle-button，旧读取器只找 .ds-button，所以只显示 DeepSeek；已把 .ds-toggle-button 加入选择器，并在真实页面上跑修复后的读取器：读出“智能搜索”，打开深度思考后读出“深度思考 · 智能搜索”。2026-09-26 又找到第二个原因：后台保存会话时把模式信息整个丢掉了，面板只能显示 DeepSeek（d8ecd2b 已修）。面板顶部的实际显示仍待你验收；具体模型版本页面上没有，项目规则也禁止读 DeepSeek 的网络请求，所以不显示版本。2026-09-26 你确认第 3 步完成</td></tr>
         <tr class="done"><td class="id">C4</td><td>切换 Provider 后，不显示上一个 Provider 的旧模型信息</td><td><span class="pill ok">结构保证</span></td><td>两个 Provider 各用一个页面，切换时整页换掉，不需要单独测</td></tr>
@@ -168,9 +169,9 @@ tr.done td{background:var(--ok-soft)}
         <tr class="done"><td class="id">E3</td><td>（计划外，你提出）隐藏 ChatGPT 免费版回复下的广告卡片</td><td><span class="pill ok">你已确认</span></td><td>e776142；靠卡片上的 “Ad” 字样识别，ChatGPT 改版可能失效。我在 Comet 的对话里只读试过：3 张广告都能藏住，回答本身不受影响</td></tr>
         <tr><td class="id">E4</td><td>（计划外，你提出）折叠后的工具结果不再留空的 Show more</td><td><span class="pill warn">待你验收</span></td><td>e776142；只作用于工具步骤，你自己的长消息不受影响</td></tr>
         <tr class="done"><td class="id">E5</td><td>（计划外，你提出）打开面板时直接进入上次选的 Provider，不先弹出 DeepSeek</td><td><span class="pill ok">你已测</span></td><td>原有功能（panel-header.js 记住选择）；你确认打开就是 ChatGPT。从没选过时（新装、换 profile）改为默认打开 ChatGPT，不再弹出 DeepSeek 的 Provider 窗口（你的决定，2026-09-26）</td></tr>
-        <tr><td class="id">P1</td><td>（你决定 2026-09-26）面板只显示权限；有 Full / Host Access 时，Access 行后面出现 Revoke 按钮，可以直接撤销。授予仍然只在 Settings / WebMCP App 里，要过 macOS 确认框</td><td><span class="pill warn">待你验收</span></td><td>复用本地程序已有的 stop-full-access / stop-host-access，没改权限逻辑</td></tr>
-        <tr><td class="id">P2</td><td>（你决定 2026-09-26）切换 Provider 时自动撤销 Full / Host Access，高权限只属于正在用的那个 Provider</td><td><span class="pill warn">待你验收</span></td><td>两个 Provider 共用一套本地运行环境，所以切走就收回</td></tr>
-        <tr><td class="id">U2</td><td>Side Panel 里不再有 Folder / Full Access / High Trust，这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有这些设置；第 5b 步收敛</td></tr>
+        <tr><td class="id">P1</td><td>（你决定 2026-09-26）面板只显示权限；Host Access 生效时，Access 行后面出现 Revoke 按钮，可以直接撤销。授予仍然只在 WebMCP App 里，要过 macOS 确认框</td><td><span class="pill warn">待你验收</span></td><td>最终权限模型只有 Mounted Folders + per-folder Write 和 Temporary Full Host Access — High Trust；没有 Full Working Access 中间层</td></tr>
+        <tr><td class="id">P2</td><td>（你决定 2026-09-26）切换 Provider 时自动撤销 Host Access，高信任主机权限只属于正在用的那个 Provider</td><td><span class="pill warn">待你验收</span></td><td>撤销只移除 host_command authority；Docker 的 Mounted Folders 和每个目录的 Write 状态从头到尾不变</td></tr>
+        <tr><td class="id">U2</td><td>Side Panel 只显示挂载目录 / WRITE / HOST ACCESS 状态，不提供目录配置或权限授予；这些只在顶部 WebMCP App 里设置</td><td><span class="pill miss">未达到</span></td><td>DeepSeek 面板现在还有旧设置；第 5b 步收敛</td></tr>
       </tbody>
     </table></div>
   </section>
@@ -221,10 +222,10 @@ tr.done td{background:var(--ok-soft)}
         <dt>验收</dt><dd>ChatGPT 页：发一条消息后，顶部显示 Actual model 和 Effort。DeepSeek 页：顶部显示 DeepSeek 和当前开启的模式，切换 DeepThink / Search 后跟着变。两边切换 Provider 时不出现上一个 Provider 的值。两个页面顶部都能看到 Provider 选择器。</dd>
         <dt>审查</dt><dd>照搬一致性检查：embedded-chatgpt.js、frame-policy.js、model-probe.js、model-status.js 与原文件完全相同；面板页只有差异清单里登记的改动。安全测试收窄为只允许 chatgpt.com 上的这一个 MAIN-world 脚本，DeepSeek 页面仍然不允许。自动测试 317/317 通过。</dd></dl></div>
 
-      <div class="card"><div class="head"><h3>第 4 步 · 面板生命周期（A4–A6、B3–B7）</h3><span class="pill todo">未开始</span></div>
-        <dl><dt>做什么</dt><dd>你逐项实测；哪一项失败，就只修那一项，每项单独提交。</dd>
-        <dt>验收</dt><dd>对齐清单里这些项全部变成“你已测”。</dd>
-        <dt>审查</dt><dd>每项修复都要说明对应原面板的哪一段代码。</dd></dl></div>
+      <div class="card"><div class="head"><h3>第 4 步 · 面板生命周期 + 嵌入页面（A4–A6、B3–B8）</h3><span class="pill todo">未开始</span></div>
+        <dl><dt>做什么</dt><dd>你逐项实测；哪一项失败，就只修那一项。B8 用一个真实 cross-origin iframe 页面验收，当前可复现样本就是 Claude Artifact。</dd>
+        <dt>验收</dt><dd>A4–A6、B3–B7 变成“你已测”；B8 必须证明 inspect_page 同时返回外层页面与 iframe 正文，子 frame 的可逆动作按 namespaced ref 路由，frame reload/navigation 后旧 ref fail closed。</dd>
+        <dt>审查</dt><dd>每项修复都要说明对应原面板/共享 Browser Execution Plane 的哪一段代码；iframe 支持不得增加 webNavigation、raw selector、raw JavaScript 或 Provider-specific 特判。</dd></dl></div>
 
       <div class="card"><div class="head"><h3>第 5 步 · 本地工具与 High Trust（D1、D2）</h3><span class="pill todo">未开始</span></div>
         <dl><dt>做什么</dt><dd>在面板模式下跑一次文件工具的完整往返；在 WebMCP App 里开启 High Trust 后，跑一次 host_command。</dd>
@@ -232,7 +233,7 @@ tr.done td{background:var(--ok-soft)}
         <dt>审查</dt><dd>确认没有改动任何权限相关代码。</dd></dl></div>
 
       <div class="card"><div class="head"><h3>第 5b 步 · Unified Side Panel 界面收敛（U1、U2）</h3><span class="pill todo">未开始</span></div>
-        <dl><dt>做什么</dt><dd>很小的一步：把 Provider 选择器放到两个面板顶部的同一位置，用同一个控件；从 DeepSeek 面板去掉 Folder / Full Access / High Trust，这些只在 WebMCP App 里设置。先确认 WebMCP App 对 DeepSeek 实例已经提供这些设置，再去掉面板里的对应入口。</dd>
+        <dl><dt>做什么</dt><dd>很小的一步：把 Provider 选择器放到两个面板顶部的同一位置，用同一个控件；从 DeepSeek 面板去掉目录配置和 Host Access 授予入口，只保留挂载目录 / WRITE / HOST ACCESS 的紧凑状态显示。Mounted Folders、每个目录的 Write 开关和 Temporary Full Host Access — High Trust 只在 WebMCP App 里管理。</dd>
         <dt>验收</dt><dd>U1、U2 在真实 Chrome 里达到；在 WebMCP App 里改目录、开关 High Trust 后，DeepSeek 和 ChatGPT 都能正常工作。</dd>
         <dt>审查</dt><dd>只改面板界面，不改权限逻辑；对照差异清单。</dd></dl></div>
 
@@ -270,7 +271,7 @@ tr.done td{background:var(--ok-soft)}
     <ul>
       <li>底层合并：一个扩展 ID、一个 native host。只推迟这一项；统一的 Side Panel 界面在本阶段完成（第 5b 步）。</li>
       <li>任何对 WebMCP Setup、发布集和已安装程序的改动。</li>
-      <li><strong>下一阶段（你已同意）：把 DeepSeek 也接进 WebMCP App</strong>，一套运行环境、一个管理入口，权限跟着文件夹走、不跟着 Provider 走。借鉴 Codex 的三级权限（只读 / 可写工作区 / 完全放开）加可写目录清单，以及 MCP Roots 的做法（挂哪些文件夹由用户在客户端界面决定并确认）。</li>
+      <li><strong>下一阶段（你已同意）：把 DeepSeek 也接进 WebMCP App</strong>，一个管理入口，统一最终两级权限模型：Mounted Folders（每个目录独立 Write ON/OFF）+ Temporary Full Host Access — High Trust。权限跟文件夹/实例走，不重新引入 Full Working Access / Docker-full 中间层。</li>
       <li>（以后的方向，你 2026-09-26 提出）DeepSeek 运行环境照 ChatGPT 那套 WebMCP 改成：可以挂多个文件夹，每个文件夹单独控制能否写入；到那时 Access 行必须能显示 WRITE OFF。现在 DeepSeek 只能挂一个文件夹、始终可写。</li>
     </ul>
   </section>

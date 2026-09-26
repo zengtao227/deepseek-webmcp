@@ -345,19 +345,6 @@
     };
   }
 
-  function crossOriginFrameCount() {
-    let count = 0;
-    for (const frame of document.querySelectorAll?.('iframe') ?? []) {
-      try {
-        const childLocation = frame.contentWindow?.location;
-        if (!childLocation || childLocation.origin !== location.origin) count += 1;
-      } catch {
-        count += 1;
-      }
-    }
-    return count;
-  }
-
   function textBox(element) {
     try {
       const rect = element.getBoundingClientRect();
@@ -413,14 +400,13 @@
   function inspectPage() {
     const { chosen, truncated } = selectPageElements(document.querySelectorAll?.(PAGE_INTERACTIVE_SELECTOR) ?? []);
     const elements = chosen.map(describe);
-    const crossOriginIframes = crossOriginFrameCount();
     return success({
       title: cleanText(document.title, 500),
+      url: cleanText(globalThis.location?.href, 2000),
       ...pageText(),
       elements,
       truncated,
       viewport: pageViewport(),
-      ...(crossOriginIframes > 0 ? { warnings: [{ code: 'CROSS_ORIGIN_IFRAME_UNSUPPORTED', count: crossOriginIframes }] } : {}),
     });
   }
 
@@ -430,13 +416,12 @@
       ? forms.flatMap((form) => Array.from(form.querySelectorAll?.(FORM_CONTROL_SELECTOR) ?? []))
       : Array.from(document.querySelectorAll?.(FORM_CONTROL_SELECTOR) ?? []);
     const controls = uniqueVisible(source).map(describe);
-    const crossOriginIframes = crossOriginFrameCount();
     return success({
       title: cleanText(document.title, 500),
+      url: cleanText(globalThis.location?.href, 2000),
       formCount: forms.length,
       controls,
       truncated: controls.length >= MAX_ELEMENTS,
-      ...(crossOriginIframes > 0 ? { warnings: [{ code: 'CROSS_ORIGIN_IFRAME_UNSUPPORTED', count: crossOriginIframes }] } : {}),
     });
   }
 
@@ -1177,7 +1162,16 @@
     if (sender?.id !== chrome.runtime.id || !message || typeof message !== 'object') return false;
 
     if (message.type === 'webmcp.browser.ping') {
-      sendResponse({ version: 1, ok: true, result: { ready: true } });
+      sendResponse({
+        version: 1,
+        ok: true,
+        result: {
+          ready: true,
+          title: cleanText(document.title, 500),
+          url: cleanText(globalThis.location?.href, 2000),
+          top: globalThis.top === globalThis,
+        },
+      });
       return false;
     }
 

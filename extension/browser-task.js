@@ -102,9 +102,17 @@ export function createBrowserTask({ activeTab }) {
   }
 
   async function ensureTargetExecutor(tabId) {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['target-executor.js'] });
-    const ping = await chrome.tabs.sendMessage(tabId, { type: 'webmcp.browser.ping' });
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: ['target-executor.js'],
+    });
+    const frameIds = [...new Set((injected ?? [])
+      .map((entry) => entry?.frameId)
+      .filter((frameId) => Number.isInteger(frameId) && frameId >= 0))];
+    const ping = await chrome.tabs.sendMessage(tabId, { type: 'webmcp.browser.ping' }, { frameId: 0 });
     if (ping?.ok !== true || ping?.result?.ready !== true) throw new Error('Attached page executor did not answer.');
+    if (!frameIds.includes(0)) frameIds.unshift(0);
+    return frameIds;
   }
 
   async function targetStatus() {
@@ -161,7 +169,8 @@ export function createBrowserTask({ activeTab }) {
     else await clearUnclaimedHandoff(selected.target.tabId);
 
     try {
-      const response = await callBrowserTool(selected.target.tabId, call);
+      const frameIds = await ensureTargetExecutor(selected.target.tabId);
+      const response = await callBrowserTool(selected.target.tabId, call, { frameIds });
       if (call.name === 'click' && response.ok !== true) await clearUnclaimedHandoff(selected.target.tabId);
       return response;
     } catch {
