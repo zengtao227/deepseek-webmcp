@@ -21,7 +21,7 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 
 ## Install
 
-The easiest way on **macOS and Windows** is **WebMCP Setup** ([webmcp-setup releases](https://github.com/zengtao227/webmcp-setup/releases/latest)): double-click it, choose DeepSeek, choose a folder. On Windows it installs WSL, Docker Desktop and a private Node.js, runs DeepSeek WebMCP inside WSL, and registers it with Chrome and Edge. On Windows, **Full access** and **Temporary Full Host Access** are not available yet. On Windows, choose a folder such as `C:\Users\<you>\WebMCP-Workspace`: folders inside OneDrive, reached through a junction or link, or inside WSL itself are refused.
+The easiest way on **macOS and Windows** is **WebMCP Setup** ([webmcp-setup releases](https://github.com/zengtao227/webmcp-setup/releases/latest)): double-click it, choose DeepSeek, choose a folder. On Windows it installs WSL, Docker Desktop and a private Node.js, runs DeepSeek WebMCP inside WSL, and registers it with Chrome and Edge. On Windows, **Temporary Full Host Access** is not available yet. On Windows, choose a folder such as `C:\Users\<you>\WebMCP-Workspace`: folders inside OneDrive, reached through a junction or link, or inside WSL itself are refused.
 
 ### macOS by hand
 
@@ -53,8 +53,7 @@ Use `docs/browser-v1-live-test.md` for the first deterministic browser acceptanc
 In the panel, **Settings**:
 
 - **Folder / Change…** — the project or parent workspace DeepSeek may read and change; *Change…* opens the macOS folder dialog. If that root contains DeepSeek WebMCP's own control plane, the protected subtree is masked from the container. Choose only a folder you actually want to expose (for example your projects folder), not a test fixture.
-- **Full access** — temporarily allow the whole home folder (15 min – 1 h, confirmed in a macOS dialog, with a Stop button). DeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek.
-- **Temporary Full Host Access — High Trust** — a separate owner-approved lease (maximum 60 minutes) enables `host_command` as your Mac user. It can access files, Docker, network, processes and credentials available to that user. `bash` remains in Docker; normal folder/Full access settings are unchanged. Revoke from Settings, or with **Revoke** in the panel's Access line, at any time. Switching Provider revokes Full access and Host Access too. This mode requires the installed WebMCP Bridge immutable runtime.
+- **Temporary Full Host Access — High Trust** — a separate owner-approved lease (maximum 60 minutes) enables `host_command` as your Mac user. It can access files, Docker, network, processes and credentials available to that user. `bash` remains in Docker; the folder setting is unchanged. These are the only two access levels: the folder, and Host Access (the whole-home "Full access" was removed on 2026-09-26). Revoke from Settings at any time. This mode requires the installed WebMCP Bridge immutable runtime.
 
 Review changes in your project (for example `git diff`) before running anything on your Mac. Troubleshooting: `cd ~/deepseek-webmcp && npm run doctor`.
 
@@ -85,7 +84,7 @@ The local part is shared by all browsers: after Uninstall in one browser, the ex
 
 **P1, P2, P3, and P4 are CLOSED / PASS in Google Chrome.** P1 proved the browser continuation loop; P2 proved one-shot Native Messaging + the isolated read-only Docker runtime; P3 proved the real writable bounded coding loop in macOS Chrome + Docker; P4 proved a real autonomous coding task (read → bounded fix → tests → git diff → final answer) on a disposable Git repository (`docs/p4-live-test.md`).
 
-P5 (small-circle distribution: one-line install, per-tab Work, in-extension folder / Full access / uninstall, Chromium browsers including Comet, MIT) is implemented per `docs/p5-design.md` and passed live acceptance in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged.
+P5 (small-circle distribution: one-line install, per-tab Work, in-extension folder / uninstall, Chromium browsers including Comet, MIT) is implemented per `docs/p5-design.md` and passed live acceptance in Chrome and Comet (`docs/p5-live-test.md`). The Base/Plus DeepSeek cleanup is merged.
 
 The coding architecture remains:
 

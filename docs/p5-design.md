@@ -1,6 +1,6 @@
 # P5 design — easy install, one-click Work, in-extension settings
 
-Status: **design agreed with the owner on 2026-09-15; not implemented yet.** Implementation starts only after the owner reviews this document.
+Status: **historical P5 design.** The original design was agreed on 2026-09-15. On 2026-09-26 the access model was simplified: Full access / Full Working Access was retired. The current product has two levels: the chosen folder (writable, set in Settings) and Temporary Full Host Access — High Trust. Several folders with per-folder Write, managed in the WebMCP App, arrive with the shared WebMCP instance. Historical sections below are retained only where useful to explain prior implementation decisions.
 
 Distribution model: **B** — public source on GitHub, MIT, for the owner and a few friends; not on the Chrome Web Store. Every user uses their own DeepSeek account (Terms of Use §2.3) and accepts the §3.5(3) automation risk stated in the README.
 
@@ -19,7 +19,7 @@ ChatGPT calls MCP tools server-side: the tool result goes back to the model insi
 | Viewing another conversation meanwhile | Open it in another tab; the working tab continues (to be verified live, see §8) |
 | Tool-call limit | **None**. Stop = Work off or close the tab |
 | Workspace default | The folder chosen last time; an **Other…** button opens the macOS folder dialog |
-| Full access | Off by default. In-popup toggle copying Base's model: home directory with control-plane/credential masks, selectable duration (30 min / 1 h / custom ≤ 60 min), countdown, Stop, automatic return to the folder |
+| Access model | **Superseded:** no Full access / Full Working Access tier. Current model = the chosen folder + Temporary Full Host Access — High Trust. |
 | Install | One Terminal line (`curl … \| bash`), then drag the `extension` folder into `chrome://extensions` |
 | Uninstall | One button in the popup; removes local runtime, config, image **and the code folder**, then the extension removes itself |
 
@@ -59,8 +59,6 @@ The popup sends settings requests through the existing one-shot Native Messaging
 |---|---|---|
 | `status` | return folder, mode, lease expiry | none (read-only) |
 | `choose-folder` | macOS `choose folder` dialog, validate, write config | the system dialog itself |
-| `grant-full-access {duration}` | confirmation dialog, then write a lease with an absolute deadline | system confirmation dialog |
-| `stop-full-access` | delete the lease | none (only reduces access) |
 | `uninstall` | confirmation dialog, remove manifest, `~/.deepseek-webmcp`, image and the recorded code folder | system confirmation dialog |
 
 A page or model cannot trigger these silently: dialogs require a physical click on the Mac, and nothing reachable from DeepSeek content sends them.
@@ -69,15 +67,7 @@ A page or model cannot trigger these silently: dialogs require a physical click 
 
 **Folder mode (default)** — the chosen project or parent workspace is the writable bind; protected DeepSeek control-plane subtrees beneath it are masked. Network remains off, execution is non-root with capabilities dropped and `no-new-privileges`, the Docker socket is absent, and each call uses a fresh container.
 
-**Full access mode** — adopts Base v1.1:
-- bind `$HOME` to `/workspace`;
-- mask with read-only empty tmpfs (directories) or `/dev/null` (files), exactly like Base's `buildControlPlaneMaskArgs`:
-  - control plane: the code folder (host code + extension), `~/.deepseek-webmcp`, `~/.docker`, Chrome `NativeMessagingHosts`, the node installation used by the launcher;
-  - credentials: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.config/gh`, `~/Library/Keychains`, browser profile directories;
-- the lease has one absolute deadline chosen at grant time (≤ 60 min, no renewal); every host call checks it and falls back to folder mode after expiry;
-- folder mode uses the same control-plane mask principle for protected subtrees inside a broader selected workspace; exact control-plane roots and workspaces containing the host Node/Docker executables are still refused.
-
-Known exposure the owner accepted by choosing opt-in full access: everything unmasked that the model reads is sent to DeepSeek, and the Secret Firewall only redacts recognizable secret formats. Files like project `secrets.env` or personal documents under `$HOME` are readable while the lease is active.
+**No intermediate Full access mode.** The chosen folder is the only Docker filesystem scope; owner Home and protected control-plane roots are refused as the folder, and protected paths inside it are masked. If work genuinely requires direct Mac filesystem/process/network authority outside those mounts, the owner explicitly grants **Temporary Full Host Access — High Trust**, which authorizes `host_command` for a bounded lease without changing the Docker mount policy.
 
 ## 7. Install/uninstall scripts
 
@@ -87,7 +77,7 @@ Known exposure the owner accepted by choosing opt-in full access: everything unm
 
 ## 8. Verification plan
 
-Automated: Work-mode authority and bindings, pause/resume delivery, deduplication across resume, no loop bound, settings envelope separated from tools, lease deadline and masks in docker argv, uninstall path guards.
+Automated: Work-mode authority and bindings, pause/resume delivery, deduplication across resume, no loop bound, settings envelope separated from tools, the chosen folder's mount and control-plane masks, Host Access lease checks, and uninstall path guards.
 
 Live (owner Mac, Chrome + Docker), one fresh run:
 1. uninstall current dev install → one-line install → drag extension → doctor OK;
@@ -95,5 +85,5 @@ Live (owner Mac, Chrome + Docker), one fresh run:
 3. switch to another conversation mid-task and back → resumes, no duplicate call;
 4. Cmd+click another conversation into a new tab while working → **verify** the background tab keeps continuing (Chrome throttles background tabs; if it does not, document "stay on the tab or come back to resume");
 5. Other… folder dialog changes the workspace;
-6. full access 30 min → can read a file in `$HOME`, cannot see a masked path, Stop returns to folder mode;
+6. the chosen folder is the only mount; granting Temporary Full Host Access leaves it unchanged, enables a bounded host command, and revoke makes a new host command fail;
 7. popup Uninstall removes runtime, config, image, code folder and the extension.

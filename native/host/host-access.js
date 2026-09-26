@@ -122,7 +122,7 @@ export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
       throw new Error('Existing Host Access state must be revoked before a new grant.');
     }
     await core.approval.requestLocalElevationApproval({
-      root: os.homedir(), durationMs: minutes * 60_000, accessLevel: 'full-host', instanceLabel: 'DeepSeek',
+      durationMs: minutes * 60_000, instanceLabel: 'DeepSeek',
     });
     const normalConfig = await core.workspace.persistWorkspaceConfig(core.context.workspaceConfig, {
       version: 1, hostRoot: root, mode: 'workspace', readOnly: false,
@@ -134,7 +134,7 @@ export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
     const lease = core.access.createElevatedLease({
       normalConfig, elevatedRoot: await realpath(os.homedir()),
       bootSessionId, loginSessionId, durationMs: minutes * 60_000,
-      accessLevel: 'full-host', instanceId: INSTANCE_ID,
+      instanceId: INSTANCE_ID,
     });
     await core.access.persistElevatedLease(core.context.elevatedLease, lease);
     return { hostAccessUntil: lease.expiresAt, hostAccessState: 'active' };

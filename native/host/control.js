@@ -3,8 +3,8 @@ import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks, readFullAccessLease } from './docker-dispatch.js';
-import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, leasePath, manifestDirFor, stateDir } from './local-paths.js';
+import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks } from './docker-dispatch.js';
+import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
 import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
 
@@ -14,8 +14,6 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const CONTROL_ARGUMENTS = new Map([
   ['status', new Set()],
   ['choose-folder', new Set()],
-  ['grant-full-access', new Set(['minutes'])],
-  ['stop-full-access', new Set()],
   ['grant-host-access', new Set(['minutes'])],
   ['stop-host-access', new Set()],
   ['uninstall', new Set()],
@@ -41,7 +39,7 @@ export function validateControlRequest(request) {
   const allowed = CONTROL_ARGUMENTS.get(request.control);
   if (!allowed) fail('Unknown control request.', 'CONTROL_NOT_ALLOWED');
   exactObject(request.arguments, allowed, 'arguments');
-  if (request.control === 'grant-full-access' || request.control === 'grant-host-access') {
+  if (request.control === 'grant-host-access') {
     const { minutes } = request.arguments;
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) fail('minutes must be an integer from 1 to 60.', 'INVALID_DURATION');
   }
@@ -97,10 +95,9 @@ async function status({ home, configFile, now, kind }) {
   const config = await readConfig(configFile);
   return {
     folder: config.workspaceRoot,
-    // Full access and Host access exist only on macOS for now. On Windows they are future
-    // work, and Host access must then mean the real Windows host, not WSL.
-    capabilities: { fullAccess: kind === 'macos', hostAccess: kind === 'macos' },
-    fullAccessUntil: await readFullAccessLease({ home, now }),
+    // Two access levels: the folder, and Host access. Host access exists only on macOS for now;
+    // on Windows it must then mean the real Windows host, not WSL.
+    capabilities: { hostAccess: kind === 'macos' },
     ...(await hostAccessStatus({ configFile })),
   };
 }
@@ -172,7 +169,7 @@ async function chooseFolder({ home, configFile, now, exec, kind }) {
   if (picked === null) return { changed: false, ...(await status({ home, configFile, now, kind })) };
   const folder = await realpath(picked).catch(() => fail('The chosen folder cannot be resolved.', 'INVALID_FOLDER'));
   if (!(await stat(folder)).isDirectory()) fail('Please choose a folder.', 'INVALID_FOLDER');
-  if (folder === await realpath(home)) fail('For the whole home folder use Full access instead.', 'INVALID_FOLDER');
+  if (folder === await realpath(home)) fail('Choose a project folder, not the whole home folder.', 'INVALID_FOLDER');
   if (kind === 'wsl') await assertWindowsWorkspace(folder, { exec });
   await buildWorkspaceControlPlaneMasks(folder, { configPath: configFile, dockerPath: config.dockerPath, home });
   await writeJsonAtomic(configFile, { ...config, workspaceRoot: folder });
@@ -181,22 +178,6 @@ async function chooseFolder({ home, configFile, now, exec, kind }) {
 
 function assertMacOnly(kind, what) {
   if (kind !== 'macos') fail(`${what} is not available on Windows yet.`, 'NOT_AVAILABLE_ON_WINDOWS');
-}
-
-async function grantFullAccess({ home, configFile, now, exec, kind }, { minutes }) {
-  assertMacOnly(kind, 'Full access');
-  const allowed = await confirm(
-    `Allow DeepSeek to read and change everything in your home folder for ${minutes} minutes?\n\nDeepSeek WebMCP itself, browser data, shell startup files, SSH/cloud keys and Keychains stay hidden. Anything DeepSeek reads is sent to DeepSeek. Network stays off.`,
-    'Allow',
-    { exec, kind },
-  );
-  if (allowed) await writeJsonAtomic(leasePath(home), { expiresAt: now + minutes * 60_000 });
-  return { changed: allowed, ...(await status({ home, configFile, now, kind })) };
-}
-
-async function stopFullAccess({ home, configFile, now, kind }) {
-  await rm(leasePath(home), { force: true });
-  return { changed: true, ...(await status({ home, configFile, now, kind })) };
 }
 
 // install.sh unpacks a DeepSeek WebMCP release archive and marks the folder; a developer
@@ -250,8 +231,6 @@ export async function handleControlRequest(request, {
   const handlers = {
     status: () => status(context),
     'choose-folder': () => chooseFolder(context),
-    'grant-full-access': () => grantFullAccess(context, request.arguments),
-    'stop-full-access': () => stopFullAccess(context),
     'grant-host-access': async () => {
       assertMacOnly(kind, 'Host access');
       return { ...await status(context), ...await grantHostAccess({ configFile, minutes: request.arguments.minutes }) };
