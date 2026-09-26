@@ -227,7 +227,7 @@ test('tool-call replies and typed tool results are marked so their icon rows hid
 
 // A finished reply that holds a complete tool call is reported as soon as ChatGPT stops generating;
 // waiting STABLE_MS (2 s) delayed every tool step. A plain answer still waits for the quiet period.
-async function reportDelay(answerText) {
+async function reportDelay(answerText, answerMarker = 'data-message-author-role="assistant"') {
   const clock = { now: 1000 };
   const answer = { textContent: '', querySelector: () => null, querySelectorAll: () => [] };
   const stop = {};
@@ -238,7 +238,7 @@ async function reportDelay(answerText) {
     body: {}, head: { append() {} },
     createElement: () => ({ textContent: '' }),
     querySelector: (selector) => (selector.includes('stop-button') && generating ? stop : null),
-    querySelectorAll: (selector) => (selector.includes('data-message-author-role="assistant"') ? [answer] : []),
+    querySelectorAll: (selector) => (selector.includes(answerMarker) ? [answer] : []),
     addEventListener() {},
   };
   const window = { addEventListener() {} };
@@ -272,6 +272,76 @@ test('a finished reply with a complete tool call is reported at once, not after 
   const call = 'text\n<webmcp_tool_call>{"id":"a","name":"inspect_page","arguments":{}}</webmcp_tool_call>';
   assert.ok(await reportDelay(call) < 1000, 'tool call reported without the quiet period');
   assert.ok(await reportDelay('The title is Action.') >= 2000, 'a plain answer still waits until it is quiet');
+});
+
+// Live DOM 2026-09-26 (Plus account, new and reloaded chats): no role attributes anywhere; each reply
+// is one [data-markdown-text-style="assistant-message"] root. The tool call in it was never read.
+test('a reply in the DOM without role attributes is read, so its tool call is reported', async () => {
+  const call = 'Plain text<webmcp_tool_call>{"id":"a","name":"open_workspace","arguments":{"path":"/workspace"}}</webmcp_tool_call>';
+  assert.ok(await reportDelay(call, 'data-markdown-text-style="assistant-message"') < 1000);
+});
+
+// Same DOM: the user bubble is [data-user-message-bubble], its text sits in one element beside the
+// fenced block, and every fenced block is DIV[data-markdown-copy="code-block"] > CODE, not PRE.
+test('the tool contract and the tool call fold in the DOM without role attributes', () => {
+  const textNode = (value) => ({ nodeType: 3, nodeName: '#text', textContent: value });
+  const attributed = (fields) => {
+    const attributes = new Map();
+    return Object.assign({
+      closest: () => null,
+      style: { setProperty() {} },
+      getAttribute: (name) => attributes.get(name) ?? null,
+      setAttribute: (name, value) => attributes.set(name, value),
+    }, fields);
+  };
+  const codeBlock = (code) => attributed({
+    nodeType: 1, nodeName: 'DIV', textContent: `Plain text${code}`,
+    matches: (selector) => selector.includes('data-markdown-copy="code-block"'),
+    querySelector: (selector) => (selector === 'code' ? { textContent: code } : null),
+  });
+  const fence = '<webmcp_tool_call>{"id":"<new unique id>","name":"<tool name>","arguments":{...}}</webmcp_tool_call>';
+  const contractNodes = [
+    textNode('Use WebMCP to call open_workspace.\n\n---\nYou can use owner-approved tools through DeepSeek WebMCP for the task above.\n'),
+    codeBlock(fence),
+    textNode('\nUse one tool call per reply.'),
+  ];
+  const contract = attributed({ childNodes: contractNodes, textContent: contractNodes.map((node) => node.textContent).join('') });
+  const call = '<webmcp_tool_call>{"id":"ow-001","name":"open_workspace","arguments":{"path":"/workspace"}}</webmcp_tool_call>';
+  const callBlock = codeBlock(call);
+  const reply = attributed({
+    textContent: callBlock.textContent,
+    querySelectorAll: (selector) => (selector.includes('data-markdown-copy="code-block"') ? [callBlock] : []),
+    querySelector: (selector) => (selector.includes('data-markdown-copy="code-block"') ? callBlock : null),
+  });
+  let fold;
+  const document = {
+    body: {}, head: { append() {} },
+    createElement: () => ({ textContent: '' }),
+    querySelector: () => null,
+    querySelectorAll: (selector) => {
+      if (selector.split(',').some((part) => part.trim() === '[data-user-message-bubble="true"] div')) return [contract];
+      if (selector.includes('data-markdown-text-style="assistant-message"')) return [reply];
+      return [];
+    },
+    addEventListener() {},
+  };
+  const window = { addEventListener() {} };
+  window.top = window;
+  vm.runInNewContext(source, {
+    window, document,
+    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/c/existing', pathname: '/c/existing' },
+    chrome: { runtime: { id: 'test', sendMessage: async () => ({}), onMessage: { addListener() {} } } },
+    Node: { TEXT_NODE: 3 },
+    getComputedStyle: () => ({ color: 'white' }),
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: (callback) => { fold = callback; },
+    setInterval: (callback) => callback(),
+    setTimeout,
+  });
+  fold();
+  assert.equal(contract.getAttribute('data-webmcp-fold'), '🔧 WebMCP tools attached');
+  assert.equal(contract.getAttribute('data-webmcp-question'), 'Use WebMCP to call open_workspace.');
+  assert.equal(callBlock.getAttribute('data-webmcp-fold'), '🔧 open_workspace');
 });
 
 // Live DOM 2026-09-26 (free plan): a sponsored card is a child of the turn's

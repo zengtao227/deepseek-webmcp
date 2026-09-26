@@ -5,10 +5,14 @@
   // (content.js); only the page layer differs. Selectors come from the original ChatGPT Web
   // fallback (chatgpt-embedded-panel 7ae86f7) and the ChatGPT DOM lifecycle study.
   const ORIGIN = 'https://chatgpt.com';
-  // Two ChatGPT DOM generations are live: the ProseMirror/data-testid UI, and (seen 2026-09-25,
-  // logged out) a textarea UI with `li[data-message-role]` turns and `/uc/<id>` conversations.
-  const ANSWER_SELECTOR = '[data-message-author-role="assistant"], li[data-message-role="assistant"]';
-  const USER_SELECTOR = '[data-message-author-role="user"], li[data-message-role="user"]';
+  // Three ChatGPT DOM generations are live: the ProseMirror/data-testid UI, (seen 2026-09-25,
+  // logged out) a textarea UI with `li[data-message-role]` turns and `/uc/<id>` conversations, and
+  // (seen 2026-09-26, new and reloaded chats) one with no role attributes at all: the owner's
+  // message is `[data-user-message-bubble]`, each reply one assistant markdown root, and fenced
+  // blocks are DIV[data-markdown-copy="code-block"] > CODE instead of PRE.
+  const ANSWER_SELECTOR = '[data-message-author-role="assistant"], li[data-message-role="assistant"], [data-markdown-text-style="assistant-message"]';
+  const USER_SELECTOR = '[data-message-author-role="user"], li[data-message-role="user"], [data-user-message-bubble="true"]';
+  const CODE_BLOCK_SELECTOR = 'pre, [data-markdown-copy="code-block"]';
   const COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"]';
   const SEND_SELECTOR = '#composer-submit-button, button[data-testid="send-button"], form button[type="submit"][aria-label^="Send" i]';
   const STOP_SELECTOR = 'button[data-testid="stop-button"], button[aria-label^="Stop" i]';
@@ -183,7 +187,7 @@
         blocks.push({ type: 'heading', level: Number(tag[1]), runs: runsOf(child, walk) });
       } else if (tag === 'UL' || tag === 'OL') {
         blocks.push(listBlock(child, depth, walk));
-      } else if (tag === 'PRE') {
+      } else if (tag === 'PRE' || child.matches?.(CODE_BLOCK_SELECTOR)) {
         blocks.push(codeBlock(child));
       } else if (tag === 'HR') {
         blocks.push({ type: 'rule' });
@@ -565,12 +569,12 @@
     .join(', ');
 
   // Messages the extension typed are plain text in one element. Unlike DeepSeek, ChatGPT renders
-  // the fenced examples inside tool instructions and results as <pre> (live DOM 2026-09-25), so
-  // the element holds text nodes beside PRE blocks.
+  // the fenced examples inside tool instructions and results as <pre> (live DOM 2026-09-25) or as a
+  // code-block DIV (2026-09-26), so the element holds text nodes beside those blocks.
   function isTypedText(element) {
     const nodes = [...element.childNodes];
     return nodes.some((node) => node.nodeType === Node.TEXT_NODE)
-      && nodes.every((node) => node.nodeType === Node.TEXT_NODE || node.nodeName === 'PRE');
+      && nodes.every((node) => node.nodeType === Node.TEXT_NODE || node.nodeName === 'PRE' || node.matches?.(CODE_BLOCK_SELECTOR));
   }
 
   function markStep(element) {
@@ -603,13 +607,13 @@
     }
     for (const answer of document.querySelectorAll(ANSWER_SELECTOR)) {
       const text = answer.textContent ?? '';
-      for (const block of answer.querySelectorAll('pre')) {
+      for (const block of answer.querySelectorAll(CODE_BLOCK_SELECTOR)) {
         const code = block.querySelector('code')?.textContent ?? block.textContent ?? '';
         if (!code.trimStart().startsWith('<webmcp_tool_call>')) continue;
         setFold(block, { note: `🔧 ${toolName(code)}` }, answer);
         markStep(answer);
       }
-      if (text.trimStart().startsWith('<webmcp_tool_call>') && !answer.querySelector('pre')) {
+      if (text.trimStart().startsWith('<webmcp_tool_call>') && !answer.querySelector(CODE_BLOCK_SELECTOR)) {
         setFold(answer, { note: `🔧 ${toolName(text)}` }, answer);
         markStep(answer);
       }
