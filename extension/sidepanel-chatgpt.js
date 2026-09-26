@@ -1,5 +1,6 @@
 import { INITIAL_MODEL_STATUS, applyModelEvent, modelStatusLines } from './model-status.js';
 import { keepPanelSession, mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
+import { postToChatGptFrame } from './chatgpt-frame.js';
 
 // ChatGPT in Web Provider Mode: the ChatGPT Embedded Panel's page. Changes from the original are
 // listed in docs/web-provider-dev-plan.html (message names, Provider selector, Work relay).
@@ -145,9 +146,8 @@ window.addEventListener('message', (event) => {
 });
 
 frame.addEventListener('load', () => {
-  if (!frame.contentWindow) return;
   const requestId = crypto.randomUUID();
-  frame.contentWindow.postMessage({ type: 'chatgpt-embedded-panel:ping', requestId }, 'https://chatgpt.com');
+  postToChatGptFrame(frame.contentWindow, { type: 'chatgpt-embedded-panel:ping', requestId });
 });
 
 stop.addEventListener('click', () => {
@@ -191,7 +191,7 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
 
 // The worker cannot message the ChatGPT frame; the panel relays Work changes into it.
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'panel.work-changed') frame.contentWindow?.postMessage({ type: 'webmcp:work-changed' }, 'https://chatgpt.com');
+  if (message?.type === 'panel.work-changed') postToChatGptFrame(frame.contentWindow, { type: 'webmcp:work-changed' });
   return false;
 });
 
