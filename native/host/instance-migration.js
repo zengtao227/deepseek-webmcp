@@ -1,7 +1,7 @@
 import { lstat, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-// Setup moves DeepSeek's folder into the shared runtime's `deepseek` instance (macOS only), so the
+// Setup moves the extension's folders into the shared runtime's `webmcp` instance (macOS only), so the
 // WebMCP App manages its folders, write switches and access. Every change goes through the pinned
 // release's own controller; nothing here writes the instance files itself.
 //
@@ -22,7 +22,7 @@ const APP_NAME = 'WebMCP Extension';
 
 // Everything that would stop the migration half way is checked here, before setup writes
 // anything or moves an image tag. A folder already in the instance keeps its write switch; a
-// folder added for DeepSeek gets Write ON, as its old one-shot container mounted it.
+// folder added by setup gets Write ON, as its old one-shot container mounted it.
 // `legacy` names what an older DeepSeek install left: its WebMCP instance context, its state
 // folder and its native host manifests. Their folders come along (with their Write switches) and
 // the rest is removed once the new install has committed.
