@@ -4,6 +4,7 @@ import { normalizeBlocks } from './answer-blocks.js';
 import { createBrowserTask } from './browser-task.js';
 import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
 import { PANEL_ID, disableFramePolicy, enableFramePolicy, panelFrameHref, setPanelNavigationRule } from './frame-policy.js';
+import { restorableChatGptUrl } from './chatgpt-frame.js';
 
 // Web Provider Mode: each provider is an AI web page driven by its own content script.
 // The tool loop, local runtime and approvals below are shared by all of them.
@@ -874,19 +875,6 @@ async function closePanelFrame() {
 const LAST_URL_KEY = 'chatgptEmbeddedPanel.lastUrl';
 const COMPANION_WINDOW_KEY = 'chatgptEmbeddedPanel.companionWindowId';
 
-function sanitizeChatGptUrl(value) {
-  try {
-    const url = new URL(value);
-    if (url.origin !== 'https://chatgpt.com' || url.username || url.password) return 'https://chatgpt.com/';
-    if (/^\/(api|backend-api|cdn)(\/|$)/.test(url.pathname)) return 'https://chatgpt.com/';
-    url.search = '';
-    url.hash = '';
-    return url.href;
-  } catch {
-    return 'https://chatgpt.com/';
-  }
-}
-
 async function openCompanionWindow() {
   const stored = await chrome.storage.local.get([LAST_URL_KEY, COMPANION_WINDOW_KEY]);
   const existingId = stored[COMPANION_WINDOW_KEY];
@@ -901,7 +889,7 @@ async function openCompanionWindow() {
   }
 
   const created = await chrome.windows.create({
-    url: sanitizeChatGptUrl(stored[LAST_URL_KEY]),
+    url: restorableChatGptUrl(stored[LAST_URL_KEY]) ?? 'https://chatgpt.com/',
     type: 'popup',
     width: 520,
     height: 760,

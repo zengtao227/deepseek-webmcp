@@ -1,6 +1,6 @@
 import { INITIAL_MODEL_STATUS, applyModelEvent, modelStatusLines } from './model-status.js';
 import { keepPanelSession, mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
-import { postToChatGptFrame } from './chatgpt-frame.js';
+import { postToChatGptFrame, restorableChatGptUrl } from './chatgpt-frame.js';
 
 // ChatGPT in Web Provider Mode: the ChatGPT Embedded Panel's page. Changes from the original are
 // listed in docs/web-provider-dev-plan.html (message names, Provider selector, Work relay).
@@ -22,19 +22,6 @@ let timeoutId = null;
 let peer = null;
 let retried = false;
 let modelStatus = INITIAL_MODEL_STATUS;
-
-function sanitizeChatGptUrl(value) {
-  try {
-    const url = new URL(value);
-    if (url.origin !== 'https://chatgpt.com' || url.username || url.password) return null;
-    if (/^\/(api|backend-api|cdn)(\/|$)/.test(url.pathname)) return null;
-    url.search = '';
-    url.hash = '';
-    return url.href;
-  } catch {
-    return null;
-  }
-}
 
 function setStatus(text = '') {
   status.hidden = !text;
@@ -81,7 +68,7 @@ async function loadFrame({ cacheBust = false } = {}) {
   beginConnection();
   await runtimeMessage('panel.frame-open');
   const stored = await chrome.storage.local.get(LAST_URL_KEY);
-  const base = sanitizeChatGptUrl(stored[LAST_URL_KEY]) || CHATGPT_HOME;
+  const base = restorableChatGptUrl(stored[LAST_URL_KEY]) || CHATGPT_HOME;
   const url = new URL(base);
   if (cacheBust) url.searchParams.set('chatgpt_embedded_retry', String(Date.now()));
   frame.src = url.href;
