@@ -222,11 +222,11 @@ async function uninstall({ home, configFile, exec, notify, kind }) {
   // The instance container holds the image, so it goes first.
   try { await exec(dockerPath, ['rm', '--force', INSTANCE_CONTAINER], { encoding: 'utf8', timeout: 60_000 }); } catch {}
   try { await exec(dockerPath, ['image', 'rm', IMAGE_TAG], { encoding: 'utf8', timeout: 60_000 }); } catch {}
+  // Only a folder created by install.sh from this repository is deleted; a developer
+  // checkout (no marker) is left alone. Checked first: install.sh puts it inside the state folder.
+  const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT);
   await rm(stateDir(home), { recursive: true, force: true });
   await removeExtensionInstance(home);
-  // Only a folder created by install.sh from this repository is deleted; a developer
-  // checkout (no marker) is left alone.
-  const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT);
   if (removeCode) await rm(HOST_CODE_ROOT, { recursive: true, force: true });
   notify('WebMCP was uninstalled.\n\nIf it is still listed in another browser, remove it there on the extensions page.');
   return { uninstalled: true, removedProgramFolder: removeCode };
