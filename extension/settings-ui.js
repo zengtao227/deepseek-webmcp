@@ -1,4 +1,4 @@
-// Local-runtime settings shown in the Side Panel: workspace folder, Full access, uninstall.
+// Local-runtime settings shown in the Side Panel: workspace folder, Host access, uninstall.
 // (These used to live in the toolbar popup; the toolbar icon now opens the panel directly.)
 
 const $ = (selector) => document.querySelector(selector);
@@ -7,7 +7,6 @@ const $ = (selector) => document.querySelector(selector);
 // same one-line command the README shows.
 const INSTALL_COMMAND = 'cd ~ && curl -fsSLO https://github.com/zengtao227/deepseek-webmcp/releases/latest/download/install.sh && bash install.sh';
 
-let fullAccessUntil = null;
 let hostAccessUntil = null;
 let hostAccessState = 'unavailable';
 let localMissing = false;
@@ -16,16 +15,6 @@ const control = (name, args) => chrome.runtime.sendMessage({ type: 'settings.con
 
 function showMessage(text) {
   $('#settings-message').textContent = text;
-}
-
-function renderFullAccess() {
-  const active = fullAccessUntil !== null && fullAccessUntil > Date.now();
-  $('#full-off').hidden = active;
-  $('#full-on').hidden = !active;
-  if (active) {
-    const seconds = Math.round((fullAccessUntil - Date.now()) / 1000);
-    $('#full-active').textContent = `Active — ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} left`;
-  }
 }
 
 function renderHostAccess() {
@@ -49,13 +38,10 @@ function applySettings(response) {
   }
   $('#folder').textContent = response.result.folder;
   $('#folder').title = response.result.folder;
-  fullAccessUntil = response.result.fullAccessUntil;
   hostAccessUntil = response.result.hostAccessUntil;
   hostAccessState = response.result.hostAccessState;
   // Hosts without these capabilities (Windows for now) hide them; older hosts omit the field.
-  $('#full-access-section').hidden = response.result.capabilities?.fullAccess === false;
   $('#host-access-section').hidden = response.result.capabilities?.hostAccess === false;
-  renderFullAccess();
   renderHostAccess();
 }
 
@@ -66,18 +52,6 @@ export async function initSettings() {
     const response = await control('choose-folder');
     applySettings(response);
     if (response?.ok) showMessage(response.result.changed ? 'Folder changed.' : '');
-  });
-
-  $('#grant').addEventListener('click', async () => {
-    showMessage('Confirm in the macOS dialog…');
-    const response = await control('grant-full-access', { minutes: Number($('#minutes').value) });
-    applySettings(response);
-    if (response?.ok) showMessage(response.result.changed ? 'Full access is on.' : 'Not changed.');
-  });
-
-  $('#full-stop').addEventListener('click', async () => {
-    applySettings(await control('stop-full-access'));
-    showMessage('Back to the folder.');
   });
 
   $('#host-grant').addEventListener('click', async () => {
@@ -114,6 +88,5 @@ export async function initSettings() {
   });
 
   applySettings(await control('status'));
-  setInterval(renderFullAccess, 1000);
   setInterval(renderHostAccess, 1000);
 }

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDockerInvocation, buildWorkspaceControlPlaneMasks, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
-import { fullAccessMaskCandidates } from '../native/host/local-paths.js';
+import { protectedPathCandidates } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 
@@ -164,7 +164,7 @@ test('host still refuses exact control-plane roots, host executables, filesystem
     ['directory holding the host config', stateDir],
     ['ancestor of the node binary', path.dirname(process.execPath)],
     ['filesystem root', '/'],
-    ['home directory (Full access is required)', os.homedir()],
+    ['home directory', os.homedir()],
   ];
   for (const [label, workspaceRoot] of cases) {
     await writeFile(configPath, JSON.stringify({ workspaceRoot, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
@@ -172,57 +172,23 @@ test('host still refuses exact control-plane roots, host executables, filesystem
   }
 });
 
-test('Full access mounts the home folder with control-plane and credential paths hidden, only while the lease is valid', async () => {
+test('the container always gets the chosen folder: a Full access lease left from an older version is ignored', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-home-'));
   const project = path.join(home, 'projects', 'app');
   await mkdir(project, { recursive: true });
-  await mkdir(path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts'), { recursive: true });
-  await mkdir(path.join(home, 'Notes, 2026'));
-  const files = new Set(['.netrc', '.git-credentials', '.npmrc', '.zshrc', '.zprofile', '.zshenv', '.zsh_history', '.bashrc', '.bash_profile', '.bash_history', '.profile']);
-  for (const candidate of fullAccessMaskCandidates({ home, hostCodeRoot: path.resolve(import.meta.dirname, '..'), nodePath: process.execPath })) {
-    if (!candidate.startsWith(`${home}${path.sep}`)) continue;
-    if (files.has(path.basename(candidate))) {
-      await mkdir(path.dirname(candidate), { recursive: true });
-      await writeFile(candidate, 'protected\n');
-    } else {
-      await mkdir(candidate, { recursive: true });
+  for (const candidate of protectedPathCandidates({ home, hostCodeRoot: path.resolve(import.meta.dirname, '..'), nodePath: process.execPath })) {
+    if (candidate.startsWith(`${home}${path.sep}`) && !path.basename(candidate).startsWith('.z') && !path.basename(candidate).startsWith('.b')) {
+      await mkdir(candidate, { recursive: true }).catch(() => {});
     }
   }
   const configPath = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
   await writeFile(configPath, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
+  await writeFile(path.join(home, '.deepseek-webmcp', 'full-access.json'), JSON.stringify({ expiresAt: Date.now() + 60_000 }));
 
-  const folder = await loadNativeHostConfig(configPath, { home, now: 1000 });
-  assert.equal(folder.fullAccessUntil, null);
-  assert.equal(folder.canonicalRoot, await (await import('node:fs/promises')).realpath(project));
-  assert.deepEqual(folder.masks, []);
-
-  await writeFile(path.join(home, '.deepseek-webmcp', 'full-access.json'), JSON.stringify({ expiresAt: 5000 }));
-  const full = await loadNativeHostConfig(configPath, { home, now: 1000 });
-  assert.equal(full.fullAccessUntil, 5000);
-  const realHome = await (await import('node:fs/promises')).realpath(home);
-  assert.equal(full.canonicalRoot, realHome);
-  const mounts = buildDockerInvocation(full, request('read', { workspaceId: 'ws_x', path: 'x' }), { uid: 501, gid: 20, random: () => 'r' }).args
-    .filter((_, index, args) => args[index - 1] === '--mount');
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.ssh,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.deepseek-webmcp,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.config/webmcp,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.local/share/webmcp,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.prism-webmcp,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/.chatgpt-embedded-panel,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/LaunchAgents,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=tmpfs,dst=/workspace/Library/Application Support/tunnel-client,readonly,tmpfs-mode=000'));
-  assert.ok(mounts.includes('type=bind,src=/dev/null,dst=/workspace/.zshrc,readonly'));
-  assert.equal(mounts.some((mount) => mount.includes('Comet/NativeMessagingHosts')), false);
-  assert.equal(mounts.some((mount) => mount.includes('Notes, 2026')), false);
-
-  await rm(path.join(home, '.zprofile'));
-  const withoutOptional = await loadNativeHostConfig(configPath, { home, now: 1000 });
-  assert.equal(withoutOptional.fullAccessUntil, 5000);
-  assert.equal(withoutOptional.masks.some((mask) => mask.destination === '/workspace/.zprofile'), false);
-
-  const expired = await loadNativeHostConfig(configPath, { home, now: 6000 });
-  assert.equal(expired.fullAccessUntil, null);
-  assert.deepEqual(expired.masks, []);
+  const config = await loadNativeHostConfig(configPath, { home });
+  assert.equal(config.canonicalRoot, await (await import('node:fs/promises')).realpath(project));
+  assert.equal('fullAccessUntil' in config, false);
+  assert.deepEqual(config.masks, []);
 });
 
 test('Docker --mount fields containing commas are CSV-quoted', () => {
@@ -236,11 +202,12 @@ test('tool and control envelopes are disjoint', async () => {
   assert.throws(() => validateNativeRequest({ version: 1, id: 'x', tool: 'read', control: 'status', arguments: {} }), /unsupported field/i);
   assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'status', tool: 'read', arguments: {} }), /unsupported field/i);
   assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'bash', arguments: {} }), { code: 'CONTROL_NOT_ALLOWED' });
-  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 61 } }), { code: 'INVALID_DURATION' });
-  assert.equal(validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 30 } }).control, 'grant-full-access');
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-host-access', arguments: { minutes: 61 } }), { code: 'INVALID_DURATION' });
+  assert.equal(validateControlRequest({ version: 1, id: 'x', control: 'grant-host-access', arguments: { minutes: 30 } }).control, 'grant-host-access');
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 30 } }), { code: 'CONTROL_NOT_ALLOWED' });
 });
 
-test('Full access and folder changes happen only after the macOS dialog is confirmed', async () => {
+test('folder changes happen only after the macOS dialog is confirmed', async () => {
   const { mkdir, readFile: read, realpath: real } = await import('node:fs/promises');
   const { handleControlRequest } = await import('../native/host/control.js');
   const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-control-'));
@@ -256,11 +223,6 @@ test('Full access and folder changes happen only after the macOS dialog is confi
     { home, configFile, now: 1000, exec: async () => { if (answer instanceof Error) throw answer; return { stdout: answer }; } },
   );
   const cancelled = Object.assign(new Error('cancel'), { stderr: 'execution error: User canceled. (-128)' });
-
-  assert.equal((await control('grant-full-access', { minutes: 30 }, cancelled)).result.fullAccessUntil, null);
-  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:true')).result.fullAccessUntil, null);
-  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:false')).result.fullAccessUntil, 1000 + 30 * 60_000);
-  assert.equal((await control('stop-full-access')).result.fullAccessUntil, null);
 
   assert.equal((await control('choose-folder', {}, cancelled)).result.changed, false);
   const chosen = await control('choose-folder', {}, `${second}/`);

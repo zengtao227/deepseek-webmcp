@@ -92,10 +92,9 @@ test('WSL is recognised as a supported host and has no browser folders of its ow
   assert.deepEqual(browserProfileRoots('/home/me', 'wsl'), []);
 });
 
-test('on Windows the panel is told Full access and Host access are not available, and grants are refused', async () => {
+test('on Windows the panel is told Host access is not available, and grants are refused', async () => {
   await withWsl(async ({ control }) => {
-    assert.deepEqual((await control('status')).result.capabilities, { fullAccess: false, hostAccess: false });
-    await assert.rejects(control('grant-full-access', { minutes: 5 }), { code: 'NOT_AVAILABLE_ON_WINDOWS' });
+    assert.deepEqual((await control('status')).result.capabilities, { hostAccess: false });
     await assert.rejects(control('grant-host-access', { minutes: 5 }), { code: 'NOT_AVAILABLE_ON_WINDOWS' });
   });
 });

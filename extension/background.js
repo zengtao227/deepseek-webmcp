@@ -899,7 +899,7 @@ async function recordContinuation(tabId, key, result) {
 }
 
 async function runControl(control, args) {
-  const allowedArgs = control === 'grant-full-access' || control === 'grant-host-access'
+  const allowedArgs = control === 'grant-host-access'
     ? { minutes: Number(args?.minutes) }
     : {};
   let response;

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { sanitizeJsonRpcEnvelope, sanitizeLogText } from './firewall.js';
-import { browserProfileRoots, fullAccessMaskCandidates, leasePath, manifestDirFor } from './local-paths.js';
+import { browserProfileRoots, manifestDirFor, protectedPathCandidates } from './local-paths.js';
 import { runtimeBootstrapScript } from './runtime-bootstrap.js';
 
 const execFileAsync = promisify(execFile);
@@ -84,7 +84,7 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
 } = {}) {
   const canonicalHome = await realpath(home).catch(() => path.resolve(home));
   if (canonicalRoot === canonicalHome) {
-    fail('For the whole home folder use Full access instead.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
+    fail('Choose a project folder, not the whole home folder.', 'WORKSPACE_CONTAINS_CONTROL_PLANE');
   }
 
   for (const target of [nodePath, dockerPath]) {
@@ -104,7 +104,7 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
   ]);
   const controlPlane = new Set([
     ...requiredControlPlane,
-    ...fullAccessMaskCandidates({ home: canonicalHome, hostCodeRoot, nodePath }),
+    ...protectedPathCandidates({ home: canonicalHome, hostCodeRoot, nodePath }),
   ]);
   for (const target of controlPlane) {
     const lexical = path.resolve(target);
@@ -154,42 +154,7 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
   }));
 }
 
-// Full access mounts the home folder writable, so everything in the control plane and
-// the credential stores is covered by an empty read-only mount instead of refusing it.
-async function buildFullAccessMasks(canonicalHome, home) {
-  const found = [];
-  for (const candidate of fullAccessMaskCandidates({ home, hostCodeRoot: HOST_CODE_ROOT, nodePath: process.execPath })) {
-    let resolved;
-    try {
-      resolved = await realpath(candidate);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-      continue;
-    }
-    if (resolved === canonicalHome || !contains(canonicalHome, resolved)) continue;
-    const info = await lstat(resolved);
-    found.push({ type: info.isDirectory() ? 'directory' : 'file', relative: path.relative(canonicalHome, resolved) });
-  }
-  found.sort((left, right) => left.relative.localeCompare(right.relative));
-  const masks = [];
-  for (const item of found) {
-    // A path under an already hidden directory is hidden too; Docker cannot mount inside it.
-    if (masks.some((mask) => mask.type === 'directory' && contains(mask.relative, item.relative))) continue;
-    masks.push(item);
-  }
-  return masks.map(({ type, relative }) => Object.freeze({ type, destination: path.posix.join('/workspace', ...relative.split(path.sep)) }));
-}
-
-export async function readFullAccessLease({ home = os.homedir(), now = Date.now() } = {}) {
-  try {
-    const lease = JSON.parse(await readFile(leasePath(home), 'utf8'));
-    return Number.isSafeInteger(lease?.expiresAt) && lease.expiresAt > now ? lease.expiresAt : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function loadNativeHostConfig(configPath, { home = os.homedir(), now = Date.now() } = {}) {
+export async function loadNativeHostConfig(configPath, { home = os.homedir() } = {}) {
   if (typeof configPath !== 'string' || !path.isAbsolute(configPath)) fail('Native host config path must be absolute.', 'INVALID_CONFIG');
   let parsed;
   try {
@@ -201,18 +166,10 @@ export async function loadNativeHostConfig(configPath, { home = os.homedir(), no
   if (typeof parsed.workspaceRoot !== 'string' || !path.isAbsolute(parsed.workspaceRoot)) fail('workspaceRoot must be absolute.', 'INVALID_CONFIG');
   if (typeof parsed.image !== 'string' || !IMAGE_PATTERN.test(parsed.image)) fail('image must be a local sha256 image id.', 'INVALID_CONFIG');
   if (typeof parsed.dockerPath !== 'string' || !path.isAbsolute(parsed.dockerPath)) fail('dockerPath must be absolute.', 'INVALID_CONFIG');
-  const fullAccessUntil = await readFullAccessLease({ home, now });
-  let canonicalRoot;
-  let masks = [];
-  if (fullAccessUntil !== null) {
-    canonicalRoot = await realpath(home).catch(() => fail('Home folder cannot be resolved.', 'INVALID_CONFIG'));
-    masks = await buildFullAccessMasks(canonicalRoot, home);
-  } else {
-    canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
-    masks = await buildWorkspaceControlPlaneMasks(canonicalRoot, { configPath, dockerPath: parsed.dockerPath, home });
-  }
+  const canonicalRoot = await realpath(parsed.workspaceRoot).catch(() => fail('workspaceRoot cannot be resolved.', 'INVALID_CONFIG'));
+  const masks = await buildWorkspaceControlPlaneMasks(canonicalRoot, { configPath, dockerPath: parsed.dockerPath, home });
   const runtimeToken = createHash('sha256').update(`${parsed.image}\0${canonicalRoot}`).digest('hex');
-  return Object.freeze({ ...parsed, canonicalRoot, runtimeToken, fullAccessUntil, masks: Object.freeze(masks) });
+  return Object.freeze({ ...parsed, canonicalRoot, runtimeToken, masks: Object.freeze(masks) });
 }
 
 // `--mount` is parsed as CSV: a field containing a comma or quote must be quoted.

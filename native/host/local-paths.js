@@ -31,10 +31,6 @@ export function configPath(home = os.homedir()) {
   return path.join(stateDir(home), 'p2-native-config.json');
 }
 
-export function leasePath(home = os.homedir()) {
-  return path.join(stateDir(home), 'full-access.json');
-}
-
 // DeepSeek WebMCP runs directly on macOS, and on Windows inside WSL (the browser stays on
 // Windows and reaches the host through a small relay). Nothing else is a supported host.
 export function hostKind({ platform = process.platform, env = process.env, release = os.release() } = {}) {
@@ -68,10 +64,10 @@ export async function installedBrowserProfileRoots(home = os.homedir()) {
   return roots;
 }
 
-// Hidden inside the container during Full access: anything that runs on the host
-// outside the container (control plane, shell startup, login items) and credential
-// stores. Base v1.1 masks its control plane the same way.
-export function fullAccessMaskCandidates({ home = os.homedir(), hostCodeRoot, nodePath }) {
+// Never writable from the container: anything that runs on the host outside the container
+// (control plane, shell startup, login items) and credential stores. A chosen folder may not
+// sit inside one of these, and any of them inside the folder is masked.
+export function protectedPathCandidates({ home = os.homedir(), hostCodeRoot, nodePath }) {
   return [
     hostCodeRoot,
     stateDir(home),
