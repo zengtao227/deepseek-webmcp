@@ -1,4 +1,4 @@
-const HOST_NAME = 'com.deepseek.webmcp.native';
+const HOST_NAME = 'com.webmcp.extension';
 export const TOOL_NAMES = Object.freeze(['open_workspace', 'read', 'write', 'edit', 'bash', 'host_command']);
 const ALLOWED_TOOLS = new Set(TOOL_NAMES);
 

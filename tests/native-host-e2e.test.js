@@ -14,7 +14,7 @@ const macOnly = { skip: hostKind() !== 'macos' && 'the instance route runs only 
 // A relay that answers the one JSON-RPC line with `result`, after checking it runs as the deepseek instance.
 function relayAnswering(result) {
   return `
-if (process.env.WEBMCP_INSTANCE_ID !== 'deepseek' || !/^[0-9a-f]{64}$/.test(process.env.WEBMCP_RUNTIME_TOKEN ?? '')) process.exit(3);
+if (process.env.WEBMCP_INSTANCE_ID !== 'webmcp' || !/^[0-9a-f]{64}$/.test(process.env.WEBMCP_RUNTIME_TOKEN ?? '')) process.exit(3);
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });

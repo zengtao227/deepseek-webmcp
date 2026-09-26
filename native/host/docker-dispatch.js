@@ -128,13 +128,13 @@ export async function buildWorkspaceControlPlaneMasks(canonicalRoot, {
     if (!contains(canonicalRoot, candidate)) continue;
     if (!resolved) {
       if (requiredControlPlane.has(target)) {
-        fail('A protected DeepSeek WebMCP path inside the selected workspace cannot be resolved.', 'CONTROL_PLANE_PATH_UNAVAILABLE');
+        fail('A protected WebMCP path inside the selected workspace cannot be resolved.', 'CONTROL_PLANE_PATH_UNAVAILABLE');
       }
       continue;
     }
     const info = await lstat(resolved);
     if (!info.isDirectory() && !info.isFile()) {
-      fail('A protected DeepSeek WebMCP path must resolve to a regular file or directory.', 'INVALID_CONTROL_PLANE_PATH');
+      fail('A protected WebMCP path must resolve to a regular file or directory.', 'INVALID_CONTROL_PLANE_PATH');
     }
     found.push({
       type: info.isDirectory() ? 'directory' : 'file',

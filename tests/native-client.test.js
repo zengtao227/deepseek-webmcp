@@ -26,7 +26,7 @@ test('extension keeps one-shot sendNativeMessage with the narrow envelope', asyn
     const response = await callNativeTool({ id: 'p2_1', name: 'bash', arguments: { workspaceId: 'ws_x', command: 'echo P2_OK' } });
     assert.equal(response.ok, true);
     assert.deepEqual(seen, [{
-      host: 'com.deepseek.webmcp.native',
+      host: 'com.webmcp.extension',
       payload: {
         version: 1,
         id: 'p2_1',

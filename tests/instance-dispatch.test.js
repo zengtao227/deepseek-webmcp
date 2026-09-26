@@ -55,7 +55,7 @@ test('a workspace tool runs through the shared runtime\'s deepseek instance rela
   const [{ command, args, env }] = relay.started;
   assert.equal(command, '/opt/node/bin/node');
   assert.deepEqual(args, [path.join(RELEASE, 'native', 'host', 'start.js')]);
-  assert.equal(env.WEBMCP_INSTANCE_ID, 'deepseek');
+  assert.equal(env.WEBMCP_INSTANCE_ID, 'webmcp');
   assert.match(env.WEBMCP_RUNTIME_TOKEN, /^[0-9a-f]{64}$/);
   assert.equal(env.PATH.split(path.delimiter)[0], '/usr/local/bin', 'Chrome starts native hosts with a PATH that lacks Docker');
 });

@@ -2,12 +2,12 @@ import { access } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const HOST_NAME = 'com.deepseek.webmcp.native';
+export const HOST_NAME = 'com.webmcp.extension';
 // Build, uninstall and cleanup all use this one tag. A rehearsal on a machine that also has
 // a live install sets its own tag, because moving a tag can delete the image it named.
 export const IMAGE_TAG = process.env.DEEPSEEK_WEBMCP_IMAGE_TAG || 'deepseek-webmcp-p2:dev';
 // Created by install.sh in the program folder it unpacked; only such a folder is deleted on uninstall.
-export const INSTALL_MARKER = '.deepseek-webmcp-installed';
+export const INSTALL_MARKER = '.webmcp-extension-installed';
 
 // Chromium browsers each read Native Messaging manifests from their own profile root
 // (macOS: ~/Library/Application Support/<root>/NativeMessagingHosts).
@@ -23,8 +23,9 @@ const CHROMIUM_PROFILE_ROOTS = [
   'Vivaldi',
 ];
 
+// Inside ~/.local/share/webmcp, which every WebMCP runtime masks from every container.
 export function stateDir(home = os.homedir()) {
-  return path.join(home, '.deepseek-webmcp');
+  return path.join(home, '.local', 'share', 'webmcp', 'extension');
 }
 
 export function configPath(home = os.homedir()) {

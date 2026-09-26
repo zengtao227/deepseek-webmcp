@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { clearInstanceLease, dispatchHostCommand, grantHostAccess, hostRuntimeRoot, instanceLeaseStatus, removeDeepSeekInstance } from '../native/host/host-access.js';
+import { clearInstanceLease, dispatchHostCommand, grantHostAccess, hostRuntimeRoot, instanceLeaseStatus, removeExtensionInstance } from '../native/host/host-access.js';
 
 const PINNED = `${'a'.repeat(40)}-${'b'.repeat(64)}`;
 const OTHER = `${'c'.repeat(40)}-${'d'.repeat(64)}`;
@@ -69,8 +69,8 @@ async function withHome(run, { lockArtifact = PINNED, pinArtifact = PINNED } = {
     const otherRoot = await writeRelease(home, OTHER);
     // The default instance's current pointer names a different release on purpose.
     await symlink(path.join('releases', OTHER), path.join(hostRuntimeRoot(home), 'current'));
-    await mkdir(path.join(home, 'state', 'deepseek'), { recursive: true });
-    await writeFile(path.join(home, 'state', 'deepseek', 'host-release.json'), JSON.stringify({ version: 1, artifactId: pinArtifact }));
+    await mkdir(path.join(home, 'state', 'webmcp'), { recursive: true });
+    await writeFile(path.join(home, 'state', 'webmcp', 'host-release.json'), JSON.stringify({ version: 1, artifactId: pinArtifact }));
     const workspace = path.join(home, 'work');
     await mkdir(workspace);
     const configFile = path.join(home, 'config.json');
@@ -156,29 +156,29 @@ async function uninstallFixture({ otherPins = {}, currentTo = null } = {}) {
   const data = path.join(home, '.local/share/webmcp');
   for (const id of [PINNED, OTHER]) await mkdir(path.join(hostRuntimeRoot(home), 'releases', id), { recursive: true });
   if (currentTo) await symlink(path.join('releases', currentTo), path.join(hostRuntimeRoot(home), 'current'));
-  for (const [instance, artifactId] of Object.entries({ deepseek: PINNED, ...otherPins })) {
+  for (const [instance, artifactId] of Object.entries({ webmcp: PINNED, ...otherPins })) {
     await mkdir(path.join(data, 'instances', instance), { recursive: true });
     await writeFile(path.join(data, 'instances', instance, 'host-release.json'), JSON.stringify({ version: 1, artifactId }));
   }
-  await mkdir(path.join(home, '.config/webmcp/instances/deepseek'), { recursive: true });
+  await mkdir(path.join(home, '.config/webmcp/instances/webmcp'), { recursive: true });
   await mkdir(path.join(home, '.config/webmcp/instances/prism'), { recursive: true });
   return home;
 }
 
-test('uninstall removes only DeepSeek\'s own instance state and never deletes a shared release', async () => {
+test('uninstall removes only the extension\'s own instance state and never deletes a shared release', async () => {
   // Whether or not anything else pins DeepSeek's release, whatever current points at, and even
   // when another pin is unreadable: releases and other providers' state stay.
   for (const setup of [{}, { otherPins: { prism: OTHER }, currentTo: OTHER }, { otherPins: { prism: PINNED } }, { currentTo: PINNED }, { otherPins: { prism: '{broken' } }]) {
     const home = await uninstallFixture(setup);
     try {
-      await removeDeepSeekInstance(home);
-      await assert.rejects(lstat(path.join(home, '.local/share/webmcp/instances/deepseek')), { code: 'ENOENT' });
-      await assert.rejects(lstat(path.join(home, '.config/webmcp/instances/deepseek')), { code: 'ENOENT' });
+      await removeExtensionInstance(home);
+      await assert.rejects(lstat(path.join(home, '.local/share/webmcp/instances/webmcp')), { code: 'ENOENT' });
+      await assert.rejects(lstat(path.join(home, '.config/webmcp/instances/webmcp')), { code: 'ENOENT' });
       assert.deepEqual((await readdir(path.join(hostRuntimeRoot(home), 'releases'))).sort(), [PINNED, OTHER].sort(), JSON.stringify(setup));
       await lstat(path.join(home, '.config/webmcp/instances/prism'));
       if (setup.otherPins) await lstat(path.join(home, '.local/share/webmcp/instances/prism/host-release.json'));
       if (setup.currentTo) await lstat(path.join(hostRuntimeRoot(home), 'current'));
-      await removeDeepSeekInstance(home);
+      await removeExtensionInstance(home);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

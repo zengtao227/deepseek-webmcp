@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { removeDeepSeekInstance } from '../native/host/host-access.js';
+import { removeExtensionInstance } from '../native/host/host-access.js';
 import { HOST_NAME, IMAGE_TAG, browserProfileRoots, manifestDirFor, stateDir } from '../native/host/local-paths.js';
 
 const execFileAsync = promisify(execFile);
@@ -16,7 +16,7 @@ for (const root of browserProfileRoots()) {
 process.stdout.write('removed browser registrations\n');
 await rm(stateDir(), { recursive: true, force: true });
 process.stdout.write(`removed ${stateDir()}\n`);
-await removeDeepSeekInstance();
+await removeExtensionInstance();
 process.stdout.write('removed the DeepSeek WebMCP instance state (other WebMCP providers are untouched)\n');
 try {
   await execFileAsync('docker', ['image', 'rm', IMAGE_TAG], { timeout: 60_000 });

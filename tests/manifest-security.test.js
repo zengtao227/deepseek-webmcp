@@ -14,7 +14,7 @@ test('page tools use http(s) host access, but no browsing, cookie, network or de
   // copied from the ChatGPT Embedded Panel). Nothing is observed, blocked or originated.
   assert.deepEqual(manifest.permissions, ['storage', 'nativeMessaging', 'scripting', 'sidePanel', 'declarativeNetRequestWithHostAccess']);
   assert.deepEqual(manifest.side_panel, { default_path: 'sidepanel.html' });
-  assert.deepEqual(manifest.action, { default_title: 'DeepSeek WebMCP' }, 'the toolbar icon opens the panel; no popup');
+  assert.deepEqual(manifest.action, { default_title: 'WebMCP' }, 'the toolbar icon opens the panel; no popup');
   assert.equal(JSON.stringify(manifest).includes('<all_urls>'), false);
   assert.equal(manifest.permissions.includes('webNavigation'), false);
   assert.equal(manifest.permissions.includes('tabs'), false);

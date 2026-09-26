@@ -1,5 +1,5 @@
 {
-  "name": "deepseek-webmcp",
+  "name": "webmcp-extension",
   "version": "0.7.0",
   "private": true,
   "description": "Local coding tools for the logged-in DeepSeek Web UI through an isolated Docker runtime; no DeepSeek API key.",

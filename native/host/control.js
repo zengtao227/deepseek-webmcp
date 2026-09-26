@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
-import { grantHostAccess, removeDeepSeekInstance } from './host-access.js';
+import { grantHostAccess, removeExtensionInstance } from './host-access.js';
 import { instanceAccessStatus, revokeInstanceAccess } from './instance-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -66,7 +66,7 @@ async function runAppleScript(script, { exec = execFileAsync } = {}) {
 // Detached so the reply to the browser is not held until the user clicks OK: the popup
 // has already closed behind the confirmation dialog and the extension removes itself.
 function showDetachedMessage(message) {
-  spawn('/usr/bin/osascript', ['-e', `display dialog ${appleScriptString(message)} with title "DeepSeek WebMCP" buttons {"OK"} default button "OK" giving up after 60`], {
+  spawn('/usr/bin/osascript', ['-e', `display dialog ${appleScriptString(message)} with title "WebMCP" buttons {"OK"} default button "OK" giving up after 60`], {
     detached: true,
     stdio: 'ignore',
   }).unref();
@@ -75,7 +75,7 @@ function showDetachedMessage(message) {
 async function confirm(message, button, options) {
   if (options.kind === 'wsl') return confirmOnWindows(message, { exec: options.exec, timeoutMs: (DIALOG_SECONDS + 10) * 1000 });
   const answer = await runAppleScript(
-    `display dialog ${appleScriptString(message)} with title "DeepSeek WebMCP" buttons {"Cancel", ${appleScriptString(button)}} default button "Cancel" cancel button "Cancel" with icon caution giving up after ${DIALOG_SECONDS}`,
+    `display dialog ${appleScriptString(message)} with title "WebMCP" buttons {"Cancel", ${appleScriptString(button)}} default button "Cancel" cancel button "Cancel" with icon caution giving up after ${DIALOG_SECONDS}`,
     options,
   );
   return typeof answer === 'string' && answer.includes(`button returned:${button}`) && !answer.includes('gave up:true');
@@ -126,7 +126,7 @@ async function pickFolder({ config, exec, kind }) {
     return picked === null ? null : toWslPath(picked, { exec });
   }
   return runAppleScript(
-    `POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change" default location (POSIX file ${appleScriptString(config.workspaceRoot)}))`,
+    `POSIX path of (choose folder with prompt "Choose the folder WebMCP may read and change" default location (POSIX file ${appleScriptString(config.workspaceRoot)}))`,
     { exec },
   );
 }
@@ -198,13 +198,13 @@ function assertMacOnly(kind, what) {
   if (kind !== 'macos') fail(`${what} is not available on Windows yet.`, 'NOT_AVAILABLE_ON_WINDOWS');
 }
 
-// install.sh unpacks a DeepSeek WebMCP release archive and marks the folder; a developer
+// install.sh unpacks a WebMCP release archive and marks the folder; a developer
 // checkout is a Git repository. Only the former is ever deleted.
 export async function isInstalledCodeFolder(folder) {
   const exists = (name) => stat(path.join(folder, name)).then(() => true, () => false);
   if (!(await exists(INSTALL_MARKER)) || (await exists('.git'))) return false;
   try {
-    return JSON.parse(await readFile(path.join(folder, 'package.json'), 'utf8')).name === 'deepseek-webmcp';
+    return JSON.parse(await readFile(path.join(folder, 'package.json'), 'utf8')).name === 'webmcp-extension';
   } catch {
     return false;
   }
@@ -212,7 +212,7 @@ export async function isInstalledCodeFolder(folder) {
 
 async function uninstall({ home, configFile, exec, notify, kind }) {
   const allowed = await confirm(
-    'Uninstall DeepSeek WebMCP?\n\nThis removes the local runtime, its settings, the Docker image, the browser registrations and the DeepSeek WebMCP program folder. Your project folders are not touched.',
+    'Uninstall WebMCP?\n\nThis removes the local runtime, its settings, the Docker image, the browser registrations and the WebMCP program folder. Your project folders are not touched.',
     'Uninstall',
     { exec, kind },
   );
@@ -227,12 +227,12 @@ async function uninstall({ home, configFile, exec, notify, kind }) {
   }
   try { await exec(dockerPath, ['image', 'rm', IMAGE_TAG], { encoding: 'utf8', timeout: 60_000 }); } catch {}
   await rm(stateDir(home), { recursive: true, force: true });
-  await removeDeepSeekInstance(home);
+  await removeExtensionInstance(home);
   // Only a folder created by install.sh from this repository is deleted; a developer
   // checkout (no marker) is left alone.
   const removeCode = HOST_CODE_ROOT !== home && await isInstalledCodeFolder(HOST_CODE_ROOT);
   if (removeCode) await rm(HOST_CODE_ROOT, { recursive: true, force: true });
-  notify('DeepSeek WebMCP was uninstalled.\n\nIf it is still listed in another browser, remove it there on the extensions page.');
+  notify('WebMCP was uninstalled.\n\nIf it is still listed in another browser, remove it there on the extensions page.');
   return { uninstalled: true, removedProgramFolder: removeCode };
 }
 

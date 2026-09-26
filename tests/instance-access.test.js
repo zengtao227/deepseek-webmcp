@@ -8,14 +8,14 @@ import { instanceAccessStatus, instanceAccessView, revokeInstanceAccess } from '
 import { writePinnedRelease } from './fixtures/pinned-release.js';
 
 const MOUNTS = {
-  instanceId: 'deepseek',
+  instanceId: 'webmcp',
   mode: 'multi-mount',
   mounts: [
     { id: 'code', hostPath: '/Users/me/Doc/My code', containerPath: '/workspace/mounts/code', writeEnabled: true },
     { id: 'notes', hostPath: '/Users/me/Notes', containerPath: '/workspace/mounts/notes', writeEnabled: false },
   ],
 };
-const NORMAL = { instanceId: 'deepseek', mode: 'normal', leaseState: 'absent' };
+const NORMAL = { instanceId: 'webmcp', mode: 'normal', leaseState: 'absent' };
 const EXPIRES = '2026-09-26T10:30:00.000Z';
 
 test('the instance\'s folders keep their own write switch; a legacy folder follows its read-only flag', () => {
@@ -84,7 +84,7 @@ test('on macOS the panel status is the deepseek instance\'s, read with the WebMC
     assert.equal(result.hostAccessUntil, Date.parse(EXPIRES));
     assert.equal(result.hostAccessState, 'active');
     assert.equal(result.fullAccessUntil, null);
-    assert.deepEqual((await calls()).sort(), ['access-status --instance deepseek', 'mount-list --instance deepseek']);
+    assert.deepEqual((await calls()).sort(), ['access-status --instance webmcp', 'mount-list --instance webmcp']);
   });
 });
 
@@ -94,7 +94,7 @@ test('the stop control revokes the instance\'s one lease through the controller'
       const { result } = await control(name);
       assert.equal(result.changed, true);
       assert.equal(result.leaseState, 'absent');
-      assert.equal((await calls())[0], 'access-revoke --instance deepseek', name);
+      assert.equal((await calls())[0], 'access-revoke --instance webmcp', name);
     });
   }
 });
@@ -123,7 +123,7 @@ test('folders that cannot be read never hide the lease or its Revoke', async () 
 test('a revoke runs the controller once, then the status is read once', async () => {
   await withInstance({ 'mount-list': MOUNTS, 'access-status': NORMAL, 'access-revoke': { action: 'revoked' } }, async ({ control, calls }) => {
     await control('stop-host-access');
-    assert.deepEqual((await calls()).slice(1).sort(), ['access-status --instance deepseek', 'mount-list --instance deepseek']);
+    assert.deepEqual((await calls()).slice(1).sort(), ['access-status --instance webmcp', 'mount-list --instance webmcp']);
   });
 });
 

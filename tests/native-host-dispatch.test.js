@@ -110,20 +110,20 @@ test('a normal workspace masks existing cross-provider state and rejects roots i
     const gh = path.join(root, 'gh');
     await mkdir(webmcp, { recursive: true });
     const initial = await buildWorkspaceControlPlaneMasks(await realpath(root), {
-      home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+      home, configPath: path.join(home, '.local/share/webmcp/extension/config.json'), dockerPath: '/usr/local/bin/docker',
     });
     assert.deepEqual(initial.map((item) => item.destination), ['/workspace/webmcp']);
     await mkdir(tunnel);
     await mkdir(gh);
     await assert.rejects(
       buildWorkspaceControlPlaneMasks(await realpath(webmcp), {
-        home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+        home, configPath: path.join(home, '.local/share/webmcp/extension/config.json'), dockerPath: '/usr/local/bin/docker',
       }),
       { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' },
       'a workspace inside another provider control root must be refused',
     );
     const masks = await buildWorkspaceControlPlaneMasks(await realpath(root), {
-      home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: '/usr/local/bin/docker',
+      home, configPath: path.join(home, '.local/share/webmcp/extension/config.json'), dockerPath: '/usr/local/bin/docker',
     });
     assert.deepEqual(masks.map((item) => item.destination), [
       '/workspace/gh', '/workspace/tunnel-client', '/workspace/webmcp',
@@ -146,7 +146,7 @@ test('control state in a workspace folder whose name starts with ".." is still m
     assert.ok(masks.some((item) => item.destination === '/workspace/..deepseek-state'), JSON.stringify(masks));
     await assert.rejects(
       buildWorkspaceControlPlaneMasks(root, {
-        home, configPath: path.join(home, '.deepseek-webmcp/config.json'), dockerPath: path.join(root, '..bin', 'docker'),
+        home, configPath: path.join(home, '.local/share/webmcp/extension/config.json'), dockerPath: path.join(root, '..bin', 'docker'),
       }),
       { code: 'WORKSPACE_CONTAINS_CONTROL_PLANE' },
     );
@@ -181,9 +181,9 @@ test('the container always gets the chosen folder: a Full access lease left from
       await mkdir(candidate, { recursive: true }).catch(() => {});
     }
   }
-  const configPath = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
+  const configPath = path.join(home, '.local/share/webmcp/extension', 'p2-native-config.json');
   await writeFile(configPath, JSON.stringify({ workspaceRoot: project, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
-  await writeFile(path.join(home, '.deepseek-webmcp', 'full-access.json'), JSON.stringify({ expiresAt: Date.now() + 60_000 }));
+  await writeFile(path.join(home, '.local/share/webmcp/extension', 'full-access.json'), JSON.stringify({ expiresAt: Date.now() + 60_000 }));
 
   const config = await loadNativeHostConfig(configPath, { home });
   assert.equal(config.canonicalRoot, await (await import('node:fs/promises')).realpath(project));
@@ -215,8 +215,8 @@ test('folder changes happen only after the macOS dialog is confirmed', async () 
   const second = path.join(home, 'second');
   await mkdir(first);
   await mkdir(second);
-  const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
-  await mkdir(path.dirname(configFile));
+  const configFile = path.join(home, '.local/share/webmcp/extension', 'p2-native-config.json');
+  await mkdir(path.dirname(configFile), { recursive: true });
   await writeFile(configFile, JSON.stringify({ workspaceRoot: first, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
   const control = (name, args = {}, answer) => handleControlRequest(
     { version: 1, id: 'c', control: name, arguments: args },
@@ -269,8 +269,8 @@ test('uninstall removes local state only after confirmation and announces itself
   const { mkdir, access } = await import('node:fs/promises');
   const { handleControlRequest } = await import('../native/host/control.js');
   const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-uninstall-'));
-  const configFile = path.join(home, '.deepseek-webmcp', 'p2-native-config.json');
-  const manifest = path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts/com.deepseek.webmcp.native.json');
+  const configFile = path.join(home, '.local/share/webmcp/extension', 'p2-native-config.json');
+  const manifest = path.join(home, 'Library/Application Support/Comet/NativeMessagingHosts/com.webmcp.extension.json');
   await mkdir(path.dirname(configFile), { recursive: true });
   await mkdir(path.dirname(manifest), { recursive: true });
   await writeFile(configFile, JSON.stringify({ workspaceRoot: home, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
@@ -335,9 +335,9 @@ test('only an installed release folder counts as the program folder uninstall ma
   const { isInstalledCodeFolder } = await import('../native/host/control.js');
   const folder = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-program-'));
   assert.equal(await isInstalledCodeFolder(folder), false);
-  await writeFile(path.join(folder, '.deepseek-webmcp-installed'), '');
+  await writeFile(path.join(folder, '.webmcp-extension-installed'), '');
   assert.equal(await isInstalledCodeFolder(folder), false, 'a marker alone does not identify the program');
-  await writeFile(path.join(folder, 'package.json'), JSON.stringify({ name: 'deepseek-webmcp' }));
+  await writeFile(path.join(folder, 'package.json'), JSON.stringify({ name: 'webmcp-extension' }));
   assert.equal(await isInstalledCodeFolder(folder), true);
   await mkdir(path.join(folder, '.git'));
   assert.equal(await isInstalledCodeFolder(folder), false, 'a Git checkout is a developer folder and is kept');

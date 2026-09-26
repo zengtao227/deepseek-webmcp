@@ -5,14 +5,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateNativeRequest } from './docker-dispatch.js';
 import { sanitizeJsonRpcEnvelope } from './firewall.js';
 
-export const INSTANCE_ID = 'deepseek';
+export const INSTANCE_ID = 'webmcp';
 const ARTIFACT_ID = /^[0-9a-f]{40}-[0-9a-f]{64}$/;
 
 // Uninstall removes only DeepSeek's own WebMCP instance: its pin, lease and settings. Its
 // release stays in the shared store: no lock spans the providers, so a release that looks
 // unused here may be getting pinned by another provider's install at this moment. A later
 // install of the same release reuses it. Other providers' state is never touched.
-export async function removeDeepSeekInstance(home = os.homedir()) {
+export async function removeExtensionInstance(home = os.homedir()) {
   await rm(path.join(home, '.local', 'share', 'webmcp', 'instances', INSTANCE_ID), { recursive: true, force: true });
   await rm(path.join(home, '.config', 'webmcp', 'instances', INSTANCE_ID), { recursive: true, force: true });
 }
