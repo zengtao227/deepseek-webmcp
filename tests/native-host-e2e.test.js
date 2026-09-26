@@ -1,12 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { encodeNativeMessage } from '../native/host/chrome-framing.js';
+import { writePinnedRelease } from './fixtures/pinned-release.js';
+import { hostKind } from '../native/host/local-paths.js';
 
-const IMAGE = `sha256:${'b'.repeat(64)}`;
+// The spawned host routes by the real platform: these cover the macOS instance route.
+const macOnly = { skip: hostKind() !== 'macos' && 'the instance route runs only on macOS' };
+
+// A relay that answers the one JSON-RPC line with `result`, after checking it runs as the deepseek instance.
+function relayAnswering(result) {
+  return `
+if (process.env.WEBMCP_INSTANCE_ID !== 'deepseek' || !/^[0-9a-f]{64}$/.test(process.env.WEBMCP_RUNTIME_TOKEN ?? '')) process.exit(3);
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { input += chunk; });
+process.stdin.on('end', () => {
+  const rpc = JSON.parse(input.trim());
+  if (rpc.method !== 'tools/call') process.exit(4);
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: ${JSON.stringify(result)} }) + '\\n');
+});
+`;
+}
+
+async function setupHost(prefix, relaySource) {
+  const home = await mkdtemp(path.join(os.tmpdir(), prefix));
+  const releaseRoot = await writePinnedRelease(home, { 'native/host/start.js': relaySource });
+  const relayPath = path.join(releaseRoot, 'native', 'host', 'start.js');
+  const configPath = path.join(home, 'config.json');
+  await writeFile(configPath, JSON.stringify({ dockerPath: '/usr/local/bin/docker' }));
+  return { home, configPath, relayPath };
+}
 
 function decodeFrame(buffer) {
   assert.ok(buffer.byteLength >= 4);
@@ -15,11 +42,11 @@ function decodeFrame(buffer) {
   return JSON.parse(buffer.subarray(4).toString('utf8'));
 }
 
-async function runHost(configPath, request) {
+async function runHost({ home, configPath }, request) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['native/host/chrome-host.js'], {
       cwd: path.resolve('.'),
-      env: { ...process.env, DEEPSEEK_WEBMCP_CONFIG: configPath },
+      env: { ...process.env, HOME: home, DEEPSEEK_WEBMCP_CONFIG: configPath },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stdout = [];
@@ -38,36 +65,13 @@ async function runHost(configPath, request) {
   });
 }
 
-test('Chrome framing -> native host -> runtime response -> Secret Firewall -> Chrome frame works end-to-end', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-'));
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
-  const fakeDocker = path.join(dir, 'fake-docker');
-  const configPath = path.join(dir, 'config.json');
-
-  await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
-  const rpc = JSON.parse(input.trim());
-  process.stdout.write(JSON.stringify({
-    jsonrpc: '2.0',
-    id: rpc.id,
-    result: {
-      content: [{ type: 'text', text: 'fixture' }],
-      structuredContent: { result: 'known line\\npassword = "p2-secret-fixture-value"' }
-    }
-  }) + '\n');
-});
-`);
-  await chmod(fakeDocker, 0o755);
-  await writeFile(configPath, JSON.stringify({
-    workspaceRoot: workspace,
-    image: IMAGE,
-    dockerPath: fakeDocker,
+test('Chrome framing -> native host -> runtime response -> Secret Firewall -> Chrome frame works end-to-end', macOnly, async () => {
+  const host = await setupHost('deepseek-webmcp-e2e-', relayAnswering({
+    content: [{ type: 'text', text: 'fixture' }],
+    structuredContent: { result: 'known line\npassword = "p2-secret-fixture-value"' },
   }));
 
-  const response = await runHost(configPath, {
+  const response = await runHost(host, {
     version: 1,
     id: 'p2_read',
     tool: 'read',
@@ -82,28 +86,10 @@ process.stdin.on('end', () => {
   assert.doesNotMatch(response.result.result, /p2-secret-fixture-value/);
 });
 
-test('native host admits P3 write through the same one-shot runtime and still rejects unknown tools before spawn', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-host-'));
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
-  const fakeDocker = path.join(dir, 'fake-docker');
-  const configPath = path.join(dir, 'config.json');
-  await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
-  const rpc = JSON.parse(input.trim());
-  process.stdout.write(JSON.stringify({
-    jsonrpc: '2.0',
-    id: rpc.id,
-    result: { structuredContent: { result: 'WRITE_OK' } }
-  }) + '\n');
-});
-`);
-  await chmod(fakeDocker, 0o755);
-  await writeFile(configPath, JSON.stringify({ workspaceRoot: workspace, image: IMAGE, dockerPath: fakeDocker }));
+test('native host admits P3 write through the deepseek instance relay and still rejects unknown tools before spawn', macOnly, async () => {
+  const host = await setupHost('deepseek-webmcp-p3-host-', relayAnswering({ structuredContent: { result: 'WRITE_OK' } }));
 
-  const writeResponse = await runHost(configPath, {
+  const writeResponse = await runHost(host, {
     version: 1,
     id: 'p3_write',
     tool: 'write',
@@ -112,9 +98,8 @@ process.stdin.on('end', () => {
   assert.equal(writeResponse.ok, true);
   assert.equal(writeResponse.result.result, 'WRITE_OK');
 
-  await writeFile(fakeDocker, `#!${process.execPath}\nprocess.exit(99);\n`);
-  await chmod(fakeDocker, 0o755);
-  const deniedResponse = await runHost(configPath, {
+  await writeFile(host.relayPath, 'process.exit(99);\n');
+  const deniedResponse = await runHost(host, {
     version: 1,
     id: 'p3_unknown',
     tool: 'list_directory',
@@ -124,34 +109,16 @@ process.stdin.on('end', () => {
   assert.equal(deniedResponse.error.code, 'TOOL_NOT_ALLOWED');
 });
 
-test('P3 write/edit tool errors still pass through the host Secret Firewall', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-p3-firewall-'));
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-e2e-workspace-'));
-  const fakeDocker = path.join(dir, 'fake-docker');
-  const configPath = path.join(dir, 'config.json');
-  await writeFile(fakeDocker, `#!${process.execPath}\n` + String.raw`
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
-  const rpc = JSON.parse(input.trim());
-  process.stdout.write(JSON.stringify({
-    jsonrpc: '2.0',
-    id: rpc.id,
-    result: {
-      isError: true,
-      structuredContent: {
-        error: 'write_failed',
-        message: 'password = "p3-secret-fixture-value"'
-      }
-    }
-  }) + '\n');
-});
-`);
-  await chmod(fakeDocker, 0o755);
-  await writeFile(configPath, JSON.stringify({ workspaceRoot: workspace, image: IMAGE, dockerPath: fakeDocker }));
+test('P3 write/edit tool errors still pass through the host Secret Firewall', macOnly, async () => {
+  const host = await setupHost('deepseek-webmcp-p3-firewall-', relayAnswering({
+    isError: true,
+    structuredContent: {
+      error: 'write_failed',
+      message: 'password = "p3-secret-fixture-value"',
+    },
+  }));
 
-  const response = await runHost(configPath, {
+  const response = await runHost(host, {
     version: 1,
     id: 'p3_edit_error',
     tool: 'edit',

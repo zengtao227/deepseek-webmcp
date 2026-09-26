@@ -255,7 +255,7 @@ function toolRpc(request) {
   };
 }
 
-function mapContainerResponse(request, response) {
+export function mapContainerResponse(request, response) {
   const safe = sanitizeJsonRpcEnvelope(response);
   if (safe.error) {
     return { version: 1, id: request.id, ok: false, error: { code: 'RUNTIME_ERROR', message: String(safe.error.message ?? 'Runtime error') } };

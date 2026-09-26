@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { dispatchHostCommand, grantHostAccess, hostAccessStatus, hostRuntimeRoot, removeDeepSeekInstance } from '../native/host/host-access.js';
+import { clearInstanceLease, dispatchHostCommand, grantHostAccess, hostRuntimeRoot, instanceLeaseStatus, removeDeepSeekInstance } from '../native/host/host-access.js';
 
 const PINNED = `${'a'.repeat(40)}-${'b'.repeat(64)}`;
 const OTHER = `${'c'.repeat(40)}-${'d'.repeat(64)}`;
@@ -28,15 +28,24 @@ const STUBS = {
   }`,
   'native/deploy/elevated-access.js': `export async function getBootSessionId() { return 'boot'; }
   export async function getLoginSessionId() { return 'login'; }
-  export async function loadElevatedLease() { return { state: 'absent' }; }
+  export async function loadElevatedLease(_path, options) {
+    (globalThis.hostAccessRecords ??= []).push(['lease', options?.normalConfig?.hostRoot]);
+    return globalThis.hostAccessLease ?? { state: 'absent' };
+  }
   export function createElevatedLease({ durationMs }) { return { id: 'lease', expiresAt: new Date(Date.now() + durationMs).toISOString() }; }
-  export async function persistElevatedLease() {}`,
-  'native/deploy/workspace-config.js': `export async function loadWorkspaceConfig() { const error = new Error('absent'); error.code = 'WORKSPACE_CONFIG_UNAVAILABLE'; error.cause = { code: 'ENOENT' }; throw error; }
-  export async function persistWorkspaceConfig(_path, value) { return value; }`,
+  export async function persistElevatedLease() {}
+  export async function clearElevatedLease() { (globalThis.hostAccessRecords ??= []).push(['clear']); }`,
+  'native/deploy/workspace-config.js': `export async function loadWorkspaceConfig() {
+    if (globalThis.hostAccessWorkspace) return globalThis.hostAccessWorkspace;
+    const error = new Error('absent'); error.code = 'WORKSPACE_CONFIG_UNAVAILABLE'; error.cause = { code: 'ENOENT' }; throw error;
+  }
+  export async function persistWorkspaceConfig(_path, value) { (globalThis.hostAccessRecords ??= []).push(['persist', value.hostRoot]); return value; }`,
   'native/deploy/local-approval.js': `export async function requestLocalElevationApproval(options) {
     (globalThis.hostAccessCalls ??= []).push(['approve', import.meta.url, options.instanceLabel, options.accessLevel]);
   }`,
-  'native/host/host-command.js': 'export function createHostCommandHandler() { throw new Error("not used"); }',
+  'native/host/host-command.js': `export function createHostCommandHandler(options) {
+    return { call: async () => ({ structuredContent: { ran: options.expectedLeaseId } }) };
+  }`,
   'native/deploy/instance-lock.js': 'export async function withInstanceLifecycleLock(_context, run) { return run(); }',
 };
 
@@ -52,6 +61,9 @@ async function writeRelease(home, artifactId) {
 async function withHome(run, { lockArtifact = PINNED, pinArtifact = PINNED } = {}) {
   const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-host-access-'));
   globalThis.hostAccessCalls = [];
+  globalThis.hostAccessRecords = [];
+  globalThis.hostAccessLease = null;
+  globalThis.hostAccessWorkspace = null;
   try {
     const pinnedRoot = await writeRelease(home, PINNED);
     const otherRoot = await writeRelease(home, OTHER);
@@ -87,7 +99,6 @@ test('host access resolves through the pinned artifact, never the shared current
 test('host access works when no current pointer exists at all', async () => {
   await withHome(async ({ home, configFile, lockFile }) => {
     await rm(path.join(hostRuntimeRoot(home), 'current'));
-    assert.equal((await hostAccessStatus({ configFile, home, lockFile })).hostAccessState, 'unverified');
     assert.equal((await grantHostAccess({ configFile, minutes: 1, home, lockFile })).hostAccessState, 'active');
   });
 });
@@ -95,14 +106,48 @@ test('host access works when no current pointer exists at all', async () => {
 test('host access fails closed without a pinned artifact or with a mismatched instance pin', async () => {
   const request = { version: 1, id: 'r1', tool: 'host_command', arguments: { command: 'true' } };
   await withHome(async ({ home, configFile, lockFile }) => {
-    assert.equal((await hostAccessStatus({ configFile, home, lockFile })).hostAccessState, 'unavailable');
     assert.equal((await dispatchHostCommand(request, { configFile, home, lockFile })).ok, false);
     await assert.rejects(grantHostAccess({ configFile, minutes: 1, home, lockFile }), /does not pin/);
   }, { lockArtifact: null });
   await withHome(async ({ home, configFile, lockFile }) => {
-    assert.equal((await hostAccessStatus({ configFile, home, lockFile })).hostAccessState, 'unavailable');
+    assert.equal((await dispatchHostCommand(request, { configFile, home, lockFile })).ok, false);
     await assert.rejects(grantHostAccess({ configFile, minutes: 1, home, lockFile }), /does not match/);
   }, { pinArtifact: OTHER });
+});
+
+test('host_command and a grant use the instance\'s own folder, which the WebMCP App may have changed', async () => {
+  const request = { version: 1, id: 'r1', tool: 'host_command', arguments: { command: 'true' } };
+  await withHome(async ({ home, configFile, lockFile }) => {
+    globalThis.hostAccessWorkspace = { version: 1, hostRoot: '/Users/me/App-chosen', mode: 'workspace', readOnly: false };
+    assert.equal((await dispatchHostCommand(request, { configFile, home, lockFile })).ok, false, 'no lease, no command');
+
+    globalThis.hostAccessLease = { state: 'active', lease: { id: 'lease-1', accessLevel: 'full-host' } };
+    const allowed = await dispatchHostCommand(request, { configFile, home, lockFile });
+    assert.deepEqual(allowed.result, { ran: 'lease-1' });
+    assert.ok(globalThis.hostAccessRecords.some((call) => call[0] === 'lease' && call[1] === '/Users/me/App-chosen'));
+
+    globalThis.hostAccessLease = { state: 'active', lease: { id: 'lease-2', accessLevel: 'docker-full' } };
+    assert.equal((await dispatchHostCommand(request, { configFile, home, lockFile })).ok, false, 'Full Working Access is not Host Access');
+
+    globalThis.hostAccessLease = null;
+    globalThis.hostAccessRecords = [];
+    await grantHostAccess({ configFile, minutes: 1, home, lockFile });
+    assert.ok(!globalThis.hostAccessRecords.some((call) => call[0] === 'persist'), 'the App-managed folder is not overwritten');
+  });
+});
+
+test('the lease is read and cleared without Docker, as host_command reads it', async () => {
+  await withHome(async ({ home, lockFile }) => {
+    globalThis.hostAccessWorkspace = { version: 1, hostRoot: '/Users/me/p', mode: 'workspace', readOnly: false };
+    globalThis.hostAccessLease = { state: 'active', lease: { id: 'l', accessLevel: 'full-host', expiresAt: 5000 } };
+    assert.deepEqual(await instanceLeaseStatus({ home, lockFile }), { mode: 'elevated', accessLevel: 'full-host', expiresAt: new Date(5000).toISOString() });
+    globalThis.hostAccessLease = { state: 'active', lease: { id: 'l', expiresAt: 5000 } };
+    assert.equal((await instanceLeaseStatus({ home, lockFile })).accessLevel, 'docker-full');
+    globalThis.hostAccessLease = { state: 'rebooted' };
+    assert.deepEqual(await instanceLeaseStatus({ home, lockFile }), { mode: 'stale', leaseState: 'rebooted' });
+    await clearInstanceLease({ home, lockFile });
+    assert.ok(globalThis.hostAccessRecords.some((call) => call[0] === 'clear'));
+  });
 });
 
 async function uninstallFixture({ otherPins = {}, currentTo = null } = {}) {

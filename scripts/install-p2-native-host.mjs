@@ -11,6 +11,7 @@ import { assertWindowsWorkspace } from '../native/host/control.js';
 import { promisify } from 'node:util';
 import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
 import { beginInstall } from '../native/host/install-rollback.js';
+import { migrateToInstance, planInstanceMigration } from '../native/host/instance-migration.js';
 
 const execFileAsync = promisify(execFile);
 const EXTENSION_ID = /^[a-p]{32}$/;
@@ -88,11 +89,27 @@ async function installRuntime(dockerPath) {
     const { pinInstanceToRelease } = await at('native/deploy/instance-release.js');
     const { buildNativeImageFromRelease, DEFAULT_NATIVE_BASE_IMAGE } = await at('native/deploy/build-image.js');
     const context = createInstanceContext({ home, instanceId: 'deepseek' });
+    const modules = {
+      controller: await at('native/deploy/local-instance-controller.js'),
+      mounts: await at('native/deploy/workspace-mount-config.js'),
+      workspace: await at('native/deploy/workspace-config.js'),
+    };
     // Only the shared release store has been written so far. The build writes the image pin
-    // and moves the image tag; the caller runs it inside its rollback (install-rollback.js).
+    // and moves the image tag, the migration the instance's folders and container; the caller
+    // runs both inside its rollback (install-rollback.js).
     return {
       artifactId: lock.artifactId,
-      instanceFiles: [context.imagePin, context.hostReleasePin],
+      containerName: context.containerName,
+      instanceFiles: [context.imagePin, context.hostReleasePin, context.workspaceConfig, context.workspaceMountConfig, context.attachmentGeneration],
+      planMigration: (workspaceRoot) => planInstanceMigration({ context, workspaceRoot, release: modules }),
+      // The release's container controller runs `docker` by name.
+      migrate: (plan) => {
+        process.env.PATH = [path.dirname(dockerPath), process.env.PATH].join(path.delimiter);
+        const removeContainer = (name) => execFileAsync(dockerPath, ['rm', '--force', name], { encoding: 'utf8' }).catch((error) => {
+          if (!/no such container/i.test(`${error?.stderr ?? ''}\n${error?.message ?? ''}`)) throw error;
+        });
+        return migrateToInstance(plan, { context, release: modules, releaseArtifactId: lock.artifactId, removeContainer });
+      },
       build: async () => (await buildNativeImageFromRelease({
         releaseDir: release.releaseDir,
         expectedArtifactId: lock.artifactId,
@@ -145,6 +162,9 @@ await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
 const runtime = await installRuntime(dockerPath);
+// On macOS DeepSeek's folder moves into the `deepseek` WebMCP instance. Anything that would stop
+// that half way stops setup here, before a file is written or an image tag moves.
+const migration = kind === 'macos' ? await runtime.planMigration(workspaceRoot) : null;
 const launcherPath = path.join(stateDir, 'p2-native-host');
 const browserRoots = await installedBrowserProfileRoots(home);
 // Under WSL the browsers are registered on the Windows side (windows/register.ps1).
@@ -192,6 +212,11 @@ async function writeInstall() {
   }
 
   await runtime.pin();
+  // The instance controller verifies the pin, so the folders move after it.
+  if (migration) {
+    install.trackContainer(runtime.containerName);
+    await runtime.migrate(migration);
+  }
   return builtImage;
 }
 

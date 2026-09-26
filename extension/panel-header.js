@@ -35,35 +35,44 @@ export function mountProviderSelect(select, provider, notify = () => {}) {
 
 // Header line 4 (Unified Side Panel header contract): the security context of the local runtime,
 // from the same status the settings already read. Colors are fixed for every provider:
-// WRITE emphasized, FULL ACCESS orange, HOST ACCESS red; an unverified host lease shows in red;
-// an expired lease disappears.
-const UNVERIFIED_HOST = new Set(['unverified', 'config_changed', 'invalid']);
+// WRITE emphasized, FULL ACCESS orange, HOST ACCESS red; a lease that cannot be verified shows in
+// red; an expired lease disappears.
+// The WebMCP instance holds one lease, Full Working Access or Host Access. When it cannot be
+// verified its level is unknown, so it is shown (and revoked) without claiming which one.
+const UNVERIFIED_LEASE = new Set(['unverified', 'invalid', 'rebooted', 'login_restarted', 'config_changed', 'instance_changed']);
 const minutesLeft = (until, now) => `${Math.max(1, Math.ceil((until - now) / 60000))}m`;
 const folderName = (folder) => String(folder ?? '').split('/').filter(Boolean).pop() || String(folder ?? '');
+const leaseOn = (until, now) => Number.isFinite(until) && until > now;
 
-// This runtime always mounts the chosen folder writable (native/host/docker-dispatch.js), so the
-// folder carries WRITE. Full access replaces the folder with the home folder; Host access does not.
+// Each folder carries its own write switch. Either lease gives the tools the home folder (the
+// runtime's elevated container), so both replace the folders with Home.
 export function accessParts(status, now) {
-  if (!status || typeof status.folder !== 'string') return null;
-  const fullOn = Number.isFinite(status.fullAccessUntil) && status.fullAccessUntil > now;
-  const hostOn = hostLeaseOn(status, now);
-  const parts = fullOn
-    ? [{ text: 'Home', kind: 'mount' }, { text: `FULL ACCESS ${minutesLeft(status.fullAccessUntil, now)}`, kind: 'full' }]
-    : [{ text: folderName(status.folder), kind: 'mount' }, { text: 'WRITE', kind: 'write' }];
+  if (!status || status.leaseState === 'unavailable') return null;
+  const fullOn = leaseOn(status.fullAccessUntil, now);
+  const hostOn = leaseOn(status.hostAccessUntil, now);
+  const parts = fullOn || hostOn ? [{ text: 'Home', kind: 'mount' }] : folderParts(status.folders);
+  if (fullOn) parts.push({ text: `FULL ACCESS ${minutesLeft(status.fullAccessUntil, now)}`, kind: 'full' });
   if (hostOn) parts.push({ text: `HOST ACCESS ${minutesLeft(status.hostAccessUntil, now)}`, kind: 'host' });
-  else if (UNVERIFIED_HOST.has(status.hostAccessState)) parts.push({ text: 'HOST ACCESS UNVERIFIED', kind: 'host' });
+  else if (UNVERIFIED_LEASE.has(status.leaseState)) parts.push({ text: 'ACCESS UNVERIFIED', kind: 'host' });
   return parts;
 }
 
-const hostLeaseOn = (status, now) => status?.hostAccessState === 'active' && Number.isFinite(status.hostAccessUntil) && status.hostAccessUntil > now;
+function folderParts(folders) {
+  if (!Array.isArray(folders)) return [{ text: 'folders unknown', kind: 'mount' }];
+  if (folders.length === 0) return [{ text: 'no folder', kind: 'mount' }];
+  return folders.flatMap((folder) => [
+    { text: folderName(folder.path), kind: 'mount' },
+    folder.write ? { text: 'WRITE', kind: 'write' } : { text: 'READ', kind: 'read' },
+  ]);
+}
 
 // The controls that end Full / Host Access, the most dangerous first. Revoking only lowers
 // authority, so the panel may do it; granting stays behind the macOS dialog in Settings.
 export function highAccessControls(status, now) {
   if (!status) return [];
   const controls = [];
-  if (hostLeaseOn(status, now) || UNVERIFIED_HOST.has(status.hostAccessState)) controls.push('stop-host-access');
-  if (Number.isFinite(status.fullAccessUntil) && status.fullAccessUntil > now) controls.push('stop-full-access');
+  if (leaseOn(status.hostAccessUntil, now) || UNVERIFIED_LEASE.has(status.leaseState)) controls.push('stop-host-access');
+  if (leaseOn(status.fullAccessUntil, now)) controls.push('stop-full-access');
   return controls;
 }
 
@@ -85,12 +94,13 @@ async function revokeHighAccess(status) {
 function renderAccess(element, status, now) {
   const parts = accessParts(status, now);
   if (!parts) {
-    element.textContent = 'Access: local runtime not reachable';
+    element.textContent = status?.leaseState === 'unavailable' ? 'Access: WebMCP instance not ready' : 'Access: local runtime not reachable';
     return;
   }
   const nodes = [document.createTextNode('Access: ')];
   parts.forEach((part, index) => {
-    if (index > 0) nodes.push(document.createTextNode(' · '));
+    // A write switch belongs to the folder before it.
+    if (index > 0) nodes.push(document.createTextNode(['write', 'read'].includes(part.kind) ? ' ' : ' · '));
     const span = document.createElement('span');
     span.className = `access-${part.kind}`;
     span.textContent = part.text;

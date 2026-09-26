@@ -257,10 +257,15 @@ test('Full access and folder changes happen only after the macOS dialog is confi
   );
   const cancelled = Object.assign(new Error('cancel'), { stderr: 'execution error: User canceled. (-128)' });
 
-  assert.equal((await control('grant-full-access', { minutes: 30 }, cancelled)).result.fullAccessUntil, null);
-  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:true')).result.fullAccessUntil, null);
-  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:false')).result.fullAccessUntil, 1000 + 30 * 60_000);
-  assert.equal((await control('stop-full-access')).result.fullAccessUntil, null);
+  // Settings' own Full access lease (until Settings drops it); the status reports the instance's.
+  const { leasePath } = await import('../native/host/local-paths.js');
+  const lease = () => read(leasePath(home), 'utf8').then((text) => JSON.parse(text).expiresAt, () => null);
+  assert.equal((await control('grant-full-access', { minutes: 30 }, cancelled)).result.changed, false);
+  assert.equal(await lease(), null);
+  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:true')).result.changed, false);
+  assert.equal(await lease(), null);
+  assert.equal((await control('grant-full-access', { minutes: 30 }, 'button returned:Allow, gave up:false')).result.changed, true);
+  assert.equal(await lease(), 1000 + 30 * 60_000);
 
   assert.equal((await control('choose-folder', {}, cancelled)).result.changed, false);
   const chosen = await control('choose-folder', {}, `${second}/`);
