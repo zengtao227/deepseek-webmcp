@@ -225,6 +225,68 @@ test('tool-call replies and typed tool results are marked so their icon rows hid
   assert.match(css, /\[data-webmcp-step\] \[role="group"\]:has\(button\[data-testid="copy-turn-action-button"\]\) \{ display: none !important; \}/);
 });
 
+// Live DOM 2026-09-26 (no role attributes): one exchange holds the owner's message unit, the reply
+// unit and, beside them, the reply's .turn-action-controls row. The step's own unit is marked.
+test('in the DOM without role attributes, tool steps mark their own message unit and CSS hides only their rows', () => {
+  const unit = () => {
+    const attributes = new Map();
+    return { getAttribute: (name) => attributes.get(name) ?? null, setAttribute: (name, value) => attributes.set(name, value), hasAttribute: (name) => attributes.has(name) };
+  };
+  const inUnit = (node, owner) => Object.assign(node, {
+    closest: (selector) => (selector.includes('data-content-search-unit-key') ? owner : null),
+    style: { setProperty() {} },
+    getAttribute: node.getAttribute ?? (() => null),
+    setAttribute: node.setAttribute ?? (() => {}),
+  });
+  const toolUnit = unit();
+  const resultUnit = unit();
+  const questionUnit = unit();
+  const finalUnit = unit();
+  const text = (value) => ({ nodeType: 3, nodeName: '#text', textContent: value });
+  const bubble = (value, owner) => inUnit({ childNodes: [text(value)], textContent: value }, owner);
+  const call = '<webmcp_tool_call>{"id":"a","name":"open_workspace","arguments":{}}</webmcp_tool_call>';
+  const block = inUnit({ textContent: call, querySelector: () => ({ textContent: call }) }, toolUnit);
+  const toolReply = inUnit({ textContent: call, querySelectorAll: () => [block], querySelector: () => block }, toolUnit);
+  const finalReply = inUnit({ textContent: 'Write is ON.', querySelectorAll: () => [], querySelector: () => null }, finalUnit);
+  const users = [
+    bubble('WebMCP tool result.\n{"id":"a","name":"open_workspace","isError":false}', resultUnit),
+    bubble('Is Write ON?', questionUnit),
+  ];
+  let fold;
+  let css = '';
+  const document = {
+    body: {}, head: { append: (node) => { css = node.textContent; } },
+    createElement: () => ({ textContent: '' }),
+    querySelector: () => null,
+    querySelectorAll: (selector) => {
+      if (selector.split(',').some((part) => part.trim() === '[data-user-message-bubble="true"] div')) return users;
+      if (selector.includes('data-markdown-text-style="assistant-message"')) return [toolReply, finalReply];
+      return [];
+    },
+    addEventListener() {},
+  };
+  const window = { addEventListener() {} };
+  window.top = window;
+  vm.runInNewContext(source, {
+    window, document,
+    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/c/existing', pathname: '/c/existing' },
+    chrome: { runtime: { id: 'test', sendMessage: async () => ({}), onMessage: { addListener() {} } } },
+    Node: { TEXT_NODE: 3 },
+    getComputedStyle: () => ({ color: 'white' }),
+    MutationObserver: class { observe() {} },
+    requestAnimationFrame: (callback) => { fold = callback; },
+    setInterval: (callback) => callback(),
+    setTimeout,
+  });
+  fold();
+  assert.equal(toolUnit.hasAttribute('data-webmcp-step'), true, 'tool-call reply');
+  assert.equal(resultUnit.hasAttribute('data-webmcp-step'), true, 'typed tool result');
+  assert.equal(questionUnit.hasAttribute('data-webmcp-step'), false, 'the owner\'s question keeps its buttons');
+  assert.equal(finalUnit.hasAttribute('data-webmcp-step'), false, 'the final answer keeps Copy / Rate');
+  assert.ok(css.includes('[data-content-search-unit-key$=":user"][data-webmcp-step] button { display: none !important; }'));
+  assert.ok(css.includes('[data-content-search-turn-key]:has([data-content-search-unit-key$=":assistant"][data-webmcp-step]) .turn-action-controls:not([data-content-search-unit-key$=":user"] *) { display: none !important; }'));
+});
+
 // A finished reply that holds a complete tool call is reported as soon as ChatGPT stops generating;
 // waiting STABLE_MS (2 s) delayed every tool step. A plain answer still waits for the quiet period.
 async function reportDelay(answerText, answerMarker = 'data-message-author-role="assistant"') {

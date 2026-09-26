@@ -521,6 +521,10 @@
   // icon row; the owner's question and the final answer keep Copy / Rate (live DOM 2026-09-25).
   const STEP = 'data-webmcp-step';
   const TURN_SELECTOR = '[data-testid^="conversation-turn"]';
+  // In the DOM without role attributes (2026-09-26) one exchange holds both messages; each has its
+  // own unit. The reply's icon row (.turn-action-controls) sits beside them; the owner's message has
+  // a row of the same class inside its own unit, which stays.
+  const UNIT_SELECTOR = '[data-content-search-unit-key]';
   // Free-plan sponsored cards sit in the reply's block beside the reply itself, with no link or
   // attribute of their own; only the badge text marks them (live DOM 2026-09-26).
   const AD = 'data-webmcp-ad';
@@ -540,6 +544,8 @@
     [${FOLD}][${OPEN}] { cursor: pointer; }
     [${STEP}] [role="group"]:has(button[data-testid="copy-turn-action-button"]) { display: none !important; }
     [${STEP}][data-turn="user"] button { display: none !important; }
+    [data-content-search-unit-key$=":user"][${STEP}] button { display: none !important; }
+    [data-content-search-turn-key]:has([data-content-search-unit-key$=":assistant"][${STEP}]) .turn-action-controls:not([data-content-search-unit-key$=":user"] *) { display: none !important; }
     [${AD}] { display: none !important; }
   `;
   (document.head ?? document.documentElement).append(style);
@@ -578,7 +584,7 @@
   }
 
   function markStep(element) {
-    const turn = element.closest(TURN_SELECTOR);
+    const turn = element.closest(TURN_SELECTOR) ?? element.closest(UNIT_SELECTOR);
     if (turn && !turn.hasAttribute(STEP)) turn.setAttribute(STEP, '');
   }
 
