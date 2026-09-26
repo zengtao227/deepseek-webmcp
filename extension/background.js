@@ -1052,7 +1052,7 @@ async function runControl(control, args) {
     // get Chromium's "Specified native messaging host not found."
     // The popup then removes only this extension itself (that needs its click gesture).
     if (/native messaging host not found/i.test(error?.message ?? '')) {
-      return { ok: false, error: { code: 'LOCAL_PROGRAM_MISSING', message: 'The local program was removed (all browsers share it). Uninstall… removes this extension too. To use DeepSeek WebMCP again, copy the install command and paste it into Terminal.' } };
+      return { ok: false, error: { code: 'LOCAL_PROGRAM_MISSING', message: 'The local program was removed (all browsers share it). Uninstall… removes this extension too. To use WebMCP again, copy the install command and paste it into Terminal.' } };
     }
     // The browser's own reason is a fixed browser string and the only clue when one
     // Chromium browser differs from another.

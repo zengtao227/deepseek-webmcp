@@ -550,7 +550,7 @@ test('a failed lookup describes the latest answer action bar with identifying at
   assert.equal(fourth.ariaLabelledby, 'lbl-1');
 
   assert.deepEqual(buttons.map((button) => button.clicks), [0, 0, 0, 0], 'nothing is clicked on a guess');
-  assert.deepEqual(page.logs.at(-1)[0], '[DeepSeek WebMCP] action control diagnostic');
+  assert.deepEqual(page.logs.at(-1)[0], '[WebMCP] action control diagnostic');
   assert.deepEqual(JSON.parse(page.logs.at(-1)[1]), reply.diagnostics, 'the console copy is the same data');
   assert.ok(message.contains(answer));
 });

@@ -34,7 +34,7 @@ const FORMS = 'Add-Type -AssemblyName System.Windows.Forms;';
 
 export async function confirmOnWindows(message, { exec, timeoutMs } = {}) {
   const answer = await runPowerShell(
-    `${FORMS} [System.Windows.Forms.MessageBox]::Show(${psString(message)}, 'DeepSeek WebMCP', 'OKCancel', 'Warning', 'Button2', [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)`,
+    `${FORMS} [System.Windows.Forms.MessageBox]::Show(${psString(message)}, 'WebMCP', 'OKCancel', 'Warning', 'Button2', [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)`,
     { exec, timeoutMs },
   ).catch(() => null);
   return answer === 'OK';
@@ -46,7 +46,7 @@ export async function chooseFolderOnWindows(initialWindowsPath, { exec, timeoutM
     FORMS,
     '$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true };',
     '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog;',
-    "$dialog.Description = 'Choose the folder DeepSeek WebMCP may read and change';",
+    "$dialog.Description = 'Choose the folder WebMCP may read and change';",
     `$dialog.SelectedPath = ${psString(initialWindowsPath ?? '')};`,
     "if ($dialog.ShowDialog($owner) -eq 'OK') { $dialog.SelectedPath }",
   ].join(' '), { exec, timeoutMs }).catch(() => '');
@@ -55,7 +55,7 @@ export async function chooseFolderOnWindows(initialWindowsPath, { exec, timeoutM
 
 export function notifyOnWindows(message) {
   spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded(
-    `${FORMS} [System.Windows.Forms.MessageBox]::Show(${psString(message)}, 'DeepSeek WebMCP', 'OK', 'Information', 'Button1', [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly) | Out-Null`,
+    `${FORMS} [System.Windows.Forms.MessageBox]::Show(${psString(message)}, 'WebMCP', 'OK', 'Information', 'Button1', [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly) | Out-Null`,
   )], { detached: true, stdio: 'ignore' }).unref();
 }
 

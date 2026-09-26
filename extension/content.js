@@ -443,7 +443,7 @@
       // The side panel notice holds ~500 characters; the full detail is returned here and also
       // logged once in this tab's console so it can be copied from DevTools.
       const diagnostics = actionDiagnostic(action, found);
-      if (typeof console !== 'undefined') console.info('[DeepSeek WebMCP] action control diagnostic', JSON.stringify(diagnostics));
+      if (typeof console !== 'undefined') console.info('[WebMCP] action control diagnostic', JSON.stringify(diagnostics));
       return {
         ok: false,
         code: 'CONTROL_NOT_FOUND',

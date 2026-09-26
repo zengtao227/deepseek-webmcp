@@ -22,7 +22,7 @@ test('S4: inspect_page locks the open page and the result typed back holds its t
     mock.replies.push(() => mock.toolCall('s4_1', 'inspect_page'));
   });
   const received = await turnDone(env, panel, provider, 2);
-  assert.ok(received[1].startsWith('DeepSeek WebMCP tool result.'));
+  assert.ok(received[1].startsWith('WebMCP tool result.'));
   const payload = toolPayload(received[1]);
   assert.equal(payload.isError, false);
   const shown = JSON.stringify(payload.result);

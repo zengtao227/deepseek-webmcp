@@ -106,6 +106,6 @@ test('S3b: a very short tool-call reply is processed and its result goes back to
   await panel.press('#prompt', 'Enter');
   await waitFor(async () => (await provider.evaluate(() => window.__mock.received.length)) >= 2, { message: 'the tool result to come back to the mock', timeout: 30_000 });
   const result = await provider.evaluate(() => window.__mock.received[1]);
-  assert.ok(result.includes('DeepSeek WebMCP tool result'), 'the second message is the tool result');
+  assert.ok(result.includes('WebMCP tool result'), 'the second message is the tool result');
   assert.ok(result.includes('Fixture Form'), 'it holds the fixture page that was read');
 });
