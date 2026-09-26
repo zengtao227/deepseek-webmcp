@@ -340,7 +340,7 @@
     await send({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
   }
 
-  const INSTRUCTIONS_START = 'You can use owner-approved tools through DeepSeek WebMCP';
+  const INSTRUCTIONS_START = 'You can use owner-approved tools through WebMCP';
 
   // Live 2026-09-25: ChatGPT read the shared instructions as its own built-in tools, found none in
   // its session and refused. This line says where the tools really run.
@@ -525,8 +525,8 @@
   // attribute of their own; only the badge text marks them (live DOM 2026-09-26).
   const AD = 'data-webmcp-ad';
   const AD_BADGE = /^(Ad|Ads|Sponsored|广告|赞助)$/;
-  const RESULT_START = 'DeepSeek WebMCP tool result.\n';
-  const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
+  const RESULT_START = 'WebMCP tool result.\n';
+  const CORRECTION_START = 'WebMCP format correction.\n';
   const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
 
   // The bubble box itself carries an accent color, so the summary uses the color of the

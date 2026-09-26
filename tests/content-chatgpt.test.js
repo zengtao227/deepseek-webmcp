@@ -70,7 +70,7 @@ async function sendThroughComposer({ pasteApplies }) {
       id: 'test',
       sendMessage: async (message) => {
         messages.push(message);
-        if (message.type === 'work.arrive') return { work: true, instructions: 'You can use owner-approved tools through DeepSeek WebMCP to inspect_page.' };
+        if (message.type === 'work.arrive') return { work: true, instructions: 'You can use owner-approved tools through WebMCP to inspect_page.' };
         return {};
       },
       onMessage: { addListener() {} },
@@ -132,8 +132,8 @@ test('typed tool results and the tool contract fold although ChatGPT renders the
     };
   };
   const fence = '```text\n<webmcp_tool_call>{"id":"<new unique id>"}</webmcp_tool_call>\n```';
-  const result = bubble(textNode('DeepSeek WebMCP tool result.\n{"id":"a","name":"inspect_page","isError":false}\n'), pre(fence), textNode('\nBare JSON is not a tool call.'));
-  const contract = bubble(textNode('Can you read the left page?\n\n---\nYou can use owner-approved tools through DeepSeek WebMCP for the task above.\n'), pre(fence), textNode('\nUse one tool call per reply.'));
+  const result = bubble(textNode('WebMCP tool result.\n{"id":"a","name":"inspect_page","isError":false}\n'), pre(fence), textNode('\nBare JSON is not a tool call.'));
+  const contract = bubble(textNode('Can you read the left page?\n\n---\nYou can use owner-approved tools through WebMCP for the task above.\n'), pre(fence), textNode('\nUse one tool call per reply.'));
   const question = bubble(textNode('Can you read the left page?'));
   let fold;
   const document = {
@@ -188,7 +188,7 @@ test('tool-call replies and typed tool results are marked so their icon rows hid
   const toolReply = inTurn({ textContent: call, querySelectorAll: () => [toolPre], querySelector: () => toolPre }, toolTurn);
   const finalReply = inTurn({ textContent: 'The title is Action.', querySelectorAll: () => [], querySelector: () => null }, finalTurn);
   const users = [
-    bubble('DeepSeek WebMCP tool result.\n{"id":"a","name":"inspect_page","isError":false}', resultTurn),
+    bubble('WebMCP tool result.\n{"id":"a","name":"inspect_page","isError":false}', resultTurn),
     bubble('Can you read the left page?', questionTurn),
   ];
   let fold;
@@ -301,7 +301,7 @@ test('the tool contract and the tool call fold in the DOM without role attribute
   });
   const fence = '<webmcp_tool_call>{"id":"<new unique id>","name":"<tool name>","arguments":{...}}</webmcp_tool_call>';
   const contractNodes = [
-    textNode('Use WebMCP to call open_workspace.\n\n---\nYou can use owner-approved tools through DeepSeek WebMCP for the task above.\n'),
+    textNode('Use WebMCP to call open_workspace.\n\n---\nYou can use owner-approved tools through WebMCP for the task above.\n'),
     codeBlock(fence),
     textNode('\nUse one tool call per reply.'),
   ];

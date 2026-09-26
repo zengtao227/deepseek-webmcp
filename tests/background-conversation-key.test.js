@@ -385,7 +385,7 @@ test('local settings controls are relayed only from the popup', async () => {
 test('a DSML reply gets a format correction typed back, and nothing runs natively', async () => {
   const background = await working();
   const reply = await background.send({ type: 'work.completion', text: '<｜｜DSML｜｜ invoke name="bash">' }, background.from(A));
-  assert.match(reply.continueWith, /^DeepSeek WebMCP format correction\./);
+  assert.match(reply.continueWith, /^WebMCP format correction\./);
   assert.equal(reply.conversationPath, new URL(A).pathname);
   assert.equal(background.nativeCalls.length, 0);
 });

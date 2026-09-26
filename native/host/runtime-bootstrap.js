@@ -1,7 +1,7 @@
 // Starts the webmcp-runtime tool server that the pinned image ships under /opt/webmcp,
 // with DeepSeek's own policy: the runtime token is mandatory (fail closed), commands are
 // bounded to 30 s, and the model receives DeepSeek's workspace instruction.
-export const DEEPSEEK_CHECKOUT_INSTRUCTION = 'Workspace opened for bounded DeepSeek WebMCP coding. Use only the exposed tools and remain inside /workspace.';
+export const DEEPSEEK_CHECKOUT_INSTRUCTION = 'Workspace opened for bounded WebMCP coding. Use only the exposed tools and remain inside /workspace.';
 export const DEEPSEEK_MAX_TIMEOUT_MS = 30_000;
 export const DEEPSEEK_SERVER_VERSION = '0.0.2-p2';
 

@@ -49,7 +49,7 @@ export function buildNativeToolResult(call, response) {
   // extension-authored and must show the literal markers. Its template JSON is
   // deliberately invalid, so an echoed template fails closed instead of executing.
   return [
-    'DeepSeek WebMCP tool result.',
+    'WebMCP tool result.',
     neutralizeToolMarkers(JSON.stringify(payload)),
     ...toolContractLines('Continue the current task. If another tool is required, reply with exactly one fenced text block and nothing else:'),
     'If the task is finished or no available tool fits, reply without a tool call.',
@@ -67,7 +67,7 @@ export function usesNativeToolSyntax(text) {
 
 export function buildFormatCorrection() {
   return [
-    'DeepSeek WebMCP format correction.',
+    'WebMCP format correction.',
     'Your last reply used a different tool-call format, which WebMCP does not run. Nothing was executed.',
     ...toolContractLines('Send the same call again as exactly one fenced text block and nothing else:'),
   ].join('\n');
@@ -79,7 +79,7 @@ export function buildFormatCorrection() {
 export function buildWorkInstructions({ pageAttached = false } = {}) {
   return [
     '---',
-    'You can use owner-approved tools through DeepSeek WebMCP for the task above. Browser tools act only on the one browser tab I explicitly attached. Coding tools, including bash, run in the isolated Docker workspace. host_command is separate: it runs as the Mac user only during a locally approved Temporary Full Host Access — High Trust lease.',
+    'You can use owner-approved tools through WebMCP for the task above. Browser tools act only on the one browser tab I explicitly attached. Coding tools, including bash, run in the isolated Docker workspace. host_command is separate: it runs as the Mac user only during a locally approved Temporary Full Host Access — High Trust lease.',
     ...toolContractLines('To call a tool, reply with exactly one fenced text block and nothing else, then wait for the result:'),
     ...(pageAttached
       ? ['A browser page is already attached for this task; do not ask me to attach one. Requests about "the current page" or "the work page" mean that attached page.']
@@ -97,7 +97,7 @@ export function buildWorkInstructions({ pageAttached = false } = {}) {
 // the page it read earlier is no longer connected, and otherwise answers from the old result.
 export function buildPageReleasedNote() {
   return [
-    '[DeepSeek WebMCP: the owner pressed Stop, so the connection to the previous page is closed and anything you read from it is out of date.',
+    '[WebMCP: the owner pressed Stop, so the connection to the previous page is closed and anything you read from it is out of date.',
     'If this request needs a webpage, call inspect_page again; it connects to the page that is open now.]',
   ].join(' ');
 }

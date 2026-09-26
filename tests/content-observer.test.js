@@ -245,13 +245,13 @@ test('Enter is left alone during IME composition, with Shift, in existing chats 
 
 
 test('extension-typed messages are folded to a one-line summary without changing their text', async () => {
-  const instructions = 'You can use owner-approved tools through DeepSeek WebMCP for the task above.';
+  const instructions = 'You can use owner-approved tools through WebMCP for the task above.';
   const page = loadPage({
     messages: [
       `帮我跑测试\n\n---\n${instructions}`,
-      'DeepSeek WebMCP tool result.\n{"id":"a","name":"bash","isError":false,"result":{}}',
-      'DeepSeek WebMCP tool result.\n{"id":"b","name":"read","isError":true,"error":{}}',
-      'DeepSeek WebMCP format correction.\nYour last reply used a different tool-call format',
+      'WebMCP tool result.\n{"id":"a","name":"bash","isError":false,"result":{}}',
+      'WebMCP tool result.\n{"id":"b","name":"read","isError":true,"error":{}}',
+      'WebMCP format correction.\nYour last reply used a different tool-call format',
       'an ordinary message of mine',
     ],
   });

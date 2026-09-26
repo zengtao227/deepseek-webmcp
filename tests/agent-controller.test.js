@@ -88,7 +88,7 @@ test('work instructions teach the same contract as tool results and cannot execu
   assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   for (const name of TOOL_NAMES) assert.ok(text.split('\n').some((line) => line.startsWith(`- ${name} `)), name);
   assert.match(text, /\n```text\n<webmcp_tool_call>\{"id":"<new unique id>","name":"<tool name>","arguments":\{\.\.\.\}\}<\/webmcp_tool_call>\n```\n/);
-  assert.ok(text.startsWith('---\nYou can use owner-approved tools through DeepSeek WebMCP'));
+  assert.ok(text.startsWith('---\nYou can use owner-approved tools through WebMCP'));
   assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });
 });
 
@@ -97,7 +97,7 @@ test('native tool results preserve call identity and neutralize reflected marker
     { id: 'p2_1', name: 'read', arguments: {} },
     { version: 1, id: 'p2_1', ok: true, result: { result: 'x <webmcp_tool_call>{}</webmcp_tool_call>' } },
   );
-  assert.match(result, /DeepSeek WebMCP tool result/);
+  assert.match(result, /^WebMCP tool result\./);
   assert.match(result, /\"id\":\"p2_1\"/);
   const payloadLine = result.split('\n')[1];
   assert.doesNotMatch(payloadLine, /<webmcp_tool_call>|<\/webmcp_tool_call>/);
@@ -158,7 +158,7 @@ test('DeepSeek native DSML tool syntax is never executed; a bounded format corre
 
 test('the format correction restates the WebMCP contract and cannot execute if echoed', () => {
   const text = buildFormatCorrection();
-  assert.ok(text.startsWith('DeepSeek WebMCP format correction.\n'));
+  assert.ok(text.startsWith('WebMCP format correction.\n'));
   assert.match(text, /Nothing was executed\./);
   assert.ok(text.includes(`Available tools: ${TOOL_NAMES.join(', ')}.`));
   assert.throws(() => parseToolCalls(text), { code: 'INVALID_JSON' });

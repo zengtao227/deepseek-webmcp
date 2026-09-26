@@ -466,7 +466,7 @@
     await chrome.runtime.sendMessage({ type: 'work.continuation-result', result, conversationPath: reply.conversationPath }).catch(() => {});
   }
 
-  const INSTRUCTIONS_START = 'You can use owner-approved tools through DeepSeek WebMCP';
+  const INSTRUCTIONS_START = 'You can use owner-approved tools through WebMCP';
 
   // `force` is for the assistant's first prompt of a session: the provider may reopen on a
   // conversation that never received the tool contract, where isNewChat() is false.
@@ -632,8 +632,8 @@
   const OPEN = 'data-webmcp-open';
   const QUESTION = 'data-webmcp-question';
   const COLOR = '--webmcp-fold-color';
-  const RESULT_START = 'DeepSeek WebMCP tool result.\n';
-  const CORRECTION_START = 'DeepSeek WebMCP format correction.\n';
+  const RESULT_START = 'WebMCP tool result.\n';
+  const CORRECTION_START = 'WebMCP format correction.\n';
   const INSTRUCTIONS_SEPARATOR = `\n\n---\n${INSTRUCTIONS_START}`;
 
   // The bubble box itself carries an accent color, so the summary uses the color of the

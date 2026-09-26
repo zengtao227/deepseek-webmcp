@@ -378,7 +378,7 @@ export function createWorkspaceRuntime({
         workspaceId,
         root: NATIVE_WORKSPACE_ROOT,
         mode: 'checkout',
-        instruction: 'Workspace opened for bounded DeepSeek WebMCP coding. Use only the exposed tools and remain inside /workspace.',
+        instruction: 'Workspace opened for bounded WebMCP coding. Use only the exposed tools and remain inside /workspace.',
       };
     },
     async read({ workspaceId: candidate, path: requestedPath, offset = 1, limit = DEFAULT_READ_LINES }) {
