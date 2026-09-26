@@ -3,7 +3,7 @@ import { BrowserClientError, callBrowserTool, isBrowserToolAllowed } from './bro
 import { normalizeBlocks } from './answer-blocks.js';
 import { createBrowserTask } from './browser-task.js';
 import { callNativeControl, callNativeTool, isToolAllowed } from './native-client.js';
-import { PANEL_ID, disableFramePolicy, enableFramePolicy, panelFrameHref } from './frame-policy.js';
+import { PANEL_ID, disableFramePolicy, enableFramePolicy, panelFrameHref, setPanelNavigationRule } from './frame-policy.js';
 
 // Web Provider Mode: each provider is an AI web page driven by its own content script.
 // The tool loop, local runtime and approvals below are shared by all of them.
@@ -855,6 +855,7 @@ async function openPanelFrame() {
     if (Number.isInteger(deepseek.providerTabId)) await workOff(deepseek.providerTabId);
   }
   await enableFramePolicy();
+  await setPanelNavigationRule(true);
   await workOn(PANEL_ID);
   return { started: true };
 }
@@ -864,6 +865,7 @@ async function closePanelFrame() {
   await releaseTask();
   await workOff(PANEL_ID);
   await disableFramePolicy();
+  await setPanelNavigationRule(false);
   return { stopped: true };
 }
 

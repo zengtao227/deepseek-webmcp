@@ -4,6 +4,7 @@ import {
   OPENAI_SANDBOX_CSP,
   buildFramePolicyRule,
   buildSandboxFramePolicyRule,
+  buildPanelNavigationRule,
   panelFrameHref,
 } from '../extension/frame-policy.js';
 
@@ -45,4 +46,17 @@ test('only a tab-less chatgpt.com frame reporting its own origin counts as the p
   assert.equal(panelFrameHref(panel, 'https://chat.deepseek.com/a/chat/s/x'), null);
   assert.equal(panelFrameHref(panel, 'not a url'), null);
   assert.equal(panelFrameHref(panel, undefined), null);
+});
+
+// Live 2026-09-26 (Comet, logged-out frame): "chatgpt.com refused to connect". chatgpt.com sends
+// X-Frame-Options: SAMEORIGIN and a frame-ancestors list without this extension; a navigation that
+// ChatGPT starts inside the panel frame (a redirect, its Log in links) has chatgpt.com as initiator,
+// so the extension-initiated rule above does not apply to it.
+test('navigations ChatGPT starts inside the panel frame load too, but never in a browser tab', () => {
+  const rule = buildPanelNavigationRule();
+  assert.deepEqual(rule.condition, { requestDomains: ['chatgpt.com'], initiatorDomains: ['chatgpt.com'], resourceTypes: ['sub_frame'], tabIds: [-1] });
+  assert.deepEqual(rule.action.responseHeaders.map((header) => [header.header, header.operation]), [
+    ['x-frame-options', 'remove'],
+    ['content-security-policy', 'remove'],
+  ]);
 });
