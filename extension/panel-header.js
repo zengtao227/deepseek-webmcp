@@ -15,6 +15,18 @@ export async function routeToProviderPage(page) {
   return new Promise(() => {});
 }
 
+// The worker ends Host Access when this connection closes: the panel closed or moved to another
+// provider page. A worker stopped while idle closes it too, so the panel connects again at once.
+export function keepPanelSession(connect = () => chrome.runtime.connect({ name: 'webmcp-panel' })) {
+  let port;
+  try {
+    port = connect();
+  } catch {
+    return;
+  }
+  port.onDisconnect.addListener(() => keepPanelSession(connect));
+}
+
 // Owner decision 2026-09-26: high authority belongs to the provider in use. Both providers share one
 // local runtime, so switching ends Host Access before the other provider's page opens.
 // An unreadable status means the local program is unreachable, so no provider can use the access and

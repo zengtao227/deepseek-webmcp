@@ -37,7 +37,7 @@ test('each of the instance\'s folders shows its own write switch', () => {
   assert.equal(text(accessParts({ ...status, folders: [] }, now)), 'no folder[mount]');
 });
 
-import { highAccessControls, mountProviderSelect, startAccessLine } from '../extension/panel-header.js';
+import { highAccessControls, keepPanelSession, mountProviderSelect, startAccessLine } from '../extension/panel-header.js';
 
 // Owner decision 2026-09-26: the panel may revoke Full / Host Access (it only lowers authority);
 // granting stays behind the macOS dialog in Settings / the WebMCP App.
@@ -122,4 +122,23 @@ test('the Revoke button stays usable after a revoke that failed', async () => {
     delete globalThis.document;
     delete globalThis.chrome;
   }
+});
+
+// The worker ends Host Access when this connection closes. A worker stopped while idle also closes
+// it, so the panel connects again at once and its own close is still seen.
+test('the Side Panel holds one named connection and reconnects after the worker restarts', () => {
+  const ports = [];
+  const connect = () => {
+    const port = { onDisconnect: { addListener: (fn) => { port.drop = fn; } } };
+    ports.push(port);
+    return port;
+  };
+  keepPanelSession(connect);
+  assert.equal(ports.length, 1);
+  ports[0].drop();
+  assert.equal(ports.length, 2, 'reconnected');
+
+  let calls = 0;
+  keepPanelSession(() => { calls += 1; throw new Error('Extension context invalidated.'); });
+  assert.equal(calls, 1, 'a dead extension context is not retried');
 });

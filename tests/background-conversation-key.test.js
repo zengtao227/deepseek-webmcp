@@ -15,8 +15,10 @@ let importCounter = 0;
 
 // Loads background.js against a fake chrome API. `tab.url` models the browser-side
 // last committed URL, which tracks SPA pushState (what tabs.get/onUpdated report).
-async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHidden = false, slowStorage = false, browserReply = { version: 1, ok: true, result: { controls: [] } } } = {}) {
+async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHidden = false, slowStorage = false, browserReply = { version: 1, ok: true, result: { controls: [] } }, platform = 'mac', sessionStarted = true, stopOk = true } = {}) {
   const session = new Map();
+  // Every other test runs inside an extension session that has already begun.
+  if (sessionStarted) session.set('hostAccess.session', true);
   const local = new Map();
   const listeners = {};
   const nativeCalls = [];
@@ -142,10 +144,13 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
     },
     runtime: {
       getURL: (file) => `chrome-extension://test/${file}`,
+      getPlatformInfo: async () => ({ os: platform }),
       onMessage: { addListener: (fn) => { listeners.onMessage = fn; } },
+      onConnect: { addListener: (fn) => { listeners.onConnect = fn; } },
       sendNativeMessage: async (host, payload) => {
         nativeCalls.push(payload);
         if (nativeError) throw new Error(nativeError);
+        if (payload.control === 'stop-host-access') return { version: 1, id: payload.id, ok: stopOk, ...(stopOk ? { result: {} } : { error: { code: 'X', message: 'x' } }) };
         if (payload.control === 'status') return { version: 1, id: payload.id, ok: true, result: { folder: '/Users/test/Doc/My code', fullAccessUntil: null } };
         return { version: 1, id: payload.id, ok: true, result: { workspaceId: 'ws_test' } };
       },
@@ -189,6 +194,14 @@ async function loadBackground({ tabUrl = A, nativeError = null, providerStartsHi
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const WORK_WINDOW_ID = 2;
+
+// A Side Panel connection as chrome.runtime.connect delivers it to the worker.
+function openPanel(background, name = 'webmcp-panel') {
+  let closed;
+  background.listeners.onConnect({ name, sender: { url: SIDE_PANEL.url }, onDisconnect: { addListener: (fn) => { closed = fn; } } });
+  return { close: () => closed?.() };
+}
+const stops = (background) => background.nativeCalls.filter((call) => call.control === 'stop-host-access').length;
 
 // Work is switched on with the keyboard command (the toolbar icon now opens the panel, not a popup).
 async function enableWork(background, tabId) {
@@ -1089,4 +1102,47 @@ test('the panel switches a DeepSeek mode in the bound provider page, and nothing
   const busy = await background.send({ type: 'assistant.mode-toggle', label: '深度思考' }, SIDE_PANEL);
   assert.equal(busy.error.code, 'GENERATION_IN_PROGRESS');
   assert.deepEqual(background.modeCalls, ['深度思考']);
+});
+
+// Owner decision 2026-09-26 (security hotfix): Host Access belongs to one extension session and one
+// open Side Panel. chrome.storage.session is empty after a reload, an update or a browser restart.
+test('a new extension session ends a Host Access lease from the previous session before anything else runs', async () => {
+  const background = await loadBackground({ sessionStarted: false });
+  await flush();
+  await background.send({ type: 'settings.control', control: 'status' }, SIDE_PANEL);
+  assert.deepEqual(background.nativeCalls.map((call) => call.control), ['stop-host-access', 'status'], 'revoked once, before the reopened panel reads its status');
+  assert.equal(background.session.get('hostAccess.session'), true);
+
+  // The worker stopped while idle and started again in the same session: nothing is revoked.
+  const sameSession = await loadBackground();
+  await sameSession.send({ type: 'settings.control', control: 'status' }, SIDE_PANEL);
+  assert.equal(stops(sameSession), 0);
+
+  // Windows has no Host Access, so nothing is sent there.
+  const windows = await loadBackground({ sessionStarted: false, platform: 'win' });
+  await windows.send({ type: 'settings.control', control: 'status' }, SIDE_PANEL);
+  assert.equal(stops(windows), 0);
+});
+
+test('host_command never runs while the new-session revoke has not succeeded', async () => {
+  const background = await working({ sessionStarted: false, stopOk: false });
+  const call = '<webmcp_tool_call>{"id":"h1","name":"host_command","arguments":{"command":"pwd"}}</webmcp_tool_call>';
+  const reply = await background.send({ type: 'work.completion', text: call }, background.from(A));
+  assert.equal(background.nativeCalls.some((payload) => payload.tool === 'host_command'), false);
+  assert.match(reply.continueWith, /HOST_ACCESS_NOT_GRANTED/);
+  assert.equal(background.session.has('hostAccess.session'), false, 'the next native call tries the revoke again');
+});
+
+test('closing the Side Panel ends Host Access; folders are not touched', async () => {
+  const background = await loadBackground();
+  const panel = openPanel(background);
+  assert.equal(stops(background), 0, 'opening the panel changes nothing');
+  panel.close();
+  await flush();
+  assert.equal(stops(background), 1);
+  assert.deepEqual(background.nativeCalls.map((call) => call.control ?? call.tool), ['stop-host-access'], 'only the lease is revoked');
+
+  openPanel(background, 'something-else').close();
+  await flush();
+  assert.equal(stops(background), 1, 'other connections are not the panel');
 });

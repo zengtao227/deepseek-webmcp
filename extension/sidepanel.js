@@ -1,13 +1,14 @@
 import { blocksToPlainText } from './answer-blocks.js';
 import { renderBlocks } from './answer-render.js';
 import { initSettings } from './settings-ui.js';
-import { mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
+import { keepPanelSession, mountProviderSelect, routeToProviderPage, startAccessLine } from './panel-header.js';
 
 const $ = (selector) => document.querySelector(selector);
 
 // ChatGPT has its own panel page (the ChatGPT Embedded Panel's); nothing below runs for it.
 const provider = await routeToProviderPage('sidepanel.html');
 mountProviderSelect($('#provider'), provider, (text) => { $('#notice').textContent = text; });
+keepPanelSession();
 startAccessLine($('#access'));
 
 // DeepSeek's model/mode, read from the DeepSeek page by deepseek-model.js. Only the DeepSeek

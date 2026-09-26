@@ -993,7 +993,9 @@ async function processCompletion(tabId, key, text, resume) {
     toolResponse = await runBrowserTool(call);
   } else {
     try {
-      toolResponse = await callNativeTool(call);
+      toolResponse = call.name === 'host_command' && !(await hostAccessSession())
+        ? { version: 1, id: call.id, ok: false, error: { code: 'HOST_ACCESS_NOT_GRANTED', message: 'Host Access from an earlier extension session could not be ended, so host_command stays off. Revoke it in the WebMCP App.' } }
+        : await callNativeTool(call);
       if (call.name === 'open_workspace' && toolResponse.ok) toolResponse = await withWorkspaceFolderName(toolResponse);
     } catch (error) {
       toolResponse = { version: 1, id: call.id, ok: false, error: { code: error?.code ?? 'NATIVE_CALL_FAILED', message: 'The local WebMCP runtime is not reachable. Run npm run doctor on the Mac.' } };
@@ -1041,9 +1043,44 @@ async function recordContinuation(tabId, key, result) {
   await setDiagnostics(tabId, { ...stored, continuation });
 }
 
+// Host Access belongs to one extension session and one open Side Panel (owner decision
+// 2026-09-26): closing the panel, reloading or updating the extension, or restarting the browser
+// ends it, and only a new Grant in the WebMCP App brings it back. A revoke clears the lease only;
+// mounted folders and their Write switches stay. Windows has no Host Access.
+const PANEL_PORT = 'webmcp-panel';
+const HOST_ACCESS_SESSION_KEY = 'hostAccess.session';
+let hostAccessSessionStart = null;
+
+async function revokeHostAccess() {
+  if ((await chrome.runtime.getPlatformInfo()).os !== 'mac') return true;
+  try {
+    return (await callNativeControl('stop-host-access')).ok === true;
+  } catch {
+    return false;
+  }
+}
+
+// chrome.storage.session is emptied by a reload, an update or a browser restart but survives the
+// worker being stopped while idle, so a missing key marks a new extension session. Its first native
+// call ends any lease left from the previous session; the key is set only after that succeeded.
+// Closing the panel alone is not enough: a reload kills the worker before it sees the close.
+function hostAccessSession() {
+  hostAccessSessionStart ??= (async () => {
+    if ((await chrome.storage.session.get(HOST_ACCESS_SESSION_KEY))[HOST_ACCESS_SESSION_KEY] === true) return true;
+    if (!(await revokeHostAccess())) {
+      hostAccessSessionStart = null;
+      return false;
+    }
+    await chrome.storage.session.set({ [HOST_ACCESS_SESSION_KEY]: true });
+    return true;
+  })();
+  return hostAccessSessionStart;
+}
+
 async function runControl(control, args) {
   // No panel control carries arguments: grants happen only in the WebMCP App.
   const allowedArgs = {};
+  await hostAccessSession();
   let response;
   try {
     response = await callNativeControl(control, allowedArgs);
@@ -1171,6 +1208,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   Promise.resolve(reply).then(sendResponse, () => sendResponse(undefined));
   return true;
 });
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PANEL_PORT) return;
+  port.onDisconnect.addListener(() => { void revokeHostAccess(); });
+});
+
+void hostAccessSession();
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === 'toggle-work' && Number.isInteger(tab?.id)) void toggleWork(tab.id);
