@@ -134,6 +134,8 @@ export function startAccessLine(element) {
   };
   void load();
   setInterval(render, 1000);
-  setInterval(() => { void load(); }, 30000);
+  // Grants and revokes made in the WebMCP App reach the panel only through this read; one read costs
+  // about 0.3 s (two controller runs), and none run while the panel is hidden.
+  setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 5000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void load(); });
 }

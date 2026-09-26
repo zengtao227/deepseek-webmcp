@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 import { hostRuntimeRoot, INSTANCE_ID, readRuntimeLock } from '../native/host/host-access.js';
 import { beginInstall } from '../native/host/install-rollback.js';
 import { migrateToInstance, planInstanceMigration, removeLegacy } from '../native/host/instance-migration.js';
+import { dispatchInstanceRequest } from '../native/host/instance-dispatch.js';
 
 const execFileAsync = promisify(execFile);
 const EXTENSION_ID = /^[a-p]{32}$/;
@@ -247,6 +248,13 @@ if (migration) {
   await runtime.removeLegacy(migration).catch((error) => {
     process.stderr.write(`Some files of the old DeepSeek install could not be removed: ${error.message}\n`);
   });
+  // The migration removed the instance's container (its image was just rebuilt), and the WebMCP App
+  // offers Grant only while that container runs; one read-only tool call starts it again now.
+  const warmup = await dispatchInstanceRequest({ version: 1, id: 'install-warmup', tool: 'open_workspace', arguments: { path: '/workspace' } }, { dockerPath })
+    .catch((error) => ({ ok: false, error }));
+  if (!warmup.ok) {
+    process.stderr.write(`The WebMCP runtime did not start yet (${warmup.error?.message ?? 'tool error'}); it starts at the first tool call, and Grant in the WebMCP App becomes available then.\n`);
+  }
 }
 
 process.stdout.write(`${JSON.stringify({
