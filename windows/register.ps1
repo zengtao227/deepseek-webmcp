@@ -1,4 +1,4 @@
-# Registers DeepSeek WebMCP (installed inside WSL) with Chrome and Edge on Windows.
+# Registers WebMCP (installed inside WSL) with Chrome and Edge on Windows.
 # Run by the WebMCP Setup after install.sh succeeded inside WSL. Windows PowerShell 5.1.
 param(
   [Parameter(Mandatory = $true)][string]$Distro,
@@ -10,7 +10,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($ExtensionId -notmatch '^[a-p]{32}$') { throw 'The extension id is invalid.' }
-$HostName = 'com.deepseek.webmcp.native'
+$HostName = 'com.webmcp.extension'
 $App = Join-Path $env:LOCALAPPDATA 'WebMCP\DeepSeek'
 New-Item -ItemType Directory -Force -Path $App | Out-Null
 
@@ -31,7 +31,7 @@ Copy-Item -LiteralPath $wslExtension -Destination $extension -Recurse
 $manifest = Join-Path $App "$HostName.json"
 $json = @{
   name = $HostName
-  description = 'DeepSeek WebMCP isolated local runtime'
+  description = 'WebMCP Extension local program'
   path = $relay
   type = 'stdio'
   allowed_origins = @("chrome-extension://$ExtensionId/")

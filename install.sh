@@ -1,5 +1,5 @@
 #!/bin/bash
-# DeepSeek WebMCP installer for macOS, and for Windows inside WSL (run by the WebMCP Setup).
+# WebMCP installer for macOS, and for Windows inside WSL (run by the WebMCP Setup).
 # Usage: install.sh [--workspace <folder>]   (the WebMCP Setup passes the folder it asked for)
 set -euo pipefail
 
@@ -7,8 +7,8 @@ set -euo pipefail
 # the webmcp-runtime release it installs. No Git and no source checkout are needed.
 ADAPTER_URL="${DEEPSEEK_WEBMCP_ADAPTER_URL:-https://github.com/zengtao227/deepseek-webmcp/releases/download/v0.7.0/deepseek-webmcp-57b15c431154b2b04d169895dcda9e897c2c16c5.tar.gz}"
 ADAPTER_SHA256="${DEEPSEEK_WEBMCP_ADAPTER_SHA256:-53fbbc2b559e32a57ddbc9d7fce3e1bbd92e7831bf72a2f4eeedd565c6f90f35}"
-DIR="$HOME/deepseek-webmcp"
-REPORT="$HOME/deepseek-webmcp-install-report.txt"
+DIR="$HOME/.local/share/webmcp/extension/app"
+REPORT="$HOME/webmcp-extension-install-report.txt"
 WORK="$(mktemp -d)"
 FAILED=0
 MOVED=0
@@ -29,7 +29,7 @@ check() { # id PASS|WARN|FAIL [ENV] detail
 }
 report() {
   {
-    echo "DeepSeek WebMCP install report $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "WebMCP install report $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "failed-step: $STEP"
     echo "macos: $(sw_vers -productVersion 2>/dev/null) $(uname -m)"
     echo "node: $(node -v 2>/dev/null || echo missing)"
@@ -42,7 +42,7 @@ report() {
   if [ -f "$DIR/gateway/secret-scanner/index.js" ]; then
     node --input-type=module -e "const { redactSecrets } = await import(process.argv[1]); const fs = await import('node:fs'); fs.writeFileSync(process.argv[2], redactSecrets(fs.readFileSync(process.argv[2], 'utf8')).text);" "$DIR/gateway/secret-scanner/index.js" "$REPORT" 2>/dev/null || true
   fi
-  printf '\nA report was saved to %s. Send that file to whoever asked you to test.\n' "~/deepseek-webmcp-install-report.txt"
+  printf '\nA report was saved to %s. Send that file to whoever asked you to test.\n' "~/webmcp-extension-install-report.txt"
 }
 # Puts the previous install back, but only if this run moved it aside.
 restore_previous() {
@@ -66,8 +66,8 @@ trap 'stop "Unexpected failure during step: $STEP."' ERR
 
 case "$(uname)" in
   Darwin) KIND=macos ;;
-  Linux) if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then KIND=wsl; else stop "DeepSeek WebMCP runs on macOS, or on Windows inside WSL."; fi ;;
-  *) stop "DeepSeek WebMCP runs on macOS, or on Windows inside WSL." ;;
+  Linux) if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then KIND=wsl; else stop "WebMCP runs on macOS, or on Windows inside WSL."; fi ;;
+  *) stop "WebMCP runs on macOS, or on Windows inside WSL." ;;
 esac
 
 # Non-interactive shells do not load Homebrew or nvm, where Node.js usually lives.
@@ -116,11 +116,11 @@ reach debian "https://deb.debian.org/debian/dists/bookworm/Release" WARN
 
 UPDATE=0
 if [ -d "$DIR/.git" ]; then
-  stop "$DIR is a Git checkout from an older installer. Uninstall DeepSeek WebMCP from the extension first, or move the folder away, then run this again."
-elif [ -f "$DIR/.deepseek-webmcp-installed" ]; then
+  stop "$DIR is a Git checkout from an older installer. Uninstall WebMCP from the extension first, or move the folder away, then run this again."
+elif [ -f "$DIR/.webmcp-extension-installed" ]; then
   UPDATE=1
 elif [ -e "$DIR" ]; then
-  stop "$DIR already exists and is not a DeepSeek WebMCP download. Move it away and run again."
+  stop "$DIR already exists and is not a WebMCP download. Move it away and run again."
 fi
 
 # Both release archives are fetched here, so there is one download path with one timeout
@@ -133,7 +133,7 @@ fetch_to() { # source destination
 }
 
 STEP="download"
-say "Downloading DeepSeek WebMCP"
+say "Downloading WebMCP"
 ARCHIVE="$WORK/adapter.tar.gz"
 fetch_to "$ADAPTER_URL" "$ARCHIVE"
 [ "$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)" = "$ADAPTER_SHA256" ] || stop "The download does not match its pinned checksum. Nothing was changed."
@@ -144,10 +144,11 @@ RUNTIME_URL="${DEEPSEEK_WEBMCP_RUNTIME_ARCHIVE:-$(node -p 'require(process.argv[
 [ -n "$RUNTIME_URL" ] || stop "This release does not name a runtime download. Nothing was changed."
 fetch_to "$RUNTIME_URL" "$WORK/runtime.tar.gz"
 if [ "$UPDATE" = 1 ]; then rm -rf "$DIR.previous"; mv "$DIR" "$DIR.previous"; MOVED=1; fi
+mkdir -p -m 700 "$(dirname "$DIR")"
 mv "$WORK/adapter" "$DIR"
 [ "$UPDATE" = 1 ] || CREATED=1
 # Marks a program folder created by this installer; only such a folder is deleted by Uninstall.
-touch "$DIR/.deepseek-webmcp-installed"
+touch "$DIR/.webmcp-extension-installed"
 
 STEP="runtime"
 say "Installing the local runtime (first time takes a few minutes)"
@@ -163,12 +164,12 @@ CREATED=0
 
 say "Last step in the browser"
 if [ "$UPDATE" = 1 ]; then
-  echo "1. On the browser extensions page, click the reload icon of DeepSeek WebMCP."
+  echo "1. On the browser extensions page, click the reload icon of WebMCP."
   echo "2. Close and reopen your chat.deepseek.com tabs."
 else
   echo "1. The browser extensions page and the 'extension' folder are opening."
   echo "2. Turn on Developer mode (top right), then drag the 'extension' folder onto the page."
-  echo "3. Click the DeepSeek WebMCP icon on any webpage: the side panel opens and a DeepSeek window is created. Log in to DeepSeek there if asked, and keep a strip of that window visible."
+  echo "3. Click the WebMCP icon on any webpage: the side panel opens and a DeepSeek window is created. Log in to DeepSeek there if asked, and keep a strip of that window visible."
   open -R "$DIR/extension" || true
 fi
 for browser in "Google Chrome" "Comet"; do

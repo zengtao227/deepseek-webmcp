@@ -204,7 +204,7 @@ async function writeInstall() {
     await mkdir(path.dirname(manifestPath), { recursive: true });
     await writeFile(manifestPath, `${JSON.stringify({
       name: HOST_NAME,
-      description: 'DeepSeek WebMCP isolated local runtime',
+      description: 'WebMCP Extension local program',
       path: launcherPath,
       type: 'stdio',
       allowed_origins: [`chrome-extension://${extensionId}/`],

@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.IO;
 
 // Chrome and Edge on Windows start Native Messaging hosts only as Windows programs. This
-// relay starts the DeepSeek WebMCP host inside WSL; the browser's stdin and stdout pass
+// relay starts the WebMCP host inside WSL; the browser's stdin and stdout pass
 // straight through to it. register.ps1 fills in the two values when it compiles the relay.
 internal static class DeepSeekWebMcpRelay
 {
