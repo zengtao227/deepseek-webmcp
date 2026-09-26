@@ -9,9 +9,9 @@ import { buildWorkspaceControlPlaneMasks } from '../native/host/docker-dispatch.
 import { HOST_NAME, IMAGE_TAG, configPath as defaultConfigPath, hostKind, installedBrowserProfileRoots, manifestDirFor, stateDir as defaultStateDir } from '../native/host/local-paths.js';
 import { assertWindowsWorkspace } from '../native/host/control.js';
 import { promisify } from 'node:util';
-import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
+import { hostRuntimeRoot, INSTANCE_ID, readRuntimeLock } from '../native/host/host-access.js';
 import { beginInstall } from '../native/host/install-rollback.js';
-import { migrateToInstance, planInstanceMigration } from '../native/host/instance-migration.js';
+import { migrateToInstance, planInstanceMigration, removeLegacy } from '../native/host/instance-migration.js';
 
 const execFileAsync = promisify(execFile);
 const EXTENSION_ID = /^[a-p]{32}$/;
@@ -88,7 +88,19 @@ async function installRuntime(dockerPath) {
     const { createInstanceContext } = await at('native/deploy/instance-context.js');
     const { pinInstanceToRelease } = await at('native/deploy/instance-release.js');
     const { buildNativeImageFromRelease, DEFAULT_NATIVE_BASE_IMAGE } = await at('native/deploy/build-image.js');
-    const context = createInstanceContext({ home, instanceId: 'deepseek' });
+    const context = createInstanceContext({ home, instanceId: INSTANCE_ID });
+    const legacy = {
+      context: createInstanceContext({ home, instanceId: 'deepseek' }),
+      stateDir: LEGACY_STATE_DIR,
+      manifests: (await installedBrowserProfileRoots(home)).map((root) => path.join(manifestDirFor(root), 'com.deepseek.webmcp.native.json')),
+    };
+    // The release's container controller runs `docker` by name.
+    const removeContainer = (name) => {
+      process.env.PATH = [path.dirname(dockerPath), process.env.PATH].join(path.delimiter);
+      return execFileAsync(dockerPath, ['rm', '--force', name], { encoding: 'utf8' }).catch((error) => {
+        if (!/no such container/i.test(`${error?.stderr ?? ''}\n${error?.message ?? ''}`)) throw error;
+      });
+    };
     const modules = {
       controller: await at('native/deploy/local-instance-controller.js'),
       mounts: await at('native/deploy/workspace-mount-config.js'),
@@ -101,15 +113,9 @@ async function installRuntime(dockerPath) {
       artifactId: lock.artifactId,
       containerName: context.containerName,
       instanceFiles: [context.imagePin, context.hostReleasePin, context.workspaceConfig, context.workspaceMountConfig, context.attachmentGeneration],
-      planMigration: (workspaceRoot) => planInstanceMigration({ context, workspaceRoot, release: modules }),
-      // The release's container controller runs `docker` by name.
-      migrate: (plan) => {
-        process.env.PATH = [path.dirname(dockerPath), process.env.PATH].join(path.delimiter);
-        const removeContainer = (name) => execFileAsync(dockerPath, ['rm', '--force', name], { encoding: 'utf8' }).catch((error) => {
-          if (!/no such container/i.test(`${error?.stderr ?? ''}\n${error?.message ?? ''}`)) throw error;
-        });
-        return migrateToInstance(plan, { context, release: modules, releaseArtifactId: lock.artifactId, removeContainer });
-      },
+      planMigration: (workspaceRoot) => planInstanceMigration({ context, workspaceRoot, release: modules, legacy }),
+      migrate: (plan) => migrateToInstance(plan, { context, release: modules, releaseArtifactId: lock.artifactId, removeContainer }),
+      removeLegacy: (plan) => removeLegacy(plan.cleanup, { removeContainer }),
       build: async () => (await buildNativeImageFromRelease({
         releaseDir: release.releaseDir,
         expectedArtifactId: lock.artifactId,
@@ -131,23 +137,27 @@ function shellQuote(value) {
 
 const options = parseArgs(process.argv.slice(2));
 const kind = hostKind();
-if (kind === 'unsupported') throw new Error('DeepSeek WebMCP runs on macOS, or on Windows inside WSL.');
+if (kind === 'unsupported') throw new Error('WebMCP runs on macOS, or on Windows inside WSL.');
 
 const home = os.homedir();
 const stateDir = defaultStateDir(home);
 const configPath = defaultConfigPath(home);
+// Where the DeepSeek-only installer kept its state; its folders move into the `webmcp` instance.
+const LEGACY_STATE_DIR = path.join(home, '.deepseek-webmcp');
 
 // Folder: explicit option, else the folder chosen last time, else ask once with the
 // macOS folder dialog. Later changes happen in the extension popup (Other…).
 async function chooseWorkspace() {
   if (options.workspace) return options.workspace;
-  try {
-    return JSON.parse(await readFile(configPath, 'utf8')).workspaceRoot;
-  } catch {}
+  for (const candidate of [configPath, path.join(LEGACY_STATE_DIR, 'p2-native-config.json')]) {
+    try {
+      return JSON.parse(await readFile(candidate, 'utf8')).workspaceRoot;
+    } catch {}
+  }
   // Under WSL the Windows setup chooses the folder in a Windows dialog and passes it in.
   if (kind === 'wsl') usage('--workspace <folder> is required under WSL.');
-  process.stdout.write('Choose the folder DeepSeek WebMCP may read and change (you can change it later in the extension).\n');
-  const { stdout } = await execFileAsync('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the folder DeepSeek WebMCP may read and change")'], { encoding: 'utf8' })
+  process.stdout.write('Choose the folder WebMCP may read and change (you can add or change folders later in the WebMCP App).\n');
+  const { stdout } = await execFileAsync('/usr/bin/osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose the folder WebMCP may read and change")'], { encoding: 'utf8' })
     .catch(() => usage('No folder chosen.'));
   return stdout.trim();
 }
@@ -162,7 +172,7 @@ await assertDockerRunning(dockerPath);
 const extensionId = options.extensionId ?? await manifestExtensionId();
 await buildWorkspaceControlPlaneMasks(workspaceRoot, { configPath, dockerPath });
 const runtime = await installRuntime(dockerPath);
-// On macOS DeepSeek's folder moves into the `deepseek` WebMCP instance. Anything that would stop
+// On macOS the folders move into the `webmcp` instance (with those of the old `deepseek` one). Anything that would stop
 // that half way stops setup here, before a file is written or an image tag moves.
 const migration = kind === 'macos' ? await runtime.planMigration(workspaceRoot) : null;
 const launcherPath = path.join(stateDir, 'p2-native-host');
@@ -231,6 +241,13 @@ try {
   throw error;
 }
 await install.commit();
+// The old DeepSeek state goes only once the new install stands; a failure here leaves leftovers
+// that the next run removes, never a broken install.
+if (migration) {
+  await runtime.removeLegacy(migration).catch((error) => {
+    process.stderr.write(`Some files of the old DeepSeek install could not be removed: ${error.message}\n`);
+  });
+}
 
 process.stdout.write(`${JSON.stringify({
   installed: true,

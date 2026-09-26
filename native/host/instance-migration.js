@@ -1,4 +1,5 @@
-import { lstat } from 'node:fs/promises';
+import { lstat, readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
 
 // Setup moves DeepSeek's folder into the shared runtime's `deepseek` instance (macOS only), so the
 // WebMCP App manages its folders, write switches and access. Every change goes through the pinned
@@ -17,14 +18,19 @@ async function exists(file) {
   }
 }
 
-const APP_NAME = 'Web Provider (DeepSeek · ChatGPT web)';
+const APP_NAME = 'WebMCP Extension';
 
 // Everything that would stop the migration half way is checked here, before setup writes
 // anything or moves an image tag. A folder already in the instance keeps its write switch; a
 // folder added for DeepSeek gets Write ON, as its old one-shot container mounted it.
-export async function planInstanceMigration({ context, workspaceRoot, release, platform = 'darwin' }) {
-  if (await exists(context.elevatedLease)) {
-    throw new Error(`Full Working Access or Host Access is on for "${APP_NAME}". Revoke it in the WebMCP App, then run setup again.`);
+// `legacy` names what an older DeepSeek install left: its WebMCP instance context, its state
+// folder and its native host manifests. Their folders come along (with their Write switches) and
+// the rest is removed once the new install has committed.
+export async function planInstanceMigration({ context, workspaceRoot, release, platform = 'darwin', legacy = null }) {
+  for (const lease of [context.elevatedLease, legacy?.context?.elevatedLease].filter(Boolean)) {
+    if (await exists(lease)) {
+      throw new Error(`Host Access is on for "${APP_NAME}" or the old DeepSeek instance. Revoke it in the WebMCP App, then run setup again.`);
+    }
   }
   const hasWorkspace = await exists(context.workspaceConfig);
   const hasMounts = await exists(context.workspaceMountConfig);
@@ -41,6 +47,7 @@ export async function planInstanceMigration({ context, workspaceRoot, release, p
     const legacy = await release.workspace.loadWorkspaceConfig(context.workspaceConfig, { platform });
     wanted.push({ root: legacy.hostRoot, write: legacy.readOnly !== true });
   }
+  if (legacy) wanted.push(...await legacyFolders(legacy, release, platform));
   wanted.push({ root: workspaceRoot, write: true });
 
   const additions = [];
@@ -55,17 +62,57 @@ export async function planInstanceMigration({ context, workspaceRoot, release, p
     additions.push({ root: next.mounts.at(-1).hostPath, write });
     config = next;
   }
-  return { provision: !hasWorkspace, root: workspaceRoot, additions };
+  return { provision: !hasWorkspace, root: workspaceRoot, additions, cleanup: await legacyCleanup(legacy) };
 }
 
-// Setup has just rebuilt DeepSeek's image, and the runtime refuses a container whose image differs
+async function legacyFolders(legacy, release, platform) {
+  const folders = [];
+  const old = legacy.context;
+  if (old && await exists(old.workspaceMountConfig)) {
+    const mounts = await release.mounts.loadWorkspaceMountConfig(old.workspaceMountConfig);
+    folders.push(...mounts.mounts.map((mount) => ({ root: mount.hostPath, write: mount.writeEnabled === true })));
+  } else if (old && await exists(old.workspaceConfig)) {
+    const config = await release.workspace.loadWorkspaceConfig(old.workspaceConfig, { platform });
+    folders.push({ root: config.hostRoot, write: config.readOnly !== true });
+  }
+  // The old one-shot container mounted this folder writable.
+  const oldConfig = legacy.stateDir ? path.join(legacy.stateDir, 'p2-native-config.json') : null;
+  if (oldConfig && await exists(oldConfig)) {
+    const { workspaceRoot } = JSON.parse(await readFile(oldConfig, 'utf8'));
+    if (typeof workspaceRoot === 'string' && path.isAbsolute(workspaceRoot)) folders.push({ root: workspaceRoot, write: true });
+  }
+  return folders;
+}
+
+async function legacyCleanup(legacy) {
+  const existing = async (paths) => {
+    const found = [];
+    for (const candidate of paths.filter(Boolean)) if (await exists(candidate)) found.push(candidate);
+    return found;
+  };
+  return {
+    folders: await existing([legacy?.context?.configRoot, legacy?.context?.stateRoot, legacy?.stateDir]),
+    containers: legacy?.context?.containerName ? [legacy.context.containerName] : [],
+    files: await existing(legacy?.manifests ?? []),
+  };
+}
+
+// Runs after the new install has committed: a failure leaves harmless leftovers, never a broken
+// install. Old program folders are not touched here (the old unpacked extension may still use one).
+export async function removeLegacy(cleanup, { removeContainer }) {
+  for (const name of cleanup.containers) await removeContainer(name);
+  for (const folder of cleanup.folders) await rm(folder, { recursive: true, force: true });
+  for (const file of cleanup.files) await rm(file, { force: true });
+}
+
+// Setup has just rebuilt the extension's image, and the runtime refuses a container whose image differs
 // from its pin, so the instance's container goes first; the next step or tool call recreates it.
 // The plan has already checked that no lease is on.
 export async function migrateToInstance(plan, { context, release, releaseArtifactId, removeContainer, platform = 'darwin' }) {
   const { controller } = release;
   await removeContainer(context.containerName);
   if (plan.provision) {
-    // DeepSeek's own freshly built image pin: the default instance's pin is never read here.
+    // The extension's own freshly built image pin: the default instance's pin is never read here.
     await controller.provisionLocalInstance({ context, root: plan.root, defaultImagePinPath: context.imagePin, releaseArtifactId, platform });
   }
   for (const { root, write } of plan.additions) {
