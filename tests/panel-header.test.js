@@ -18,14 +18,13 @@ const now = 1_000_000;
 const text = (parts) => parts.map((part) => `${part.text}[${part.kind}]`).join(' · ');
 
 test('Access line follows the header contract', () => {
-  const base = { folders: [{ path: '/Users/me/Doc/My code/webmcp-bridge', write: true }], fullAccessUntil: null, hostAccessUntil: null, leaseState: 'absent' };
+  const base = { folders: [{ path: '/Users/me/Doc/My code/webmcp-bridge', write: true }], hostAccessUntil: null, leaseState: 'absent' };
   assert.equal(text(accessParts(base, now)), 'webmcp-bridge[mount] · WRITE[write]');
-  assert.equal(text(accessParts({ ...base, fullAccessUntil: now + 27 * 60000, leaseState: 'active' }, now)), 'Home[mount] · FULL ACCESS 27m[full]');
   assert.equal(text(accessParts({ ...base, hostAccessUntil: now + 12 * 60000, leaseState: 'active' }, now)),
-    'Home[mount] · HOST ACCESS 12m[host]', 'the tools see the home folder under Host access too');
+    'webmcp-bridge[mount] · WRITE[write] · HOST ACCESS 12m[host]', 'Host access never changes the folders');
   assert.equal(text(accessParts({ ...base, leaseState: 'rebooted' }, now)), 'webmcp-bridge[mount] · WRITE[write] · ACCESS UNVERIFIED[host]',
     'a lease that cannot be verified does not claim its level');
-  assert.equal(text(accessParts({ ...base, fullAccessUntil: now - 1, hostAccessUntil: now - 1, leaseState: 'active' }, now)),
+  assert.equal(text(accessParts({ ...base, hostAccessUntil: now - 1, leaseState: 'active' }, now)),
     'webmcp-bridge[mount] · WRITE[write]', 'expired leases disappear');
   assert.equal(text(accessParts({ ...base, leaseState: 'expired' }, now)), 'webmcp-bridge[mount] · WRITE[write]');
   assert.equal(accessParts(null, now), null);
@@ -42,13 +41,12 @@ import { highAccessControls, mountProviderSelect, startAccessLine } from '../ext
 
 // Owner decision 2026-09-26: the panel may revoke Full / Host Access (it only lowers authority);
 // granting stays behind the macOS dialog in Settings / the WebMCP App.
-test('the controls that end Full / Host Access, the most dangerous first', () => {
-  const base = { folders: [{ path: '/Users/me/Doc/My code', write: true }], fullAccessUntil: null, hostAccessUntil: null, leaseState: 'absent' };
+test('the control that ends Host Access', () => {
+  const base = { folders: [{ path: '/Users/me/Doc/My code', write: true }], hostAccessUntil: null, leaseState: 'absent' };
   assert.deepEqual(highAccessControls(base, now), []);
-  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now + 60000, leaseState: 'active' }, now), ['stop-full-access']);
   assert.deepEqual(highAccessControls({ ...base, hostAccessUntil: now + 60000, leaseState: 'active' }, now), ['stop-host-access']);
   assert.deepEqual(highAccessControls({ ...base, leaseState: 'config_changed' }, now), ['stop-host-access'], 'a lease that cannot be verified is ended too');
-  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now - 1, hostAccessUntil: now - 1, leaseState: 'active' }, now), []);
+  assert.deepEqual(highAccessControls({ ...base, hostAccessUntil: now - 1, leaseState: 'active' }, now), []);
   assert.deepEqual(highAccessControls(null, now), []);
 });
 
@@ -64,7 +62,7 @@ async function switchProvider({ statusOk = true, stopOk = true } = {}) {
       sendMessage: async (message) => {
         calls.push(message.control);
         if (message.control === 'status') {
-          return statusOk ? { ok: true, result: { folder: '/x', fullAccessUntil: Date.now() + 60000, hostAccessState: 'active', hostAccessUntil: Date.now() + 60000 } } : null;
+          return statusOk ? { ok: true, result: { folder: '/x', hostAccessState: 'active', hostAccessUntil: Date.now() + 60000 } } : null;
         }
         return { ok: stopOk, result: {} };
       },
@@ -85,9 +83,9 @@ async function switchProvider({ statusOk = true, stopOk = true } = {}) {
   return { calls, stored, notices, opened, selected: select.value };
 }
 
-test('switching Provider ends Full / Host Access before the other provider\'s page opens', async () => {
+test('switching Provider ends Host Access before the other provider\'s page opens', async () => {
   const done = await switchProvider();
-  assert.deepEqual(done.calls, ['status', 'stop-host-access', 'stop-full-access']);
+  assert.deepEqual(done.calls, ['status', 'stop-host-access']);
   assert.deepEqual(done.stored, [{ 'provider.id': 'deepseek' }]);
   assert.equal(done.opened, 'sidepanel.html');
 
@@ -106,7 +104,7 @@ test('the Revoke button stays usable after a revoke that failed', async () => {
   const node = (tag) => ({ tagName: tag, hidden: false, disabled: false, children: [], listeners: {},
     replaceChildren(...nodes) { this.children = nodes; }, addEventListener(type, fn) { this.listeners[type] = fn; } });
   const element = node('div');
-  const lease = { folder: '/x', fullAccessUntil: Date.now() + 60000, hostAccessState: 'inactive' };
+  const lease = { folder: '/x', hostAccessUntil: Date.now() + 60000, hostAccessState: 'active' };
   globalThis.document = { createElement: node, createTextNode: (text) => ({ text }), addEventListener() {} };
   const realSetInterval = globalThis.setInterval;
   globalThis.setInterval = () => 0;

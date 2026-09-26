@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
-import { grantHostAccess, removeExtensionInstance } from './host-access.js';
+import { removeExtensionInstance } from './host-access.js';
 import { instanceAccessStatus, revokeInstanceAccess } from './instance-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -15,7 +15,6 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const CONTROL_ARGUMENTS = new Map([
   ['status', new Set()],
   ['choose-folder', new Set()],
-  ['grant-host-access', new Set(['minutes'])],
   ['stop-host-access', new Set()],
   ['uninstall', new Set()],
 ]);
@@ -40,10 +39,6 @@ export function validateControlRequest(request) {
   const allowed = CONTROL_ARGUMENTS.get(request.control);
   if (!allowed) fail('Unknown control request.', 'CONTROL_NOT_ALLOWED');
   exactObject(request.arguments, allowed, 'arguments');
-  if (request.control === 'grant-host-access') {
-    const { minutes } = request.arguments;
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) fail('minutes must be an integer from 1 to 60.', 'INVALID_DURATION');
-  }
   return request;
 }
 
@@ -98,13 +93,12 @@ async function status({ home, configFile, now, kind }) {
   const config = await readConfig(configFile);
   // Two access levels: the folder, and Host access. Host access exists only on macOS for now;
   // on Windows it must then mean the real Windows host, not WSL.
-  const capabilities = { hostAccess: kind === 'macos' };
+  const capabilities = { chooseFolder: kind !== 'macos', hostAccess: kind === 'macos' };
   if (kind !== 'macos') {
     return {
       folder: config.workspaceRoot,
       folders: [{ path: config.workspaceRoot, write: true }],
       capabilities,
-      fullAccessUntil: null,
       hostAccessUntil: null,
       hostAccessState: 'unavailable',
       leaseState: 'absent',
@@ -248,11 +242,11 @@ export async function handleControlRequest(request, {
   const context = { home, configFile, now, exec, notify, kind };
   const handlers = {
     status: () => status(context),
-    'choose-folder': () => chooseFolder(context),
-    'grant-host-access': async () => {
-      assertMacOnly(kind, 'Host access');
-      await grantHostAccess({ configFile, minutes: request.arguments.minutes });
-      return status(context);
+    // On macOS the WebMCP App owns folders and Host Access; WSL has no App, so its panel keeps
+    // choosing the folder.
+    'choose-folder': () => {
+      if (kind === 'macos') fail('Folders and Host Access are managed in the WebMCP App.', 'MANAGED_BY_WEBMCP_APP');
+      return chooseFolder(context);
     },
     'stop-host-access': async () => {
       assertMacOnly(kind, 'Host access');

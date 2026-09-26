@@ -71,14 +71,6 @@ export async function pinnedInstanceRelease({ home = os.homedir(), lockFile } = 
   return (await loadCore({ home, lockFile })).releaseRoot;
 }
 
-async function selectedRoot(configFile) {
-  const config = JSON.parse(await readFile(configFile, 'utf8'));
-  if (typeof config.workspaceRoot !== 'string' || !path.isAbsolute(config.workspaceRoot)) {
-    throw new Error('DeepSeek workspace selection is unavailable.');
-  }
-  return realpath(config.workspaceRoot);
-}
-
 // Judged against the instance's own workspace config, as its controller and the WebMCP App judge
 // it, so the panel, the App and this gate agree on one lease.
 async function leaseState(core) {
@@ -99,54 +91,11 @@ function denied(id, code = 'HOST_ACCESS_NOT_GRANTED', message = 'Temporary Full 
   return { version: 1, id, ok: false, error: { code, message } };
 }
 
-export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
-  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new Error('Host access duration must be 1–60 minutes.');
-  const root = await selectedRoot(configFile);
-  const core = await loadCore({ home, lockFile });
-  return core.locks.withInstanceLifecycleLock(core.context, async () => {
-    let existing;
-    try {
-      existing = await leaseState(core);
-    } catch (error) {
-      if (error?.code !== 'WORKSPACE_CONFIG_UNAVAILABLE' || error?.cause?.code !== 'ENOENT') throw error;
-      existing = await core.access.loadElevatedLease(core.context.elevatedLease);
-    }
-    if (!['absent', 'expired'].includes(existing.state)) {
-      throw new Error('Existing Host Access state must be revoked before a new grant.');
-    }
-    await core.approval.requestLocalElevationApproval({
-      durationMs: minutes * 60_000, instanceLabel: 'DeepSeek',
-    });
-    // The instance's folder belongs to the WebMCP App; DeepSeek's folder is written only when the
-    // instance has none yet.
-    const normalConfig = await core.workspace.loadWorkspaceConfig(core.context.workspaceConfig).catch((error) => {
-      if (error?.code !== 'WORKSPACE_CONFIG_UNAVAILABLE' || error?.cause?.code !== 'ENOENT') throw error;
-      return core.workspace.persistWorkspaceConfig(core.context.workspaceConfig, {
-        version: 1, hostRoot: root, mode: 'workspace', readOnly: false,
-        networkEnabled: false, gitPublicationEnabled: false,
-      });
-    });
-    const [bootSessionId, loginSessionId] = await Promise.all([
-      core.access.getBootSessionId(), core.access.getLoginSessionId(),
-    ]);
-    const lease = core.access.createElevatedLease({
-      normalConfig, elevatedRoot: await realpath(os.homedir()),
-      bootSessionId, loginSessionId, durationMs: minutes * 60_000,
-      instanceId: INSTANCE_ID,
-    });
-    await core.access.persistElevatedLease(core.context.elevatedLease, lease);
-    return { hostAccessUntil: lease.expiresAt, hostAccessState: 'active' };
-  });
-}
-
-// Read and cleared without Docker, as host_command reads it: when the instance controller cannot
-// reach Docker, the panel must still see a lease that host_command honours, and Revoke must still
-// end it. The relay removes a leftover elevated container before its next tool call.
 export async function instanceLeaseStatus({ home, lockFile } = {}) {
   const core = await loadCore({ home, lockFile });
   const state = await leaseState(core);
   if (state.state !== 'active') return { mode: 'stale', leaseState: state.state };
-  return { mode: 'elevated', accessLevel: state.lease.accessLevel ?? 'docker-full', expiresAt: new Date(state.lease.expiresAt).toISOString() };
+  return { mode: 'elevated', accessLevel: state.lease.accessLevel, expiresAt: new Date(state.lease.expiresAt).toISOString() };
 }
 
 export async function clearInstanceLease({ home, lockFile } = {}) {

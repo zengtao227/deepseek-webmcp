@@ -28,7 +28,7 @@ function foldersOf(mountList) {
   return null;
 }
 
-// One lease per instance: Full Working Access (`docker-full`) or Host Access (`full-host`).
+// One lease per instance, Host Access (`full-host`); it never changes the container.
 // A lease the controller cannot verify keeps its state name (rebooted, config_changed, …).
 export function instanceAccessView(mountList, accessStatus) {
   const active = accessStatus?.mode === 'elevated';
@@ -37,7 +37,6 @@ export function instanceAccessView(mountList, accessStatus) {
   const leaseState = active ? 'active' : String(accessStatus?.leaseState ?? 'absent');
   return {
     folders: foldersOf(mountList),
-    fullAccessUntil: level === 'docker-full' ? until : null,
     hostAccessUntil: level === 'full-host' ? until : null,
     leaseState,
     hostAccessState: hostAccessState(level, leaseState),
@@ -64,7 +63,7 @@ export async function instanceAccessStatus(options = {}, { readLease = instanceL
   try {
     return instanceAccessView(folders, await readLease({ home: options.home, lockFile: options.lockFile }));
   } catch {
-    return { folders: null, fullAccessUntil: null, hostAccessUntil: null, leaseState: 'unavailable', hostAccessState: 'unavailable' };
+    return { folders: null, hostAccessUntil: null, leaseState: 'unavailable', hostAccessState: 'unavailable' };
   }
 }
 

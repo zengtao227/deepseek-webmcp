@@ -1042,9 +1042,8 @@ async function recordContinuation(tabId, key, result) {
 }
 
 async function runControl(control, args) {
-  const allowedArgs = control === 'grant-host-access'
-    ? { minutes: Number(args?.minutes) }
-    : {};
+  // No panel control carries arguments: grants happen only in the WebMCP App.
+  const allowedArgs = {};
   let response;
   try {
     response = await callNativeControl(control, allowedArgs);

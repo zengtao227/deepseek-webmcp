@@ -35,24 +35,20 @@ export function mountProviderSelect(select, provider, notify = () => {}) {
 
 // Header line 4 (Unified Side Panel header contract): the security context of the local runtime,
 // from the same status the settings already read. Colors are fixed for every provider:
-// WRITE emphasized, FULL ACCESS orange, HOST ACCESS red; a lease that cannot be verified shows in
-// red; an expired lease disappears.
-// The WebMCP instance holds one lease, Full Working Access or Host Access. When it cannot be
-// verified its level is unknown, so it is shown (and revoked) without claiming which one.
+// WRITE emphasized, HOST ACCESS red; a lease that cannot be verified shows in red; an expired
+// lease disappears. The only lease is Host Access; when it cannot be verified it is shown (and
+// revoked) as ACCESS UNVERIFIED.
 const UNVERIFIED_LEASE = new Set(['unverified', 'invalid', 'rebooted', 'login_restarted', 'config_changed', 'instance_changed']);
 const minutesLeft = (until, now) => `${Math.max(1, Math.ceil((until - now) / 60000))}m`;
 const folderName = (folder) => String(folder ?? '').split('/').filter(Boolean).pop() || String(folder ?? '');
 const leaseOn = (until, now) => Number.isFinite(until) && until > now;
 
-// Each folder carries its own write switch. Either lease gives the tools the home folder (the
-// runtime's elevated container), so both replace the folders with Home.
+// Each folder carries its own write switch. Host Access adds host_command and never changes the
+// container, so the folders stay as they are.
 export function accessParts(status, now) {
   if (!status || status.leaseState === 'unavailable') return null;
-  const fullOn = leaseOn(status.fullAccessUntil, now);
-  const hostOn = leaseOn(status.hostAccessUntil, now);
-  const parts = fullOn || hostOn ? [{ text: 'Home', kind: 'mount' }] : folderParts(status.folders);
-  if (fullOn) parts.push({ text: `FULL ACCESS ${minutesLeft(status.fullAccessUntil, now)}`, kind: 'full' });
-  if (hostOn) parts.push({ text: `HOST ACCESS ${minutesLeft(status.hostAccessUntil, now)}`, kind: 'host' });
+  const parts = folderParts(status.folders);
+  if (leaseOn(status.hostAccessUntil, now)) parts.push({ text: `HOST ACCESS ${minutesLeft(status.hostAccessUntil, now)}`, kind: 'host' });
   else if (UNVERIFIED_LEASE.has(status.leaseState)) parts.push({ text: 'ACCESS UNVERIFIED', kind: 'host' });
   return parts;
 }
@@ -66,13 +62,12 @@ function folderParts(folders) {
   ]);
 }
 
-// The controls that end Full / Host Access, the most dangerous first. Revoking only lowers
-// authority, so the panel may do it; granting stays behind the macOS dialog in Settings.
+// The control that ends Host Access. Revoking only lowers authority, so the panel may do it;
+// granting happens only in the WebMCP App behind the macOS dialog.
 export function highAccessControls(status, now) {
   if (!status) return [];
   const controls = [];
   if (leaseOn(status.hostAccessUntil, now) || UNVERIFIED_LEASE.has(status.leaseState)) controls.push('stop-host-access');
-  if (leaseOn(status.fullAccessUntil, now)) controls.push('stop-full-access');
   return controls;
 }
 

@@ -91,7 +91,7 @@ export async function callNativeTool(call) {
   return response;
 }
 
-const CONTROLS = new Set(['status', 'choose-folder', 'grant-host-access', 'stop-host-access', 'uninstall']);
+const CONTROLS = new Set(['status', 'choose-folder', 'stop-host-access', 'uninstall']);
 
 // Owner settings from the popup; never reachable from page content or model output.
 export async function callNativeControl(control, args = {}) {

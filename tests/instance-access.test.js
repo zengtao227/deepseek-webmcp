@@ -29,23 +29,18 @@ test('the instance\'s folders keep their own write switch; a legacy folder follo
   assert.deepEqual(legacy(undefined), [{ path: '/Users/me/p', write: true }], 'an unknown switch never shows less authority');
 });
 
-test('one instance lease: Full Working Access or Host Access, and an unverifiable lease keeps its state name', () => {
+test('one instance lease, Host Access; an unverifiable lease keeps its state name', () => {
   assert.deepEqual(instanceAccessView(MOUNTS, NORMAL), {
     folders: instanceAccessView(MOUNTS, NORMAL).folders,
-    fullAccessUntil: null, hostAccessUntil: null, leaseState: 'absent', hostAccessState: 'absent',
+    hostAccessUntil: null, leaseState: 'absent', hostAccessState: 'absent',
   });
-  const full = instanceAccessView(MOUNTS, { mode: 'elevated', accessLevel: 'docker-full', expiresAt: EXPIRES });
-  assert.equal(full.fullAccessUntil, Date.parse(EXPIRES));
-  assert.equal(full.hostAccessUntil, null);
-  assert.equal(full.leaseState, 'active');
-  assert.equal(full.hostAccessState, 'inactive');
   const host = instanceAccessView(MOUNTS, { mode: 'elevated', accessLevel: 'full-host', expiresAt: EXPIRES });
   assert.equal(host.hostAccessUntil, Date.parse(EXPIRES));
-  assert.equal(host.fullAccessUntil, null);
+  assert.equal(host.leaseState, 'active');
   assert.equal(host.hostAccessState, 'active');
+  assert.equal('fullAccessUntil' in host, false);
   const stale = instanceAccessView(MOUNTS, { mode: 'stale', leaseState: 'rebooted' });
   assert.equal(stale.leaseState, 'rebooted');
-  assert.equal(stale.fullAccessUntil, null);
   assert.equal(stale.hostAccessUntil, null);
 });
 
@@ -83,7 +78,6 @@ test('on macOS the panel status is the deepseek instance\'s, read with the WebMC
     assert.deepEqual(result.folders, [{ path: '/Users/me/Doc/My code', write: true }, { path: '/Users/me/Notes', write: false }]);
     assert.equal(result.hostAccessUntil, Date.parse(EXPIRES));
     assert.equal(result.hostAccessState, 'active');
-    assert.equal(result.fullAccessUntil, null);
     assert.deepEqual((await calls()).sort(), ['access-status --instance webmcp', 'mount-list --instance webmcp']);
   });
 });
@@ -115,7 +109,7 @@ test('folders that cannot be read never hide the lease or its Revoke', async () 
     assert.equal(result.hostAccessUntil, Date.parse(EXPIRES));
     const { accessParts, highAccessControls } = await import('../extension/panel-header.js');
     const now = Date.parse(EXPIRES) - 5 * 60000;
-    assert.deepEqual(accessParts(result, now).map((part) => part.text), ['Home', 'HOST ACCESS 5m']);
+    assert.deepEqual(accessParts(result, now).map((part) => part.text), ['folders unknown', 'HOST ACCESS 5m']);
     assert.deepEqual(highAccessControls(result, now), ['stop-host-access']);
   });
 });

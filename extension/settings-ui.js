@@ -1,4 +1,4 @@
-// Local-runtime settings shown in the Side Panel: workspace folder, Host access, uninstall.
+// Local-runtime settings shown in the Side Panel: the folder (WSL only), uninstall.
 // (These used to live in the toolbar popup; the toolbar icon now opens the panel directly.)
 
 const $ = (selector) => document.querySelector(selector);
@@ -7,8 +7,6 @@ const $ = (selector) => document.querySelector(selector);
 // same one-line command the README shows.
 const INSTALL_COMMAND = 'cd ~ && curl -fsSLO https://github.com/zengtao227/deepseek-webmcp/releases/latest/download/install.sh && bash install.sh';
 
-let hostAccessUntil = null;
-let hostAccessState = 'unavailable';
 let localMissing = false;
 
 const control = (name, args) => chrome.runtime.sendMessage({ type: 'settings.control', control: name, arguments: args });
@@ -17,17 +15,8 @@ function showMessage(text) {
   $('#settings-message').textContent = text;
 }
 
-function renderHostAccess() {
-  const active = hostAccessState === 'active' && hostAccessUntil !== null && hostAccessUntil > Date.now();
-  $('#host-off').hidden = active;
-  $('#host-on').hidden = !active;
-  $('#host-unverified').hidden = !['unavailable', 'unverified', 'config_changed', 'invalid'].includes(hostAccessState);
-  if (active) {
-    const seconds = Math.max(0, Math.round((hostAccessUntil - Date.now()) / 1000));
-    $('#host-active').textContent = `HIGH TRUST ACTIVE — ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} left`;
-  }
-}
-
+// On macOS the WebMCP App owns folders, Write and Host Access; the panel's header shows them and
+// offers Revoke. WSL has no App, so there the panel still chooses the folder.
 function applySettings(response) {
   localMissing = response?.error?.code === 'LOCAL_PROGRAM_MISSING';
   $('#copy-install').hidden = !localMissing;
@@ -36,35 +25,19 @@ function applySettings(response) {
     showMessage(response?.error?.message ?? 'Local runtime not reachable.');
     return;
   }
-  $('#folder').textContent = response.result.folder;
-  $('#folder').title = response.result.folder;
-  hostAccessUntil = response.result.hostAccessUntil;
-  hostAccessState = response.result.hostAccessState;
-  // Hosts without these capabilities (Windows for now) hide them; older hosts omit the field.
-  $('#host-access-section').hidden = response.result.capabilities?.hostAccess === false;
-  renderHostAccess();
+  const chooseFolder = response.result.capabilities?.chooseFolder === true;
+  $('#choose').hidden = !chooseFolder;
+  $('#folder').textContent = chooseFolder ? response.result.folder : 'Folders and Host Access: WebMCP App (menu bar)';
+  $('#folder').title = chooseFolder ? response.result.folder : '';
 }
 
 export async function initSettings() {
-  // macOS dialogs take focus; the background finishes the request and the panel shows the result.
+  // The Windows folder dialog takes focus; the background finishes the request and the panel shows the result.
   $('#choose').addEventListener('click', async () => {
     showMessage('Choose a folder in the dialog…');
     const response = await control('choose-folder');
     applySettings(response);
     if (response?.ok) showMessage(response.result.changed ? 'Folder changed.' : '');
-  });
-
-  $('#host-grant').addEventListener('click', async () => {
-    showMessage('Confirm High Trust access in the Mac dialog…');
-    const response = await control('grant-host-access', { minutes: Number($('#host-minutes').value) });
-    applySettings(await control('status'));
-    showMessage(response?.ok ? 'Temporary Full Host Access — High Trust is active.' : (response?.error?.message ?? 'Host access grant failed.'));
-  });
-
-  $('#host-stop').addEventListener('click', async () => {
-    const response = await control('stop-host-access');
-    applySettings(await control('status'));
-    showMessage(response?.ok ? 'Full Host Access revoked.' : (response?.error?.message ?? 'Host access revoke failed.'));
   });
 
   $('#copy-install').addEventListener('click', () => {
@@ -88,5 +61,4 @@ export async function initSettings() {
   });
 
   applySettings(await control('status'));
-  setInterval(renderHostAccess, 1000);
 }

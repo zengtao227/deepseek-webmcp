@@ -202,33 +202,8 @@ test('tool and control envelopes are disjoint', async () => {
   assert.throws(() => validateNativeRequest({ version: 1, id: 'x', tool: 'read', control: 'status', arguments: {} }), /unsupported field/i);
   assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'status', tool: 'read', arguments: {} }), /unsupported field/i);
   assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'bash', arguments: {} }), { code: 'CONTROL_NOT_ALLOWED' });
-  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-host-access', arguments: { minutes: 61 } }), { code: 'INVALID_DURATION' });
-  assert.equal(validateControlRequest({ version: 1, id: 'x', control: 'grant-host-access', arguments: { minutes: 30 } }).control, 'grant-host-access');
+  assert.equal(validateControlRequest({ version: 1, id: 'x', control: 'stop-host-access', arguments: {} }).control, 'stop-host-access');
   assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-full-access', arguments: { minutes: 30 } }), { code: 'CONTROL_NOT_ALLOWED' });
-});
-
-test('folder changes happen only after the macOS dialog is confirmed', async () => {
-  const { mkdir, readFile: read, realpath: real } = await import('node:fs/promises');
-  const { handleControlRequest } = await import('../native/host/control.js');
-  const home = await mkdtemp(path.join(os.tmpdir(), 'deepseek-webmcp-control-'));
-  const first = path.join(home, 'first');
-  const second = path.join(home, 'second');
-  await mkdir(first);
-  await mkdir(second);
-  const configFile = path.join(home, '.local/share/webmcp/extension', 'p2-native-config.json');
-  await mkdir(path.dirname(configFile), { recursive: true });
-  await writeFile(configFile, JSON.stringify({ workspaceRoot: first, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
-  const control = (name, args = {}, answer) => handleControlRequest(
-    { version: 1, id: 'c', control: name, arguments: args },
-    { home, configFile, now: 1000, exec: async () => { if (answer instanceof Error) throw answer; return { stdout: answer }; } },
-  );
-  const cancelled = Object.assign(new Error('cancel'), { stderr: 'execution error: User canceled. (-128)' });
-
-  assert.equal((await control('choose-folder', {}, cancelled)).result.changed, false);
-  const chosen = await control('choose-folder', {}, `${second}/`);
-  assert.equal(chosen.result.folder, await real(second));
-  assert.equal(JSON.parse(await read(configFile, 'utf8')).workspaceRoot, await real(second));
-  await assert.rejects(control('choose-folder', {}, home), { code: 'INVALID_FOLDER' });
 });
 
 test('a mask Docker cannot mount fails closed without retrying with weaker protection', async () => {
@@ -341,4 +316,13 @@ test('only an installed release folder counts as the program folder uninstall ma
   assert.equal(await isInstalledCodeFolder(folder), true);
   await mkdir(path.join(folder, '.git'));
   assert.equal(await isInstalledCodeFolder(folder), false, 'a Git checkout is a developer folder and is kept');
+});
+
+test('on macOS the panel cannot choose a folder or grant Host Access; the WebMCP App does', async () => {
+  const { handleControlRequest, validateControlRequest } = await import('../native/host/control.js');
+  assert.throws(() => validateControlRequest({ version: 1, id: 'x', control: 'grant-host-access', arguments: { minutes: 5 } }), { code: 'CONTROL_NOT_ALLOWED' });
+  await assert.rejects(
+    handleControlRequest({ version: 1, id: 'x', control: 'choose-folder', arguments: {} }, { kind: 'macos', configFile: '/nonexistent' }),
+    { code: 'MANAGED_BY_WEBMCP_APP' },
+  );
 });
