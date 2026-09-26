@@ -89,7 +89,7 @@ At extraction time, the standalone project copied `extension/browser-client.js` 
 
 ## Shared webmcp-runtime consumption (2026-09-24)
 
-DeepSeek consumes the provider-neutral `webmcp-runtime` as a pinned release artifact (`runtime.lock.json`: artifact id, archive sha256 and download URL, the URL filled in when the archive is published), not as copied source. `install.sh` downloads both the adapter and the runtime archive; `scripts/build-release.mjs` packs the adapter with `git archive`.
+The extension consumes the WebMCP App's release artifact (P1, Bridge fd9e8da) as a pinned release (`runtime.lock.json`: artifact id, archive sha256 and download URL, the URL filled in when the archive is published), not as copied source. It is the release that carries the instance controller and host relay the extension's `webmcp` instance runs; the plain `webmcp-runtime` archive does not. `install.sh` downloads both the adapter and the runtime archive; `scripts/build-release.mjs` packs the adapter with `git archive`.
 
 - Installer (`scripts/install-p2-native-host.mjs`): installs the pinned release into the shared release store without touching the default instance's `current`, pins instance `deepseek` to that artifact id, and builds the image with `buildNativeImageFromRelease` (instance image pin, DeepSeek tag, digest-pinned base image, `safe.directory`).
 - Full Host Access (`native/host/host-access.js`): resolves only through the artifact id in the adapter's own `runtime.lock.json` and the `deepseek` instance pin; approval comes from the runtime's `local-approval.js`. There is no dependency on an installed Bridge release or its `installer.js`.

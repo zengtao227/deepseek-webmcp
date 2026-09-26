@@ -62,7 +62,6 @@ async function loadCore({ home = os.homedir(), lockFile } = {}) {
     releaseRoot,
     access: await moduleAt(releaseRoot, 'native/deploy/elevated-access.js'),
     workspace: await moduleAt(releaseRoot, 'native/deploy/workspace-config.js'),
-    approval: await moduleAt(releaseRoot, 'native/deploy/local-approval.js'),
     commands: await moduleAt(releaseRoot, 'native/host/host-command.js'),
     locks: await moduleAt(releaseRoot, 'native/deploy/instance-lock.js'),
   };

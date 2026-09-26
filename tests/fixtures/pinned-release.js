@@ -16,7 +16,6 @@ const LOADER_STUBS = {
   }`,
   'native/deploy/elevated-access.js': '',
   'native/deploy/workspace-config.js': '',
-  'native/deploy/local-approval.js': '',
   'native/host/host-command.js': '',
   'native/deploy/instance-lock.js': '',
 };
