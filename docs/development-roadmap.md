@@ -98,7 +98,7 @@ The Base/Plus DeepSeek cleanup is merged.
 
 Status: **PASS (2026-09-15)** in Chrome and Comet — `docs/p5-live-test.md`.
 
-Owner decision: public MIT source for the owner and a few friends, each with their own DeepSeek account; not the Chrome Web Store. Terms risk (DeepSeek Terms §3.5(3), §2.3) is disclosed in the README. Delivered per `docs/p5-design.md`: one-line install, per-tab Work, in-extension folder / Full access / uninstall, all Chromium browsers.
+Owner decision: public MIT source for the owner and a few friends, each with their own DeepSeek account; not the Chrome Web Store. Terms risk (DeepSeek Terms §3.5(3), §2.3) is disclosed in the README. Delivered per `docs/p5-design.md`: one-line install, per-tab Work, mounted-folder workspace access, Temporary Full Host Access — High Trust, uninstall, and Chromium browsers. The former Full access / Full Working Access middle tier was retired on 2026-09-26.
 
 ## P6 — Compact Assistant / managed provider window
 

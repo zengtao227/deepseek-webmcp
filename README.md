@@ -21,7 +21,7 @@ The goal is to let DeepSeek Web act as the model/governance layer while a separa
 
 ## Install
 
-The easiest way on **macOS and Windows** is **WebMCP Setup** ([webmcp-setup releases](https://github.com/zengtao227/webmcp-setup/releases/latest)): double-click it, choose DeepSeek, choose a folder. On Windows it installs WSL, Docker Desktop and a private Node.js, runs DeepSeek WebMCP inside WSL, and registers it with Chrome and Edge. On Windows, **Full access** and **Temporary Full Host Access** are not available yet. On Windows, choose a folder such as `C:\Users\<you>\WebMCP-Workspace`: folders inside OneDrive, reached through a junction or link, or inside WSL itself are refused.
+The easiest way on **macOS and Windows** is **WebMCP Setup** ([webmcp-setup releases](https://github.com/zengtao227/webmcp-setup/releases/latest)): double-click it, choose DeepSeek, choose a folder. On Windows it installs WSL, Docker Desktop and a private Node.js, runs DeepSeek WebMCP inside WSL, and registers it with Chrome and Edge. On Windows, **Temporary Full Host Access** is not available yet. On Windows, choose a folder such as `C:\Users\<you>\WebMCP-Workspace`: folders inside OneDrive, reached through a junction or link, or inside WSL itself are refused.
 
 ### macOS by hand
 
