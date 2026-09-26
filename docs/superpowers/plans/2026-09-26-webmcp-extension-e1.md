@@ -241,12 +241,21 @@ try require(instanceDisplayName("webmcp") == "WebMCP Extension", "the extension'
 
 ### Task 8: Owner-Mac migration and acceptance (needs the owner's go)
 
+**Rollback never relies on WebMCP** (the switchover may disconnect it): backup and restore are the shell-only scripts in `docs/superpowers/plans/e1-task8/` (`bash`, `ditto`, `find`, `mv`, `shasum`; nothing from WebMCP). Round trip checked in a fake HOME: after a simulated migration, restore gives a tree byte-identical to the pre-migration snapshot (modes kept); a changed backup is refused.
+
 - [ ] Record baseline: `~/.config/webmcp/instances/*`, `~/.local/share/webmcp/instances/*`, `~/.deepseek-webmcp`, browser NativeMessagingHosts listings, `docker ps -a`, `docker image ls`.
+- [ ] **Backup (blocking; before the first install step):** `docs/superpowers/plans/e1-task8/backup.sh ~/Doc/webmcp-bridge-work/e1-task8-backup` (outside every WebMCP-mounted folder, so no model can write it). It refuses to run if the `webmcp` instance or `~/.local/share/webmcp/extension` already exists. It saves, with checksums:
+  - `~/.config/webmcp/instances/deepseek` and `~/.local/share/webmcp/instances/deepseek`
+  - `~/.deepseek-webmcp` (config and launcher)
+  - every `com.deepseek.webmcp.native.json` under `~/Library/Application Support` (found by search, not by the installer's browser list; on 2026-09-26: Chromium, Comet, Vivaldi, Arc)
+  - `~/Applications/WebMCP Menu.app` (replaced by the label build)
+
+  Check that the printed list has all of the above before continuing. Also keep the old image: `docker tag 6582ac128a99 deepseek-webmcp-backup:pre-e1` (the old config pins it by ID; the install moves the `deepseek-webmcp-p2:dev` tag).
 - [ ] Build: `node scripts/build-release.mjs --out <dir> --commit HEAD`; runtime archive = published v0.3.0.
 - [ ] Install: `DEEPSEEK_WEBMCP_ADAPTER_URL=<archive> DEEPSEEK_WEBMCP_ADAPTER_SHA256=<sha> DEEPSEEK_WEBMCP_RUNTIME_ARCHIVE=<v0.3.0 archive> bash install.sh` (env names unchanged in E1).
 - [ ] Rebuild and start the App from the Bridge label branch (`~/Applications/WebMCP Menu.app`).
 - [ ] Owner checks in the App: "WebMCP Extension" with Add Folder, Write ON/OFF and Host Access grant/revoke; the old DeepSeek folder is there with Write ON.
 - [ ] Owner removes the old DeepSeek WebMCP extension in Chrome and loads `~/.local/share/webmcp/extension/app/extension`; DeepSeek and ChatGPT web each complete one real tool call; Revoke in the panel ends Host Access.
-- [ ] Rollback if needed: remove `com.webmcp.extension` manifests and the `webmcp` instance, restore the saved `~/.deepseek-webmcp` and `deepseek` instance dirs, reload the old extension from `~/deepseek-webmcp/extension`.
+- [ ] **Rollback if needed:** quit the WebMCP App; `docs/superpowers/plans/e1-task8/restore.sh ~/Doc/webmcp-bridge-work/e1-task8-backup`. It verifies the backup's checksums (and restores nothing if they differ), moves the new install aside into the backup folder (the `webmcp` instance, `~/.local/share/webmcp/extension`, every `com.webmcp.extension.json`), puts every saved path back byte for byte, and checks each one with `diff -r`. Nothing is deleted. Then relaunch the App, reload the old extension from `~/deepseek-webmcp/extension`, and optionally `docker rm --force webmcp-native-webmcp`. Keep the backup folder until the new extension has been accepted.
 - [ ] Rename the GitHub repository `zengtao227/deepseek-webmcp` → `zengtao227/webmcp-extension` (`gh repo rename webmcp-extension -R zengtao227/deepseek-webmcp`); GitHub redirects the old URLs. Update local remotes with `git remote set-url origin https://github.com/zengtao227/webmcp-extension.git`.
 - [ ] Push `e1/webmcp-extension` and the Bridge label branch; update `.agent/handoff.md` and `~/Doc/webmcp-bridge-work/TWO-LEVELS-PLAN.md`.
