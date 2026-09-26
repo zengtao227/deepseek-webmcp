@@ -15,9 +15,11 @@ async function sendThroughComposer({ pasteApplies }) {
     tagName: 'DIV', innerText: 'Inspect the current page', isConnected: true,
     focus() {}, contains: (target) => target === editor,
     // Live 2026-09-25: ChatGPT's ProseMirror applies a synthetic paste one task later, not at once.
+    // Live 2026-09-26: it pastes at its own caret (the end), ignoring a select-all made just before,
+    // so text already in the composer stays in front of the pasted text.
     dispatchEvent(event) {
       if (event.type !== 'paste' || !pasteApplies) return true;
-      setTimeout(() => { editor.innerText = event.clipboardData.getData('text/plain'); }, 20);
+      setTimeout(() => { editor.innerText += event.clipboardData.getData('text/plain'); }, 20);
       return false;
     },
   };
@@ -47,6 +49,11 @@ async function sendThroughComposer({ pasteApplies }) {
     },
     addEventListener(type, listener) { listeners.set(type, listener); },
     execCommand(command, _ui, text) {
+      // Native editing acts on the DOM selection (the select-all), which ProseMirror then reads back.
+      if (command === 'delete') {
+        editor.innerText = '';
+        return true;
+      }
       assert.equal(command, 'insertText');
       inserts.push(text);
       editor.innerText = text;
@@ -91,6 +98,7 @@ async function sendThroughComposer({ pasteApplies }) {
   assert.equal(prevented, true);
   assert.equal(sent.length, 1);
   assert.match(sent[0], /^Inspect the current page\n\nYou can use owner-approved tools/);
+  assert.equal(sent[0].split('Inspect the current page').length - 1, 1, 'the owner\'s text is sent once');
   assert.equal(editor.innerText, '');
   assert.equal(messages.some((message) => message.type === 'work.generating'), true);
   return inserts;

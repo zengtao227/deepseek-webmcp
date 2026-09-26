@@ -255,6 +255,15 @@
       return sameText(readComposer(input), text);
     }
     selectAll(input);
+    // ProseMirror pastes at its own selection, which takes up this select-all only later: with the
+    // owner's text still in the composer the paste landed after it, the read-back failed and the
+    // first Send stopped there (live 2026-09-26). Native delete acts on the DOM selection, so the
+    // paste goes into an empty composer, as it does for every tool result.
+    if (readComposer(input).trim() !== '') {
+      try { document.execCommand('delete'); } catch {}
+      const clearDeadline = Date.now() + PASTE_WAIT_MS;
+      while (readComposer(input).trim() !== '' && Date.now() < clearDeadline) await sleep(25);
+    }
     // One paste is one editor step; insertText makes every line its own step (live 2026-09-25:
     // 8 ms against 2.6 s for a 12 kB tool result, which stayed in the composer meanwhile).
     // ProseMirror applies the paste a task later, so the read-back waits for it; reading at once
