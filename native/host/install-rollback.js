@@ -36,7 +36,14 @@ export async function beginInstall({ files, previousImage = null, imageTag, dock
     }
   }
 
+  const containers = [];
   return {
+    // A container the install recreated with its new folders. The runtime refuses a container
+    // whose folders differ from its config, so after the files go back it is removed; the next
+    // tool call recreates it from the restored config.
+    trackContainer(name) {
+      containers.push(name);
+    },
     // Puts every saved file back (or removes it if it did not exist) and the image tag back on
     // the previous image. Every step is attempted; the first failure is reported after all ran.
     async rollback() {
@@ -57,6 +64,11 @@ export async function beginInstall({ files, previousImage = null, imageTag, dock
             await chmod(file, mode);
           }
         });
+      }
+      for (const name of containers) {
+        await attempt(() => exec(dockerPath, ['rm', '--force', name], { encoding: 'utf8' }).catch((error) => {
+          if (!/no such container/i.test(`${error?.stderr ?? ''}\n${error?.message ?? ''}`)) throw error;
+        }));
       }
       if (guarded) {
         // The guard tag is dropped only once the previous image carries the tag again;

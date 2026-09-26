@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
-import { grantHostAccess, hostAccessStatus, removeDeepSeekInstance, revokeHostAccess } from './host-access.js';
+import { grantHostAccess, removeDeepSeekInstance } from './host-access.js';
+import { instanceAccessStatus, revokeInstanceAccess } from './instance-access.js';
 
 const execFileAsync = promisify(execFile);
 const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -91,15 +92,32 @@ async function writeJsonAtomic(file, value) {
   await rename(temporary, file);
 }
 
+// On macOS the folders and access are the `deepseek` instance's, read through its controller.
+// `folder` is still the Settings folder until Settings stops choosing one.
 async function status({ home, configFile, now, kind }) {
   const config = await readConfig(configFile);
-  return {
-    folder: config.workspaceRoot,
-    // Two access levels: the folder, and Host access. Host access exists only on macOS for now;
-    // on Windows it must then mean the real Windows host, not WSL.
-    capabilities: { hostAccess: kind === 'macos' },
-    ...(await hostAccessStatus({ configFile })),
-  };
+  // Two access levels: the folder, and Host access. Host access exists only on macOS for now;
+  // on Windows it must then mean the real Windows host, not WSL.
+  const capabilities = { hostAccess: kind === 'macos' };
+  if (kind !== 'macos') {
+    return {
+      folder: config.workspaceRoot,
+      folders: [{ path: config.workspaceRoot, write: true }],
+      capabilities,
+      fullAccessUntil: null,
+      hostAccessUntil: null,
+      hostAccessState: 'unavailable',
+      leaseState: 'absent',
+    };
+  }
+  return { folder: config.workspaceRoot, capabilities, ...(await instanceAccessStatus({ dockerPath: config.dockerPath, home })) };
+}
+
+// Revoking only lowers authority. The instance has one lease; revoke ends it.
+async function revokeAccess(context) {
+  const config = await readConfig(context.configFile);
+  await revokeInstanceAccess({ dockerPath: config.dockerPath, home: context.home });
+  return { changed: true, ...(await status(context)) };
 }
 
 async function pickFolder({ config, exec, kind }) {
@@ -233,9 +251,13 @@ export async function handleControlRequest(request, {
     'choose-folder': () => chooseFolder(context),
     'grant-host-access': async () => {
       assertMacOnly(kind, 'Host access');
-      return { ...await status(context), ...await grantHostAccess({ configFile, minutes: request.arguments.minutes }) };
+      await grantHostAccess({ configFile, minutes: request.arguments.minutes });
+      return status(context);
     },
-    'stop-host-access': async () => ({ ...await status(context), ...await revokeHostAccess({ configFile }) }),
+    'stop-host-access': async () => {
+      assertMacOnly(kind, 'Host access');
+      return revokeAccess(context);
+    },
     uninstall: () => uninstall(context),
   };
   const result = await handlers[request.control]();

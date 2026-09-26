@@ -177,3 +177,33 @@ test('rollback runs every file step even when re-tagging fails, keeps the guard 
     assert.ok(!calls.includes(`image rm ${guardTagFor(TAG)}`), calls.join('\n'));
   });
 });
+
+test('a container the install recreated is removed on rollback, an absent one is fine, and nothing else is removed', async () => {
+  await withFiles(async (files) => {
+    const docker = fakeDocker();
+    const exec = async (command, args, options) => {
+      if (args[0] === 'rm' && args[2] === 'gone') {
+        docker.calls.push(args.join(' '));
+        throw Object.assign(new Error('Command failed'), { stderr: 'Error response from daemon: No such container: gone' });
+      }
+      return docker.exec(command, args, options);
+    };
+    const install = await beginInstall({ files: files.files, previousImage: OLD_IMAGE, imageTag: TAG, dockerPath: 'docker', exec });
+    install.trackContainer('webmcp-native-deepseek');
+    install.trackContainer('gone');
+    await writeNewInstall(files);
+    await install.rollback();
+    assert.equal(await readFile(files.config, 'utf8'), '{"image":"old"}\n');
+    assert.deepEqual(docker.calls.filter((call) => call.startsWith('rm ')), ['rm --force webmcp-native-deepseek', 'rm --force gone']);
+  });
+});
+
+test('a completed install never removes a tracked container', async () => {
+  await withFiles(async (files) => {
+    const docker = fakeDocker();
+    const install = await beginInstall({ files: files.files, previousImage: OLD_IMAGE, imageTag: TAG, dockerPath: 'docker', exec: docker.exec });
+    install.trackContainer('webmcp-native-deepseek');
+    await install.commit();
+    assert.ok(!docker.calls.some((call) => call.startsWith('rm ')));
+  });
+});

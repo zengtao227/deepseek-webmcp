@@ -18,17 +18,24 @@ const now = 1_000_000;
 const text = (parts) => parts.map((part) => `${part.text}[${part.kind}]`).join(' · ');
 
 test('Access line follows the header contract', () => {
-  const base = { folder: '/Users/me/Doc/My code/webmcp-bridge', fullAccessUntil: null, hostAccessUntil: null, hostAccessState: 'inactive' };
+  const base = { folders: [{ path: '/Users/me/Doc/My code/webmcp-bridge', write: true }], fullAccessUntil: null, hostAccessUntil: null, leaseState: 'absent' };
   assert.equal(text(accessParts(base, now)), 'webmcp-bridge[mount] · WRITE[write]');
-  assert.equal(text(accessParts({ ...base, fullAccessUntil: now + 27 * 60000 }, now)), 'Home[mount] · FULL ACCESS 27m[full]');
-  assert.equal(text(accessParts({ ...base, fullAccessUntil: now + 27 * 60000, hostAccessState: 'active', hostAccessUntil: now + 12 * 60000 }, now)),
-    'Home[mount] · FULL ACCESS 27m[full] · HOST ACCESS 12m[host]');
-  assert.equal(text(accessParts({ ...base, hostAccessState: 'active', hostAccessUntil: now + 12 * 60000 }, now)),
-    'webmcp-bridge[mount] · WRITE[write] · HOST ACCESS 12m[host]', 'Host access keeps the folder');
-  assert.equal(text(accessParts({ ...base, hostAccessState: 'unverified' }, now)), 'webmcp-bridge[mount] · WRITE[write] · HOST ACCESS UNVERIFIED[host]');
-  assert.equal(text(accessParts({ ...base, fullAccessUntil: now - 1, hostAccessState: 'active', hostAccessUntil: now - 1 }, now)),
+  assert.equal(text(accessParts({ ...base, fullAccessUntil: now + 27 * 60000, leaseState: 'active' }, now)), 'Home[mount] · FULL ACCESS 27m[full]');
+  assert.equal(text(accessParts({ ...base, hostAccessUntil: now + 12 * 60000, leaseState: 'active' }, now)),
+    'Home[mount] · HOST ACCESS 12m[host]', 'the tools see the home folder under Host access too');
+  assert.equal(text(accessParts({ ...base, leaseState: 'rebooted' }, now)), 'webmcp-bridge[mount] · WRITE[write] · ACCESS UNVERIFIED[host]',
+    'a lease that cannot be verified does not claim its level');
+  assert.equal(text(accessParts({ ...base, fullAccessUntil: now - 1, hostAccessUntil: now - 1, leaseState: 'active' }, now)),
     'webmcp-bridge[mount] · WRITE[write]', 'expired leases disappear');
+  assert.equal(text(accessParts({ ...base, leaseState: 'expired' }, now)), 'webmcp-bridge[mount] · WRITE[write]');
   assert.equal(accessParts(null, now), null);
+  assert.equal(accessParts({ ...base, folders: null, leaseState: 'unavailable' }, now), null);
+});
+
+test('each of the instance\'s folders shows its own write switch', () => {
+  const status = { folders: [{ path: '/Users/me/Doc/My code', write: true }, { path: '/Users/me/Notes', write: false }], leaseState: 'absent' };
+  assert.equal(text(accessParts(status, now)), 'My code[mount] · WRITE[write] · Notes[mount] · READ[read]');
+  assert.equal(text(accessParts({ ...status, folders: [] }, now)), 'no folder[mount]');
 });
 
 import { highAccessControls, mountProviderSelect, startAccessLine } from '../extension/panel-header.js';
@@ -36,12 +43,12 @@ import { highAccessControls, mountProviderSelect, startAccessLine } from '../ext
 // Owner decision 2026-09-26: the panel may revoke Full / Host Access (it only lowers authority);
 // granting stays behind the macOS dialog in Settings / the WebMCP App.
 test('the controls that end Full / Host Access, the most dangerous first', () => {
-  const base = { folder: '/Users/me/Doc/My code', fullAccessUntil: null, hostAccessUntil: null, hostAccessState: 'inactive' };
+  const base = { folders: [{ path: '/Users/me/Doc/My code', write: true }], fullAccessUntil: null, hostAccessUntil: null, leaseState: 'absent' };
   assert.deepEqual(highAccessControls(base, now), []);
-  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now + 60000 }, now), ['stop-full-access']);
-  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now + 60000, hostAccessState: 'active', hostAccessUntil: now + 60000 }, now), ['stop-host-access', 'stop-full-access']);
-  assert.deepEqual(highAccessControls({ ...base, hostAccessState: 'unverified' }, now), ['stop-host-access'], 'an unverified host lease is ended too');
-  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now - 1, hostAccessState: 'active', hostAccessUntil: now - 1 }, now), []);
+  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now + 60000, leaseState: 'active' }, now), ['stop-full-access']);
+  assert.deepEqual(highAccessControls({ ...base, hostAccessUntil: now + 60000, leaseState: 'active' }, now), ['stop-host-access']);
+  assert.deepEqual(highAccessControls({ ...base, leaseState: 'config_changed' }, now), ['stop-host-access'], 'a lease that cannot be verified is ended too');
+  assert.deepEqual(highAccessControls({ ...base, fullAccessUntil: now - 1, hostAccessUntil: now - 1, leaseState: 'active' }, now), []);
   assert.deepEqual(highAccessControls(null, now), []);
 });
 

@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateNativeRequest } from './docker-dispatch.js';
 import { sanitizeJsonRpcEnvelope } from './firewall.js';
 
-const INSTANCE_ID = 'deepseek';
+export const INSTANCE_ID = 'deepseek';
 const ARTIFACT_ID = /^[0-9a-f]{40}-[0-9a-f]{64}$/;
 
 // Uninstall removes only DeepSeek's own WebMCP instance: its pin, lease and settings. Its
@@ -57,12 +57,18 @@ async function loadCore({ home = os.homedir(), lockFile } = {}) {
   }
   return {
     context,
+    releaseRoot,
     access: await moduleAt(releaseRoot, 'native/deploy/elevated-access.js'),
     workspace: await moduleAt(releaseRoot, 'native/deploy/workspace-config.js'),
     approval: await moduleAt(releaseRoot, 'native/deploy/local-approval.js'),
     commands: await moduleAt(releaseRoot, 'native/host/host-command.js'),
     locks: await moduleAt(releaseRoot, 'native/deploy/instance-lock.js'),
   };
+}
+
+// The verified release that runs DeepSeek's instance; its host relay executes the workspace tools.
+export async function pinnedInstanceRelease({ home = os.homedir(), lockFile } = {}) {
+  return (await loadCore({ home, lockFile })).releaseRoot;
 }
 
 async function selectedRoot(configFile) {
@@ -73,9 +79,10 @@ async function selectedRoot(configFile) {
   return realpath(config.workspaceRoot);
 }
 
-async function leaseState(core, root) {
+// Judged against the instance's own workspace config, as its controller and the WebMCP App judge
+// it, so the panel, the App and this gate agree on one lease.
+async function leaseState(core) {
   const normal = await core.workspace.loadWorkspaceConfig(core.context.workspaceConfig);
-  if (normal.hostRoot !== root) return { state: 'config_changed' };
   const [bootSessionId, loginSessionId] = await Promise.all([
     core.access.getBootSessionId(),
     core.access.getLoginSessionId(),
@@ -92,20 +99,6 @@ function denied(id, code = 'HOST_ACCESS_NOT_GRANTED', message = 'Temporary Full 
   return { version: 1, id, ok: false, error: { code, message } };
 }
 
-export async function hostAccessStatus({ configFile, home, lockFile }) {
-  let core;
-  try { core = await loadCore({ home, lockFile }); } catch { return { hostAccessUntil: null, hostAccessState: 'unavailable' }; }
-  try {
-    const state = await leaseState(core, await selectedRoot(configFile));
-    return {
-      hostAccessUntil: state.state === 'active' && state.lease.accessLevel === 'full-host' ? state.lease.expiresAt : null,
-      hostAccessState: state.state,
-    };
-  } catch {
-    return { hostAccessUntil: null, hostAccessState: 'unverified' };
-  }
-}
-
 export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new Error('Host access duration must be 1–60 minutes.');
   const root = await selectedRoot(configFile);
@@ -113,7 +106,7 @@ export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
   return core.locks.withInstanceLifecycleLock(core.context, async () => {
     let existing;
     try {
-      existing = await leaseState(core, root);
+      existing = await leaseState(core);
     } catch (error) {
       if (error?.code !== 'WORKSPACE_CONFIG_UNAVAILABLE' || error?.cause?.code !== 'ENOENT') throw error;
       existing = await core.access.loadElevatedLease(core.context.elevatedLease);
@@ -124,9 +117,14 @@ export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
     await core.approval.requestLocalElevationApproval({
       durationMs: minutes * 60_000, instanceLabel: 'DeepSeek',
     });
-    const normalConfig = await core.workspace.persistWorkspaceConfig(core.context.workspaceConfig, {
-      version: 1, hostRoot: root, mode: 'workspace', readOnly: false,
-      networkEnabled: false, gitPublicationEnabled: false,
+    // The instance's folder belongs to the WebMCP App; DeepSeek's folder is written only when the
+    // instance has none yet.
+    const normalConfig = await core.workspace.loadWorkspaceConfig(core.context.workspaceConfig).catch((error) => {
+      if (error?.code !== 'WORKSPACE_CONFIG_UNAVAILABLE' || error?.cause?.code !== 'ENOENT') throw error;
+      return core.workspace.persistWorkspaceConfig(core.context.workspaceConfig, {
+        version: 1, hostRoot: root, mode: 'workspace', readOnly: false,
+        networkEnabled: false, gitPublicationEnabled: false,
+      });
     });
     const [bootSessionId, loginSessionId] = await Promise.all([
       core.access.getBootSessionId(), core.access.getLoginSessionId(),
@@ -141,10 +139,19 @@ export async function grantHostAccess({ configFile, minutes, home, lockFile }) {
   });
 }
 
-export async function revokeHostAccess({ configFile, home, lockFile }) {
+// Read and cleared without Docker, as host_command reads it: when the instance controller cannot
+// reach Docker, the panel must still see a lease that host_command honours, and Revoke must still
+// end it. The relay removes a leftover elevated container before its next tool call.
+export async function instanceLeaseStatus({ home, lockFile } = {}) {
+  const core = await loadCore({ home, lockFile });
+  const state = await leaseState(core);
+  if (state.state !== 'active') return { mode: 'stale', leaseState: state.state };
+  return { mode: 'elevated', accessLevel: state.lease.accessLevel ?? 'docker-full', expiresAt: new Date(state.lease.expiresAt).toISOString() };
+}
+
+export async function clearInstanceLease({ home, lockFile } = {}) {
   const core = await loadCore({ home, lockFile });
   await core.locks.withInstanceLifecycleLock(core.context, () => core.access.clearElevatedLease(core.context.elevatedLease));
-  return hostAccessStatus({ configFile, home, lockFile });
 }
 
 export async function dispatchHostCommand(request, { configFile, home, lockFile }) {
@@ -154,7 +161,7 @@ export async function dispatchHostCommand(request, { configFile, home, lockFile 
   let state;
   try {
     core = await loadCore({ home, lockFile });
-    state = await leaseState(core, await selectedRoot(configFile));
+    state = await leaseState(core);
   } catch {
     return denied(request.id);
   }
