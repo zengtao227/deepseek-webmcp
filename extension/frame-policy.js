@@ -92,39 +92,6 @@ export async function framePolicyStatus() {
   return { enabled: Boolean(rule && sandboxRule), rule, sandboxRule };
 }
 
-// Local addition: navigations ChatGPT starts inside the panel frame (a redirect, its Log in links)
-// have chatgpt.com as initiator, so the rule above does not cover them and the frame shows
-// "chatgpt.com refused to connect" (live 2026-09-26). This rule covers them only for requests that
-// belong to no tab: the Side Panel. In browser tabs chatgpt.com keeps its framing protection.
-export const PANEL_NAVIGATION_RULE_ID = 42003;
-
-export function buildPanelNavigationRule() {
-  return {
-    id: PANEL_NAVIGATION_RULE_ID,
-    priority: 100,
-    action: {
-      type: 'modifyHeaders',
-      responseHeaders: [
-        { header: 'x-frame-options', operation: 'remove' },
-        { header: 'content-security-policy', operation: 'remove' },
-      ],
-    },
-    condition: {
-      requestDomains: ['chatgpt.com'],
-      initiatorDomains: ['chatgpt.com'],
-      resourceTypes: ['sub_frame'],
-      tabIds: [-1],
-    },
-  };
-}
-
-export async function setPanelNavigationRule(enabled) {
-  await chrome.declarativeNetRequest.updateSessionRules({
-    removeRuleIds: [PANEL_NAVIGATION_RULE_ID],
-    ...(enabled ? { addRules: [buildPanelNavigationRule()] } : {}),
-  });
-}
-
 // DeepSeek Web Provider local addition: the embedded ChatGPT frame has no tab, so it is keyed by
 // this pseudo tab id. One id serves the current POC; two panel windows would share it.
 export const PANEL_ID = -2;
