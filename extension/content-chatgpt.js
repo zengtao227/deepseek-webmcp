@@ -20,7 +20,10 @@
   const POLL_MS = 500;
   const STABLE_MS = 2000;
   const SEND_ENABLE_WAIT_MS = 3000;
-  const PASTE_WAIT_MS = 1000;
+  // A paste normally appears within 100 ms; in a page Chrome throttles it took 1000 ms (live
+  // 2026-09-26), and falling back at 1 s typed the text a second time. The wait ends as soon as the
+  // text is there.
+  const PASTE_WAIT_MS = 3000;
   const COMPLETE_TOOL_CALL = /<webmcp_tool_call>[\s\S]*<\/webmcp_tool_call>/;
   const SEND_CONFIRM_WAIT_MS = 5000;
 

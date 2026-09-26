@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../extension/content-chatgpt.js', import.meta.url), 'utf8');
 
-async function sendThroughComposer({ pasteApplies }) {
+async function sendThroughComposer({ pasteApplies, pasteDelayMs = 20 }) {
   const listeners = new Map();
   const messages = [];
   const sent = [];
@@ -19,7 +19,7 @@ async function sendThroughComposer({ pasteApplies }) {
     // so text already in the composer stays in front of the pasted text.
     dispatchEvent(event) {
       if (event.type !== 'paste' || !pasteApplies) return true;
-      setTimeout(() => { editor.innerText += event.clipboardData.getData('text/plain'); }, 20);
+      setTimeout(() => { editor.innerText += event.clipboardData.getData('text/plain'); }, pasteDelayMs);
       return false;
     },
   };
@@ -93,7 +93,7 @@ async function sendThroughComposer({ pasteApplies }) {
     type: 'keydown', target: editor, key: 'Enter', keyCode: 13,
     preventDefault() { prevented = true; }, stopImmediatePropagation() {},
   });
-  await new Promise((resolve) => setTimeout(resolve, pasteApplies ? 300 : 1500));
+  await new Promise((resolve) => setTimeout(resolve, pasteApplies ? pasteDelayMs + 400 : 3500));
 
   assert.equal(prevented, true);
   assert.equal(sent.length, 1);
@@ -107,6 +107,13 @@ async function sendThroughComposer({ pasteApplies }) {
 test('an old conversation sends one tool-enabled prompt through the visible ProseMirror editor', async () => {
   // insertText makes every line its own editor step: 2.6 s for a 12 kB tool result (live 2026-09-25).
   assert.deepEqual(await sendThroughComposer({ pasteApplies: true }), [], 'written by one paste, never also by insertText');
+});
+
+// Live 2026-09-26 (free account, Comet): a paste sometimes took 1000 ms to appear, which is how long
+// timers take in a page Chrome throttles. With a 1 s wait the fallback typed the text too, the paste
+// then landed as well, the read-back failed and the tool result stayed in the composer.
+test('a paste that lands after a second is sent once and never typed again', async () => {
+  assert.deepEqual(await sendThroughComposer({ pasteApplies: true, pasteDelayMs: 1200 }), []);
 });
 
 test('insertText is the fallback only when the editor ignored the paste', async () => {
