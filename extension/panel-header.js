@@ -16,7 +16,7 @@ export async function routeToProviderPage(page) {
 }
 
 // Owner decision 2026-09-26: high authority belongs to the provider in use. Both providers share one
-// local runtime, so switching ends Full / Host Access before the other provider's page opens.
+// local runtime, so switching ends Host Access before the other provider's page opens.
 // An unreadable status means the local program is unreachable, so no provider can use the access and
 // the switch goes ahead; a revoke that failed keeps the current provider (owner decision, C2).
 export function mountProviderSelect(select, provider, notify = () => {}) {
@@ -25,7 +25,7 @@ export function mountProviderSelect(select, provider, notify = () => {}) {
     const next = providerOf(select.value);
     if (!(await revokeHighAccess(await readAccessStatus()))) {
       select.value = provider;
-      notify('Full / Host Access could not be revoked, so the Provider was not switched. Try again, or revoke it in Settings.');
+      notify('Host Access could not be revoked, so the Provider was not switched. Try again, or revoke it in the WebMCP App.');
       return;
     }
     await chrome.storage.local.set({ [PROVIDER_KEY]: next });
@@ -106,7 +106,7 @@ function renderAccess(element, status, now) {
 
 // Countdowns tick every second; the status itself is re-read every 30 s and whenever the panel
 // becomes visible again.
-// One Revoke button, shown only while Full / Host Access is on.
+// One Revoke button, shown only while Host Access is on.
 export function startAccessLine(element) {
   let status = null;
   const text = document.createElement('span');
