@@ -66,9 +66,20 @@ Some testers' networks block Docker Hub entirely (seen on an Intel Mac: registry
 | Phase | Scope | Accepted when |
 |---|---|---|
 | E1 | Repo rename; merge `p1/two-access-levels` and S1–S4 into the base; instance `webmcp`; host `com.webmcp.extension`; remove panel settings (S5/U2); migration of the `deepseek` instance and `~/.deepseek-webmcp` | App shows "WebMCP Extension" with Add Folder, Write ON/OFF and Host Access; DeepSeek and ChatGPT web complete a real tool call through the instance |
-| E2 | ChatGPT MCP mode moved in (embedded page + Browser MCP bridge); ChatGPT Embedded Panel archived | ChatGPT MCP works from the one extension, including Browser tools and iframes |
+| E2 | ChatGPT MCP mode moved in (embedded page + Browser MCP bridge); ChatGPT Embedded Panel archived; **blocker: MCP Host Access alignment** (below) | ChatGPT MCP works from the one extension, including Browser tools and iframes; the blocker's four points pass |
 | E3 | Prism adapter; Prism folders migrated; `prism-webmcp` archived | Prism completes a real tool call from the panel |
 | E4 | WebMCP Setup installs only the App + this extension (base image from the download server, no Docker Hub); migrates old installs (the ChatGPT installer skips an existing install, so migration is explicit); VPS tester links resume | fresh install with Docker Hub unreachable, and migration from the old three-extension layout, both pass in isolation |
+
+### E2 blocker: MCP Host Access alignment (owner decision 2026-09-26)
+
+In MCP mode ChatGPT sends `host_command` from its servers through the tunnel to the `default` instance; the panel is not in that path. The old ChatGPT Embedded Panel shows no lease, offers no Revoke, and closing it does not revoke. It is not patched; E2 closes this:
+
+1. The WebMCP Extension shows the `default` instance's Host Access with the existing red HOST ACCESS countdown and Revoke (as for `webmcp`).
+2. Closing the Side Panel revokes it.
+3. A new extension session (reload, update, browser restart) revokes it fail-closed before anything else, as E1 does for `webmcp`.
+4. Decide in E2's design whether a `default`-instance grant may exist while no panel is open (ChatGPT can use it from any tab or the mobile app); points 2 and 3 do not cover a grant made in the App with no panel open.
+
+Until E2 ships: Host Access on the MCP/`default` path is manual. Grant only when needed, revoke in the WebMCP App right after use; closing the old Side Panel is not a revoke.
 
 ## Acceptance (whole)
 
