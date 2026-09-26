@@ -34,7 +34,7 @@ const STUBS = {
   'native/deploy/workspace-config.js': `export async function loadWorkspaceConfig() { const error = new Error('absent'); error.code = 'WORKSPACE_CONFIG_UNAVAILABLE'; error.cause = { code: 'ENOENT' }; throw error; }
   export async function persistWorkspaceConfig(_path, value) { return value; }`,
   'native/deploy/local-approval.js': `export async function requestLocalElevationApproval(options) {
-    (globalThis.hostAccessCalls ??= []).push(['approve', import.meta.url, options.instanceLabel, options.accessLevel]);
+    (globalThis.hostAccessCalls ??= []).push(['approve', import.meta.url, options.instanceLabel, Object.keys(options).sort()]);
   }`,
   'native/host/host-command.js': 'export function createHostCommandHandler() { throw new Error("not used"); }',
   'native/deploy/instance-lock.js': 'export async function withInstanceLifecycleLock(_context, run) { return run(); }',
@@ -80,7 +80,8 @@ test('host access resolves through the pinned artifact, never the shared current
     assert.ok(served.every((where) => where.includes(PINNED) && !where.includes(OTHER)), served.join('\n'));
     assert.ok(!served.some((where) => where.startsWith(otherRoot)));
     const approve = globalThis.hostAccessCalls.find((call) => call[0] === 'approve');
-    assert.deepEqual(approve.slice(2), ['DeepSeek', 'full-host']);
+    // Runtime v0.3.0: Host Access is the only grant, so the approval takes no level or root.
+    assert.deepEqual(approve.slice(2), ['DeepSeek', ['durationMs', 'instanceLabel']]);
   });
 });
 
