@@ -6,6 +6,8 @@ import { validateNativeRequest } from './docker-dispatch.js';
 import { sanitizeJsonRpcEnvelope } from './firewall.js';
 
 export const INSTANCE_ID = 'webmcp';
+// The runtime names a non-default instance's container `webmcp-native-<id>`.
+export const INSTANCE_CONTAINER = `webmcp-native-${INSTANCE_ID}`;
 const ARTIFACT_ID = /^[0-9a-f]{40}-[0-9a-f]{64}$/;
 
 // Uninstall removes only DeepSeek's own WebMCP instance: its pin, lease and settings. Its

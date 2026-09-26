@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { HOST_CODE_ROOT, NativeHostError, buildWorkspaceControlPlaneMasks } from './docker-dispatch.js';
 import { HOST_NAME, IMAGE_TAG, INSTALL_MARKER, WINDOWS_APP_FOLDER, WINDOWS_REGISTRY_KEYS, browserProfileRoots, configPath as defaultConfigPath, hostKind, manifestDirFor, stateDir } from './local-paths.js';
 import { chooseFolderOnWindows, confirmOnWindows, notifyOnWindows, removeWindowsRegistration, toWindowsPath, toWslPath, windowsFolderQuery, windowsProtectedFolders } from './windows-dialogs.js';
-import { removeExtensionInstance } from './host-access.js';
+import { INSTANCE_CONTAINER, removeExtensionInstance } from './host-access.js';
 import { instanceAccessStatus, revokeInstanceAccess } from './instance-access.js';
 
 const execFileAsync = promisify(execFile);
@@ -219,6 +219,8 @@ async function uninstall({ home, configFile, exec, notify, kind }) {
   for (const root of browserProfileRoots(home)) {
     await rm(path.join(manifestDirFor(root), `${HOST_NAME}.json`), { force: true });
   }
+  // The instance container holds the image, so it goes first.
+  try { await exec(dockerPath, ['rm', '--force', INSTANCE_CONTAINER], { encoding: 'utf8', timeout: 60_000 }); } catch {}
   try { await exec(dockerPath, ['image', 'rm', IMAGE_TAG], { encoding: 'utf8', timeout: 60_000 }); } catch {}
   await rm(stateDir(home), { recursive: true, force: true });
   await removeExtensionInstance(home);

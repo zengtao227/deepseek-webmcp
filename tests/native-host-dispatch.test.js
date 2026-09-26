@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDockerInvocation, buildWorkspaceControlPlaneMasks, loadNativeHostConfig, toNativeError, validateNativeRequest } from '../native/host/docker-dispatch.js';
-import { protectedPathCandidates } from '../native/host/local-paths.js';
+import { IMAGE_TAG, protectedPathCandidates } from '../native/host/local-paths.js';
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 
@@ -251,10 +251,11 @@ test('uninstall removes local state only after confirmation and announces itself
   await writeFile(configFile, JSON.stringify({ workspaceRoot: home, image: IMAGE, dockerPath: '/usr/local/bin/docker' }));
   await writeFile(manifest, '{}');
   const messages = [];
+  const docker = [];
   const exists = (file) => access(file).then(() => true, () => false);
   const uninstall = (answer) => handleControlRequest(
     { version: 1, id: 'u', control: 'uninstall', arguments: {} },
-    { home, configFile, now: 1000, exec: async () => ({ stdout: answer }), notify: (text) => messages.push(text) },
+    { home, configFile, now: 1000, exec: async (file, args) => { if (file.endsWith('docker')) docker.push(args.join(' ')); return { stdout: answer }; }, notify: (text) => messages.push(text) },
   );
 
   assert.equal((await uninstall('button returned:Cancel, gave up:false')).result.uninstalled, false);
@@ -267,6 +268,8 @@ test('uninstall removes local state only after confirmation and announces itself
   assert.equal(done.result.removedProgramFolder, false);
   assert.equal(await exists(manifest), false);
   assert.equal(await exists(path.dirname(configFile)), false);
+  // The instance container holds the image, so it goes first.
+  assert.deepEqual(docker, ['rm --force webmcp-native-webmcp', `image rm ${IMAGE_TAG}`]);
   assert.equal(messages.length, 1);
   assert.match(messages[0], /uninstalled/);
 });

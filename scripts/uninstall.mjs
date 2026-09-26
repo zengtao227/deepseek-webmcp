@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { removeExtensionInstance } from '../native/host/host-access.js';
+import { INSTANCE_CONTAINER, removeExtensionInstance } from '../native/host/host-access.js';
 import { HOST_NAME, IMAGE_TAG, browserProfileRoots, manifestDirFor, stateDir } from '../native/host/local-paths.js';
 
 const execFileAsync = promisify(execFile);
@@ -17,11 +17,13 @@ process.stdout.write('removed browser registrations\n');
 await rm(stateDir(), { recursive: true, force: true });
 process.stdout.write(`removed ${stateDir()}\n`);
 await removeExtensionInstance();
-process.stdout.write('removed the DeepSeek WebMCP instance state (other WebMCP providers are untouched)\n');
+process.stdout.write('removed the WebMCP Extension instance state (other WebMCP instances are untouched)\n');
+// The instance container holds the image, so it goes first.
+await execFileAsync('docker', ['rm', '--force', INSTANCE_CONTAINER], { timeout: 60_000 }).catch(() => {});
 try {
   await execFileAsync('docker', ['image', 'rm', IMAGE_TAG], { timeout: 60_000 });
   process.stdout.write(`removed Docker image ${IMAGE_TAG}\n`);
 } catch {
   process.stdout.write(`Docker image ${IMAGE_TAG} not removed (already gone, or Docker is not running)\n`);
 }
-process.stdout.write('\nLast step: remove DeepSeek WebMCP in chrome://extensions. You can then delete this folder.\n');
+process.stdout.write('\nLast step: remove WebMCP in chrome://extensions. You can then delete this folder.\n');

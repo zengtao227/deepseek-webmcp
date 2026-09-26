@@ -8,13 +8,15 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { dispatchNativeRequest, loadNativeHostConfig } from '../native/host/docker-dispatch.js';
-import { HOST_NAME, installedBrowserProfileRoots, manifestDirFor } from '../native/host/local-paths.js';
-import { hostRuntimeRoot, readRuntimeLock } from '../native/host/host-access.js';
+import { HOST_NAME, configPath as defaultConfigPath, hostKind, installedBrowserProfileRoots, manifestDirFor } from '../native/host/local-paths.js';
+import { hostRuntimeRoot, INSTANCE_ID, readRuntimeLock } from '../native/host/host-access.js';
+import { runInstanceControl } from '../native/host/instance-access.js';
+import { dispatchInstanceRequest } from '../native/host/instance-dispatch.js';
 import { redactSecrets } from '../gateway/secret-scanner/index.js';
 
 const execFileAsync = promisify(execFile);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configPath = path.join(os.homedir(), '.deepseek-webmcp', 'p2-native-config.json');
+const configPath = defaultConfigPath(os.homedir());
 let failed = false;
 
 // Doctor output is meant to be pasted into a bug report: no home path, no secret values.
@@ -79,12 +81,37 @@ for (const root of await installedBrowserProfileRoots()) {
   }, 'Run setup again (browsers installed after setup need it).');
 }
 
-await check('isolated runtime answers open_workspace', async () => {
-  if (!config) throw new Error('no config');
-  const response = await dispatchNativeRequest({ version: 1, id: 'doctor', tool: 'open_workspace', arguments: { path: '/workspace' } }, config);
+const openWorkspace = { version: 1, id: 'doctor', tool: 'open_workspace', arguments: { path: '/workspace' } };
+const opened = (response) => {
   if (!response.ok) throw new Error(response.error?.message ?? 'tool error');
   return response.result.workspaceId.slice(0, 15);
-}, 'Check Docker Desktop file sharing includes your project folder, then run setup again.');
+};
+if (hostKind() === 'macos') {
+  // On macOS the tools run in the `webmcp` instance, which the WebMCP App manages.
+  const options = { dockerPath: config?.dockerPath };
+  await check(`instance "${INSTANCE_ID}" access`, async () => {
+    const status = await runInstanceControl('access-status', options);
+    return status.mode === 'elevated' ? `Host Access until ${status.expiresAt}` : 'folders only';
+  }, 'Run the installer again; it provisions the instance.');
+  await check(`instance "${INSTANCE_ID}" folders`, async () => {
+    const list = await runInstanceControl('mount-list', options);
+    const count = list.mounts?.length ?? (list.legacyRoot ? 1 : 0);
+    if (count === 0) throw new Error('no folder');
+    return `${count} folder(s)`;
+  }, 'Add a folder in the WebMCP App (menu bar) under "WebMCP Extension".');
+  await check('instance answers open_workspace', async () => opened(await dispatchInstanceRequest(openWorkspace, options)),
+    'Check Docker Desktop is running and file sharing includes your folders, then run the installer again.');
+  // Left by the DeepSeek-only installer; the new install never uses it.
+  const oldProgram = path.join(os.homedir(), 'deepseek-webmcp');
+  if (await readFile(path.join(oldProgram, 'package.json')).then(() => true, () => false)) {
+    process.stdout.write(shareable(`NOTE  old DeepSeek program folder ${oldProgram}: remove it after checking the new extension works\n`));
+  }
+} else {
+  await check('isolated runtime answers open_workspace', async () => {
+    if (!config) throw new Error('no config');
+    return opened(await dispatchNativeRequest(openWorkspace, config));
+  }, 'Check Docker Desktop file sharing includes your project folder, then run setup again.');
+}
 
-process.stdout.write(failed ? '\nSome checks failed.\n' : '\nAll checks passed. Reload the extension and any open DeepSeek tabs if you just ran setup.\n');
+process.stdout.write(failed ? '\nSome checks failed.\n' : '\nAll checks passed. Reload the extension and any open provider tabs if you just ran setup.\n');
 process.exitCode = failed ? 1 : 0;
