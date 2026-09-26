@@ -114,7 +114,7 @@ export function startAccessLine(element) {
   revoke.type = 'button';
   revoke.className = 'access-revoke';
   revoke.textContent = 'Revoke';
-  revoke.title = 'End Full Access / Host Access now';
+  revoke.title = 'End Host Access now';
   revoke.hidden = true;
   revoke.addEventListener('click', async () => {
     revoke.disabled = true;
